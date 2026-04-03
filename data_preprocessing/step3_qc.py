@@ -63,6 +63,8 @@ def compute_phase_jump_rate(
     threshold_rad: 相邻采样点间视为跳变的相位差阈值（弧度）
     @200Hz，0.5rad ≈ 4.5cm 的胸壁运动变化，合理的体动触发阈值
     """
+    if len(radar_phase) < 2:
+        return 1.0   # 信号过短，视为全部跳变，直接标记失败
     diff = np.abs(np.diff(radar_phase))
     return float(np.mean(diff > threshold_rad))
 
