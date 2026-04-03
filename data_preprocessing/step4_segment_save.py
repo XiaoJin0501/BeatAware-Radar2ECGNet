@@ -279,12 +279,14 @@ def main():
     parser.add_argument(
         "--dataset_dir",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset"),
+        default=Path(__file__).resolve().parent.parent / "dataset",
+        help="step1/step2 输出目录，同时也是分段结果的写入目录（默认：项目根目录/dataset）",
     )
     parser.add_argument(
         "--qc_report",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset/qc_report.json"),
+        default=None,
+        help="QC 报告路径（默认：dataset_dir/qc_report.json）",
     )
     parser.add_argument(
         "--processed_dir",
@@ -293,6 +295,8 @@ def main():
         help="step1/step2 的处理结果目录（默认与 dataset_dir 相同）",
     )
     args = parser.parse_args()
+    if args.qc_report is None:
+        args.qc_report = args.dataset_dir / "qc_report.json"
 
     processed_dir = args.processed_dir or args.dataset_dir
 

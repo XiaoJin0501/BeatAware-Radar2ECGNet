@@ -244,17 +244,21 @@ def main():
     parser.add_argument(
         "--dataset_dir",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset"),
+        default=Path(__file__).resolve().parent.parent / "dataset",
+        help="step1/step2 输出目录（默认：项目根目录/dataset）",
     )
     parser.add_argument(
         "--out_json",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset/qc_report.json"),
+        default=None,
+        help="QC 报告输出路径（默认：dataset_dir/qc_report.json）",
     )
     parser.add_argument("--max_jump_rate", type=float, default=DEFAULT_MAX_JUMP_RATE)
     parser.add_argument("--max_baseline_ratio", type=float, default=DEFAULT_MAX_BASELINE_RATIO)
     parser.add_argument("--max_rpeak_failure_rate", type=float, default=DEFAULT_MAX_RPEAK_FAILURE_RATE)
     args = parser.parse_args()
+    if args.out_json is None:
+        args.out_json = args.dataset_dir / "qc_report.json"
 
     thresholds = {
         "max_jump_rate": args.max_jump_rate,
