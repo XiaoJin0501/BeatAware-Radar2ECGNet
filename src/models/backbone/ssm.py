@@ -11,6 +11,7 @@ ssm.py — VSSSBlock1D (1D Visual Selective State Space Block)
 """
 
 import math
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -18,21 +19,22 @@ import torch.nn.functional as F
 
 
 # =============================================================================
-# Selective Scan — 纯 PyTorch 参考实现
+# Selective Scan — TorchScript 编译实现（消除 Python loop 开销）
 # =============================================================================
 
+@torch.jit.script
 def _selective_scan_ref(
-    u:            torch.Tensor,   # (B, D, L)
-    delta:        torch.Tensor,   # (B, D, L)
-    A:            torch.Tensor,   # (D, N)
-    B_ssm:        torch.Tensor,   # (B, N, L)
-    C_ssm:        torch.Tensor,   # (B, N, L)
-    D:            torch.Tensor | None = None,   # (D,)
-    delta_bias:   torch.Tensor | None = None,   # (D,)
+    u:              torch.Tensor,           # (B, D, L)
+    delta:          torch.Tensor,           # (B, D, L)
+    A:              torch.Tensor,           # (D, N)
+    B_ssm:          torch.Tensor,           # (B, N, L)
+    C_ssm:          torch.Tensor,           # (B, N, L)
+    D:              Optional[torch.Tensor] = None,          # (D,)
+    delta_bias:     Optional[torch.Tensor] = None,          # (D,)
     delta_softplus: bool = False,
 ) -> torch.Tensor:
     """
-    纯 PyTorch 实现的 Selective Scan (SSM 前向传播)。
+    TorchScript 编译的 Selective Scan (SSM 前向传播)。
 
     数学等价于：
         h[t] = exp(delta[t]*A) * h[t-1] + delta[t]*B[t] * u[t]
@@ -40,32 +42,32 @@ def _selective_scan_ref(
 
     Returns: (B, D, L)
     """
-    B_size, D_size, L = u.shape
-    N = A.shape[1]
+    B_size = u.shape[0]
+    D_size = u.shape[1]
+    L      = u.shape[2]
+    N      = A.shape[1]
 
     if delta_bias is not None:
-        delta = delta + delta_bias[..., None]
+        delta = delta + delta_bias.unsqueeze(-1)
     if delta_softplus:
         delta = F.softplus(delta)
 
-    # 离散化（ZOH 近似）
-    # dA: (B, D, L, N) — 状态转移
-    # dB: (B, D, L, N) — 输入矩阵
-    dA = torch.exp(torch.einsum("bdl,dn->bdln", delta, A))
-    dB = torch.einsum("bdl,bnl->bdln", delta, B_ssm)
-
-    # 顺序扫描
-    h = u.new_zeros(B_size, D_size, N)
-    u_exp = u.unsqueeze(-1)   # (B, D, L, 1)
-    ys = []
+    # 顺序扫描（逐时间步离散化，避免展开 (B,D,L,N) 大张量）
+    # dA_t = exp(delta_t * A): (B, D, N)
+    # dB_t = delta_t * B_t:   (B, D, N)
+    h = torch.zeros(B_size, D_size, N, dtype=u.dtype, device=u.device)
+    ys: List[torch.Tensor] = []
     for t in range(L):
-        h = dA[:, :, t] * h + dB[:, :, t] * u_exp[:, :, t]
-        y_t = torch.einsum("bdn,bn->bd", h, C_ssm[:, :, t])
+        dt   = delta[:, :, t]                                      # (B, D)
+        dA_t = torch.exp(dt.unsqueeze(-1) * A)                     # (B, D, N)
+        dB_t = dt.unsqueeze(-1) * B_ssm[:, :, t].unsqueeze(1)     # (B, D, N)
+        h    = dA_t * h + dB_t * u[:, :, t].unsqueeze(-1)         # (B, D, N)
+        y_t  = (h * C_ssm[:, :, t].unsqueeze(1)).sum(-1)           # (B, D)
         ys.append(y_t)
 
     y = torch.stack(ys, dim=2)   # (B, D, L)
     if D is not None:
-        y = y + D[..., None] * u
+        y = y + D.unsqueeze(-1) * u
     return y
 
 
@@ -81,16 +83,16 @@ except ImportError:
 
 
 def selective_scan_1d(
-    u:            torch.Tensor,
-    delta:        torch.Tensor,
-    A:            torch.Tensor,
-    B_ssm:        torch.Tensor,
-    C_ssm:        torch.Tensor,
-    D:            torch.Tensor | None = None,
-    delta_bias:   torch.Tensor | None = None,
+    u:              torch.Tensor,
+    delta:          torch.Tensor,
+    A:              torch.Tensor,
+    B_ssm:          torch.Tensor,
+    C_ssm:          torch.Tensor,
+    D:              Optional[torch.Tensor] = None,
+    delta_bias:     Optional[torch.Tensor] = None,
     delta_softplus: bool = False,
 ) -> torch.Tensor:
-    """统一接口：有编译的 CUDA 核心时使用，否则回退到纯 PyTorch。"""
+    """统一接口：有编译的 CUDA 核心时使用，否则回退到 TorchScript 实现。"""
     if _CUDA_AVAILABLE:
         try:
             out, *_ = _scan_cuda.fwd(u, delta, A, B_ssm, C_ssm, D, None, delta_bias, delta_softplus)
