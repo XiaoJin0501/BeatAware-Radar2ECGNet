@@ -107,10 +107,9 @@ def train_one_fold(cfg: Config, fold: int) -> None:
             ecg_gt  = batch["ecg"].to(device)
             rpeak_gt = batch["rpeak"].to(device)
 
+            optimizer.zero_grad()
             ecg_pred, peak_pred = model(radar)
             losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt)
-
-            optimizer.zero_grad()
             losses["total"].backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -133,6 +132,8 @@ def train_one_fold(cfg: Config, fold: int) -> None:
         logger.log_dict(avg_train, step=epoch, prefix=f"fold{fold}/train_epoch")
 
         # ── Validation ────────────────────────────────────────────────────
+        hist_row: dict = {"epoch": epoch, **avg_train}
+
         if epoch % cfg.val_every == 0:
             val_metrics = evaluate(model, val_loader, criterion, device, cfg, epoch)
             logger.log_dict(val_metrics, step=epoch, prefix=f"fold{fold}/val")
@@ -160,8 +161,9 @@ def train_one_fold(cfg: Config, fold: int) -> None:
                 }, ckpt_path)
                 logger.info(f"  -> Best checkpoint saved (val_mae={best_val_mae:.4f})")
 
-            history.append({"epoch": epoch, **avg_train,
-                             **{f"val_{k}": v for k, v in val_metrics.items()}})
+            hist_row.update({f"val_{k}": v for k, v in val_metrics.items()})
+
+        history.append(hist_row)
 
     # ── 保存训练历史 ──────────────────────────────────────────────────────
     hist_path = cfg.result_dir(fold) / "train_history.json"

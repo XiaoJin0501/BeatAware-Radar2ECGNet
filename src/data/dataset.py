@@ -40,7 +40,7 @@ class RadarECGDataset(Dataset):
     Returns (per __getitem__)
     -------------------------
     dict:
-        'radar'   : Tensor [1, 1600] (raw/phase) 或 [1, 33, 200] (spec)
+        'radar'   : Tensor [1, 1600] (raw/phase) 或 [1, 33, 196] (spec)
         'ecg'     : Tensor [1, 1600]
         'rpeak'   : Tensor [1, 1600]
         'subject' : str
@@ -97,7 +97,8 @@ class RadarECGDataset(Dataset):
                 ecg_path   = seg_dir / "ecg.npy"
                 rpeak_path = seg_dir / "rpeak.npy"
 
-                if not (radar_path.exists() and ecg_path.exists()):
+                if not (radar_path.exists() and ecg_path.exists()
+                        and rpeak_path.exists()):
                     continue
 
                 n = np.load(ecg_path, mmap_mode="r").shape[0]
