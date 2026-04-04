@@ -173,12 +173,14 @@ def main():
     parser.add_argument(
         "--raw_dir",
         type=Path,
-        default=Path("/home/qhh2237/Datasets/Med_Radar"),
+        required=True,
+        help="原始 .mat 数据集根目录（如 /path/to/Med_Radar）",
     )
     parser.add_argument(
         "--out_dir",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset"),
+        default=Path(__file__).resolve().parent.parent / "dataset",
+        help="输出目录（默认：项目根目录/dataset）",
     )
     args = parser.parse_args()
 

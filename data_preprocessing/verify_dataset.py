@@ -189,7 +189,8 @@ def main():
     parser.add_argument(
         "--dataset_dir",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset"),
+        default=Path(__file__).resolve().parent.parent / "dataset",
+        help="数据集目录（默认：项目根目录/dataset）",
     )
     args = parser.parse_args()
 

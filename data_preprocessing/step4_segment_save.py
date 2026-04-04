@@ -167,6 +167,12 @@ def process_scenario(
     rpeak_indices = np.load(scenario_dir / "rpeak_indices.npy")
 
     # 长度对齐（雷达和ECG应等长，若有微小差异取最短）
+    if not (len(radar_raw) == len(radar_phase) == len(ecg_clean)):
+        logger.warning(
+            f"信号长度不一致: radar_raw={len(radar_raw)}, "
+            f"radar_phase={len(radar_phase)}, ecg_clean={len(ecg_clean)}，"
+            f"取最短截断——请检查 step1/step2 输出"
+        )
     min_len = min(len(radar_raw), len(radar_phase), len(ecg_clean))
     radar_raw = radar_raw[:min_len]
     radar_phase = radar_phase[:min_len]
@@ -273,12 +279,14 @@ def main():
     parser.add_argument(
         "--dataset_dir",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset"),
+        default=Path(__file__).resolve().parent.parent / "dataset",
+        help="step1/step2 输出目录，同时也是分段结果的写入目录（默认：项目根目录/dataset）",
     )
     parser.add_argument(
         "--qc_report",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset/qc_report.json"),
+        default=None,
+        help="QC 报告路径（默认：dataset_dir/qc_report.json）",
     )
     parser.add_argument(
         "--processed_dir",
@@ -287,6 +295,8 @@ def main():
         help="step1/step2 的处理结果目录（默认与 dataset_dir 相同）",
     )
     args = parser.parse_args()
+    if args.qc_report is None:
+        args.qc_report = args.dataset_dir / "qc_report.json"
 
     processed_dir = args.processed_dir or args.dataset_dir
 

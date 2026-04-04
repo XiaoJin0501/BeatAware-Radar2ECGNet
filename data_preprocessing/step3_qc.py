@@ -63,6 +63,8 @@ def compute_phase_jump_rate(
     threshold_rad: 相邻采样点间视为跳变的相位差阈值（弧度）
     @200Hz，0.5rad ≈ 4.5cm 的胸壁运动变化，合理的体动触发阈值
     """
+    if len(radar_phase) < 2:
+        return 1.0   # 信号过短，视为全部跳变，直接标记失败
     diff = np.abs(np.diff(radar_phase))
     return float(np.mean(diff > threshold_rad))
 
@@ -242,17 +244,21 @@ def main():
     parser.add_argument(
         "--dataset_dir",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset"),
+        default=Path(__file__).resolve().parent.parent / "dataset",
+        help="step1/step2 输出目录（默认：项目根目录/dataset）",
     )
     parser.add_argument(
         "--out_json",
         type=Path,
-        default=Path("/home/qhh2237/Projects/BeatAware-Radar2ECGNet/dataset/qc_report.json"),
+        default=None,
+        help="QC 报告输出路径（默认：dataset_dir/qc_report.json）",
     )
     parser.add_argument("--max_jump_rate", type=float, default=DEFAULT_MAX_JUMP_RATE)
     parser.add_argument("--max_baseline_ratio", type=float, default=DEFAULT_MAX_BASELINE_RATIO)
     parser.add_argument("--max_rpeak_failure_rate", type=float, default=DEFAULT_MAX_RPEAK_FAILURE_RATE)
     args = parser.parse_args()
+    if args.out_json is None:
+        args.out_json = args.dataset_dir / "qc_report.json"
 
     thresholds = {
         "max_jump_rate": args.max_jump_rate,
