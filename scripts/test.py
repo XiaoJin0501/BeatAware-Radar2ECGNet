@@ -27,7 +27,7 @@ from configs.config import Config, get_config
 from src.data.dataset import RadarECGDataset
 from src.losses.losses import TotalLoss
 from src.models.BeatAwareNet.radar2ecgnet import BeatAwareRadar2ECGNet
-from src.utils.metrics import compute_all_metrics
+from src.utils.metrics import compute_all_metrics, detect_rpeaks
 from src.utils.seeding import set_seed
 
 
@@ -131,28 +131,84 @@ def _save_comparison_figure(
     save_path: Path,
     fold: int,
     n_show: int = 8,
+    fs: int = 200,
 ) -> None:
-    pred_cat = torch.cat(preds, dim=0)[:n_show].numpy().squeeze(1)  # (N, 1600)
-    gt_cat   = torch.cat(gts,   dim=0)[:n_show].numpy().squeeze(1)
+    """
+    每个样本生成两列子图：
+      左列：时域波形对比（GT 蓝色 / Pred 红色）+ R 峰标注
+      右列：功率谱对比（GT 蓝色 / Pred 红色，log 纵轴）
+    """
+    pred_np = torch.cat(preds, dim=0)[:n_show].numpy().squeeze(1)  # (N, L)
+    gt_np   = torch.cat(gts,   dim=0)[:n_show].numpy().squeeze(1)
+    n = len(pred_np)
+    L = pred_np.shape[1]
+    t = np.arange(L) / fs
 
-    n = len(pred_cat)
-    t = np.arange(pred_cat.shape[1]) / 200.0
+    # 频率轴（单边）
+    freqs = np.fft.rfftfreq(L, d=1.0 / fs)
 
-    fig, axes = plt.subplots(n, 1, figsize=(14, 2.2 * n), sharex=True)
+    fig, axes = plt.subplots(n, 2, figsize=(18, 2.6 * n),
+                             gridspec_kw={"width_ratios": [3, 1]})
     if n == 1:
-        axes = [axes]
-    fig.suptitle(f"Fold {fold} — GT (blue) vs Pred (red), first {n} samples",
-                 fontsize=12)
+        axes = axes[np.newaxis, :]   # (1, 2)
 
-    for i, ax in enumerate(axes):
-        ax.plot(t, gt_cat[i],   color="#2980B9", linewidth=0.9, label="GT",   alpha=0.8)
-        ax.plot(t, pred_cat[i], color="#E74C3C", linewidth=0.9, label="Pred", alpha=0.8)
-        ax.set_ylim(-0.05, 1.05)
-        ax.grid(True, alpha=0.3)
+    fig.suptitle(
+        f"Fold {fold} — GT (blue) vs Pred (red), first {n} samples\n"
+        f"Left: time-domain + R-peaks   Right: power spectrum",
+        fontsize=11, y=1.01,
+    )
+
+    for i in range(n):
+        gt_sig   = gt_np[i]
+        pred_sig = pred_np[i]
+
+        # ── 左列：时域 + R 峰 ──────────────────────────────────────────
+        ax_t = axes[i, 0]
+        ax_t.plot(t, gt_sig,   color="#2980B9", lw=0.9, label="GT",   alpha=0.85)
+        ax_t.plot(t, pred_sig, color="#E74C3C", lw=0.9, label="Pred", alpha=0.85)
+
+        # R 峰标注
+        gt_peaks   = detect_rpeaks(gt_sig,   fs=fs)
+        pred_peaks = detect_rpeaks(pred_sig, fs=fs)
+        if len(gt_peaks) > 0:
+            ax_t.scatter(gt_peaks / fs, gt_sig[gt_peaks],
+                         color="#1A5276", s=18, zorder=5,
+                         label=f"GT peaks ({len(gt_peaks)})")
+        if len(pred_peaks) > 0:
+            ax_t.scatter(pred_peaks / fs, pred_sig[pred_peaks],
+                         color="#922B21", s=18, marker="x", zorder=5,
+                         label=f"Pred peaks ({len(pred_peaks)})")
+
+        ax_t.set_ylim(-0.05, 1.15)
+        ax_t.set_xlim(t[0], t[-1])
+        ax_t.grid(True, alpha=0.25)
+        ax_t.tick_params(labelsize=7)
         if i == 0:
-            ax.legend(loc="upper right", fontsize=8)
+            ax_t.legend(loc="upper right", fontsize=7, ncol=2)
+        if i == n - 1:
+            ax_t.set_xlabel("Time (s)", fontsize=9)
 
-    axes[-1].set_xlabel("Time (s)", fontsize=10)
+        # ── 右列：功率谱（0–40 Hz，心电信号有效带宽）─────────────────
+        ax_f = axes[i, 1]
+        psd_gt   = np.abs(np.fft.rfft(gt_sig)) ** 2
+        psd_pred = np.abs(np.fft.rfft(pred_sig)) ** 2
+
+        # 只显示 0.5–40 Hz 心电有效频段
+        mask = (freqs >= 0.5) & (freqs <= 40.0)
+        ax_f.semilogy(freqs[mask], psd_gt[mask],
+                      color="#2980B9", lw=0.9, alpha=0.85)
+        ax_f.semilogy(freqs[mask], psd_pred[mask],
+                      color="#E74C3C", lw=0.9, alpha=0.85)
+
+        ax_f.set_xlim(0.5, 40.0)
+        ax_f.grid(True, alpha=0.25, which="both")
+        ax_f.tick_params(labelsize=7)
+        if i == 0:
+            ax_f.set_title("Power Spectrum\n(0.5–40 Hz)", fontsize=8)
+        if i == n - 1:
+            ax_f.set_xlabel("Freq (Hz)", fontsize=9)
+        ax_f.set_ylabel("Power", fontsize=7)
+
     plt.tight_layout()
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
