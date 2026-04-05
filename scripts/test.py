@@ -81,7 +81,7 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
     criterion = TotalLoss(alpha=cfg.alpha, beta=cfg.beta)
 
     # ── 推理 ──────────────────────────────────────────────────────────────
-    all_pred, all_gt, all_scenarios, total_loss = [], [], [], 0.0
+    all_pred, all_gt, all_scenarios, all_subjects, total_loss = [], [], [], [], 0.0
     sample_preds, sample_gts = [], []     # 保存前 N 个样本用于可视化
 
     with torch.no_grad():
@@ -97,6 +97,7 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
             all_pred.append(ecg_pred.cpu())
             all_gt.append(ecg_gt.cpu())
             all_scenarios.extend(batch["scenario"])   # list[str]
+            all_subjects.extend(batch["subject"])     # list[str]
 
             if len(sample_preds) < 8:
                 sample_preds.append(ecg_pred.cpu())
@@ -105,6 +106,7 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
     all_pred      = torch.cat(all_pred, dim=0)   # (N, 1, L)
     all_gt        = torch.cat(all_gt,   dim=0)
     all_scenarios = np.array(all_scenarios)       # (N,) str
+    all_subjects  = np.array(all_subjects)        # (N,) str
 
     # ── 全局指标（MAE/RMSE/PCC/PRD/F1）──────────────────────────────────
     metrics = compute_all_metrics(all_pred, all_gt, compute_f1=True)
@@ -138,6 +140,13 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
     _save_scenario_metrics(
         all_pred, all_gt, all_scenarios,
         save_path=result_dir / "test_metrics_by_scenario.csv",
+        fold=fold,
+    )
+
+    # ── Per-subject 指标（按 subject × scenario 双维度）─────────────────
+    _save_subject_metrics(
+        all_pred, all_gt, all_subjects, all_scenarios,
+        save_path=result_dir / "test_metrics_by_subject.csv",
         fold=fold,
     )
 
@@ -197,6 +206,56 @@ def _save_scenario_metrics(
         writer.writeheader()
         writer.writerows(rows)
     print(f"[Fold {fold}] Per-scenario metrics saved: {save_path}")
+
+
+def _save_subject_metrics(
+    pred:      torch.Tensor,    # (N, 1, L)
+    gt:        torch.Tensor,    # (N, 1, L)
+    subjects:  np.ndarray,      # (N,) str
+    scenarios: np.ndarray,      # (N,) str
+    save_path: Path,
+    fold:      int,
+) -> None:
+    """
+    按受试者 × 场景计算 MAE/RMSE/PCC/PRD/F1，保存为 CSV。
+
+    用于：
+      - D5 跨场景泛化实验：每个受试者在 3 个场景下的指标
+      - 30-subject 柱状图：将所有 fold 的 CSV 合并即可覆盖全部受试者
+    """
+    rows = []
+
+    for subject in sorted(set(subjects)):
+        for scenario in sorted(set(scenarios[subjects == subject])):
+            mask = (subjects == subject) & (scenarios == scenario)
+            s_pred = pred[mask]
+            s_gt   = gt[mask]
+            n_samples = int(mask.sum())
+
+            if n_samples == 0:
+                continue
+
+            s_metrics = compute_all_metrics(s_pred, s_gt, compute_f1=True)
+            row = {
+                "fold":     fold,
+                "subject":  subject,
+                "scenario": scenario,
+                "n_samples": n_samples,
+            }
+            row.update(s_metrics)
+            rows.append(row)
+
+    if not rows:
+        return
+
+    fieldnames = ["fold", "subject", "scenario", "n_samples"] + [
+        k for k in rows[0] if k not in ("fold", "subject", "scenario", "n_samples")
+    ]
+    with open(save_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"[Fold {fold}] Per-subject metrics saved: {save_path}")
 
 
 def _save_comparison_figure(
