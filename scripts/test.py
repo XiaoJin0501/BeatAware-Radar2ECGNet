@@ -27,7 +27,13 @@ from configs.config import Config, get_config
 from src.data.dataset import RadarECGDataset
 from src.losses.losses import TotalLoss
 from src.models.BeatAwareNet.radar2ecgnet import BeatAwareRadar2ECGNet
-from src.utils.metrics import compute_all_metrics, detect_rpeaks
+from src.utils.metrics import (
+    compute_all_metrics,
+    compute_advanced_metrics,
+    compute_waveform_metrics,
+    compute_peak_metrics,
+    detect_rpeaks,
+)
 from src.utils.seeding import set_seed
 
 
@@ -75,7 +81,7 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
     criterion = TotalLoss(alpha=cfg.alpha, beta=cfg.beta)
 
     # ── 推理 ──────────────────────────────────────────────────────────────
-    all_pred, all_gt, total_loss = [], [], 0.0
+    all_pred, all_gt, all_scenarios, total_loss = [], [], [], 0.0
     sample_preds, sample_gts = [], []     # 保存前 N 个样本用于可视化
 
     with torch.no_grad():
@@ -90,31 +96,50 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
 
             all_pred.append(ecg_pred.cpu())
             all_gt.append(ecg_gt.cpu())
+            all_scenarios.extend(batch["scenario"])   # list[str]
 
             if len(sample_preds) < 8:
                 sample_preds.append(ecg_pred.cpu())
                 sample_gts.append(ecg_gt.cpu())
 
-    all_pred = torch.cat(all_pred, dim=0)
-    all_gt   = torch.cat(all_gt,   dim=0)
+    all_pred      = torch.cat(all_pred, dim=0)   # (N, 1, L)
+    all_gt        = torch.cat(all_gt,   dim=0)
+    all_scenarios = np.array(all_scenarios)       # (N,) str
 
-    # ── 指标计算（含 R 峰 F1）────────────────────────────────────────────
+    # ── 全局指标（MAE/RMSE/PCC/PRD/F1）──────────────────────────────────
     metrics = compute_all_metrics(all_pred, all_gt, compute_f1=True)
     metrics["loss"] = total_loss / len(loader)
 
-    print(f"[Fold {fold}] MAE={metrics['mae']:.4f} | RMSE={metrics['rmse']:.4f} | "
-          f"PCC={metrics['pcc']:.4f} | PRD={metrics['prd']:.2f}% | "
-          f"F1={metrics.get('rpeak_f1', float('nan')):.4f}")
+    # ── 高级指标（DTW / RR interval / QRS width）─────────────────────────
+    print(f"[Fold {fold}] Computing advanced metrics (DTW / RR / QRS)...")
+    metrics.update(compute_advanced_metrics(all_pred, all_gt, fs=200))
 
-    # ── 保存 CSV ──────────────────────────────────────────────────────────
+    print(
+        f"[Fold {fold}] MAE={metrics['mae']:.4f} | RMSE={metrics['rmse']:.4f} | "
+        f"PCC={metrics['pcc']:.4f} | PRD={metrics['prd']:.2f}% | "
+        f"F1={metrics.get('rpeak_f1', float('nan')):.4f} | "
+        f"DTW={metrics.get('dtw', float('nan')):.4f} | "
+        f"RR_MAE={metrics.get('rr_interval_mae', float('nan')):.2f}ms | "
+        f"QRS_MAE={metrics.get('qrs_width_mae', float('nan')):.2f}ms"
+    )
+
     result_dir = cfg.result_dir(fold)
     result_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── 全局 CSV ──────────────────────────────────────────────────────────
     csv_path = result_dir / "test_metrics.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["fold"] + list(metrics.keys()))
         writer.writeheader()
         writer.writerow({"fold": fold, **metrics})
     print(f"[Fold {fold}] Metrics saved: {csv_path}")
+
+    # ── Per-scenario 指标 ─────────────────────────────────────────────────
+    _save_scenario_metrics(
+        all_pred, all_gt, all_scenarios,
+        save_path=result_dir / "test_metrics_by_scenario.csv",
+        fold=fold,
+    )
 
     # ── 可视化（前 8 个样本对比图）───────────────────────────────────────
     _save_comparison_figure(
@@ -124,6 +149,54 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
     )
 
     return metrics
+
+
+def _save_scenario_metrics(
+    pred:      torch.Tensor,    # (N, 1, L)
+    gt:        torch.Tensor,    # (N, 1, L)
+    scenarios: np.ndarray,      # (N,) str
+    save_path: Path,
+    fold:      int,
+) -> None:
+    """
+    按场景分组计算 MAE/RMSE/PCC/PRD/F1，保存为 CSV。
+
+    用于 D5 泛化实验：训练用 resting，测试观察各场景的指标差异。
+    """
+    scenario_list = sorted(set(scenarios))
+    rows = []
+
+    for scenario in scenario_list:
+        mask      = scenarios == scenario
+        s_pred    = pred[mask]
+        s_gt      = gt[mask]
+        n_samples = int(mask.sum())
+
+        if n_samples == 0:
+            continue
+
+        s_metrics = compute_all_metrics(s_pred, s_gt, compute_f1=True)
+        row = {"fold": fold, "scenario": scenario, "n_samples": n_samples}
+        row.update(s_metrics)
+        rows.append(row)
+
+        print(
+            f"  [{scenario}] n={n_samples:4d} | "
+            f"MAE={s_metrics['mae']:.4f} | PCC={s_metrics['pcc']:.4f} | "
+            f"F1={s_metrics.get('rpeak_f1', float('nan')):.4f}"
+        )
+
+    if not rows:
+        return
+
+    fieldnames = ["fold", "scenario", "n_samples"] + [
+        k for k in rows[0] if k not in ("fold", "scenario", "n_samples")
+    ]
+    with open(save_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"[Fold {fold}] Per-scenario metrics saved: {save_path}")
 
 
 def _save_comparison_figure(
