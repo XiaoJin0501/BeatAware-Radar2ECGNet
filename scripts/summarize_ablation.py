@@ -47,7 +47,10 @@ PLANNED_ORDER = [
 CONFIG_FIELDS = ["input_type", "use_pam", "alpha", "beta"]
 
 # 展示的指标字段（从 test_summary.csv 的 mean 行读取）
-METRIC_FIELDS = ["mae", "rmse", "pcc", "prd", "rpeak_f1"]
+METRIC_FIELDS = [
+    "mae", "rmse", "pcc", "prd", "rpeak_f1",
+    "dtw", "rr_interval_mae", "qrs_width_mae", "qt_interval_mae", "pr_interval_mae",
+]
 
 # 指标越小越好（用于 bar chart 颜色标注）
 LOWER_IS_BETTER = {"mae", "rmse", "prd"}

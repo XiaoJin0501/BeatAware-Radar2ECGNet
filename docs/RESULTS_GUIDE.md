@@ -22,8 +22,10 @@ experiments/
         │   └── events.out.tfevents.*  ← TensorBoard 事件文件
         └── results/
             ├── train_history.json     ← 每 epoch 的 train/val 指标序列
-            ├── test_metrics.csv       ← 该 fold 的测试指标（test.py 生成）
-            └── sample_predictions.png ← 前 8 个样本 GT vs Pred 对比图
+            ├── test_metrics.csv              ← 该 fold 的全局测试指标（test.py 生成）
+            ├── test_metrics_by_scenario.csv  ← 按场景分组的指标（resting/valsalva/apnea）
+            ├── test_metrics_by_subject.csv   ← 按受试者×场景的指标（用于30-subject柱状图）
+            └── sample_predictions.png        ← 前 8 个样本 GT vs Pred + 功率谱对比图
 ```
 
 ---
@@ -53,15 +55,33 @@ experiments/
 
 > **R-peak F1 的前提**：重建波形的 QRS 峰形态须足够清晰，NeuroKit2 才能准确检测。早期训练 F1 偏低是正常的。smoke_test epoch 2 达到 0.779，说明波形已有基本 QRS 形态。
 
-### 2.3 当前**未实现**的指标（CLAUDE.md 中列出，正式评估前需补充）
+### 2.3 高级指标（仅 test.py 最终评估时计算，不在训练 val 中计算）
 
-| 指标 | 说明 | 实现优先级 |
-|------|------|-----------|
-| **DTW** | Dynamic Time Warping，对局部时间偏移鲁棒的波形相似度 | 中（test 时） |
-| **RR Interval Error** | 相邻 R 峰间隔误差，反映心率精度 | 高（临床意义大） |
-| **QRS Interval Error** | QRS 波群时限误差 | 中 |
-| **PR Interval Error** | PR 间期误差（房室传导时间） | 中 |
-| **QT Interval Error** | QT 间期误差（与心律失常相关） | 中 |
+| 指标列名 | 含义 | 单位 | 目标方向 |
+|---------|------|------|---------|
+| **dtw** | Dynamic Time Warping（Sakoe-Chiba 窗口 25 samples = 125ms，归一化为路径长度） | 无量纲 | 越小越好 |
+| **rr_interval_mae** | 相邻 R 峰间隔（RR 间期）的平均绝对误差，反映心率节律精度 | ms | 越小越好 |
+| **qrs_width_mae** | QRS 波群时限（QRS onset → J-point）的平均绝对误差，反映心室除极持续时间 | ms | 越小越好 |
+| **qt_interval_mae** | QT 间期（QRS onset → T-wave end）的平均绝对误差，与心室复极和心律失常风险相关 | ms | 越小越好 |
+| **pr_interval_mae** | PR 间期（P-wave onset → R-peak）的平均绝对误差，反映房室传导时间 | ms | 越小越好 |
+
+**实现方式**：
+- DTW：`compute_dtw_metric(max_samples=500)` 随机采样最多 500 条，防止全量计算过久
+- RR interval：NeuroKit2 `ecg_peaks` 检测，取 `mean(diff(peaks)) / fs * 1000`
+- QRS / QT / PR：NeuroKit2 DWT delineation（`ecg_delineate(method="dwt")`），一次调用提取所有波界点：
+  - `ECG_R_Onsets` = QRS 起始点（Q 波前）
+  - `ECG_R_Offsets` = QRS 终止点（J 点）
+  - `ECG_T_Offsets` = T 波终点
+  - `ECG_P_Onsets`  = P 波起始点
+- 所有间期误差单位均为 **ms**（对应论文表格中的临床参考值范围）
+
+**临床参考值范围**（正常成人）：
+| 间期 | 正常范围 |
+|------|---------|
+| RR interval | 600–1000 ms（心率 60–100 bpm）|
+| QRS width | 80–120 ms |
+| QT interval | 350–450 ms |
+| PR interval | 120–200 ms |
 
 ---
 

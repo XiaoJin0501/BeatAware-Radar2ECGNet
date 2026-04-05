@@ -280,18 +280,30 @@ def compute_rr_interval_mae(
     return {"rr_interval_mae": float(np.mean(errors)) if errors else float("nan")}
 
 
-def _get_qrs_widths(
+def _delineate_one(
     ecg_1d: np.ndarray,
     rpeaks: np.ndarray,
     fs:     int = 200,
-) -> np.ndarray:
+) -> dict[str, np.ndarray]:
     """
-    用 neurokit2 delineation 获取 QRS 波群时限（ms）。
+    用 neurokit2 DWT delineation 对单条 ECG 提取所有临床波界（一次调用）。
 
-    返回每个有效 R 峰对应的 QRS 宽度数组（可能为空）。
+    返回 dict（值为有效测量值的 ms 数组，可能为空）：
+      qrs_widths   : R_Offsets - R_Onsets        （QRS 波群时限）
+      qt_intervals : T_Offsets - R_Onsets        （QT 间期）
+      pr_intervals : R_peaks   - P_Onsets        （PR 间期）
+
+    DWT key 说明（neurokit2 0.2.x）：
+      ECG_R_Onsets  = QRS 起始点（Q 波前）
+      ECG_R_Offsets = QRS 终止点（J 点，S 波后）
+      ECG_T_Offsets = T 波终点
+      ECG_P_Onsets  = P 波起始点
     """
+    empty = np.array([], dtype=float)
+    result = {"qrs_widths": empty, "qt_intervals": empty, "pr_intervals": empty}
+
     if len(rpeaks) == 0:
-        return np.array([], dtype=float)
+        return result
 
     import neurokit2 as nk
     try:
@@ -299,54 +311,89 @@ def _get_qrs_widths(
             ecg_1d,
             {"ECG_R_Peaks": rpeaks},
             sampling_rate=fs,
-            method="peak",
+            method="dwt",
         )
-        q = np.asarray(waves.get("ECG_Q_Peaks", []), dtype=float)
-        s = np.asarray(waves.get("ECG_S_Peaks", []), dtype=float)
 
-        if len(q) == 0 or len(s) == 0:
-            return np.array([], dtype=float)
+        def _get(key: str) -> np.ndarray:
+            return np.asarray(
+                waves.get(key, [np.nan] * len(rpeaks)), dtype=float
+            )
 
-        # 只保留 Q/S 均有效的峰（非 NaN），且 S > Q
-        valid = ~(np.isnan(q) | np.isnan(s)) & (s > q)
-        if not np.any(valid):
-            return np.array([], dtype=float)
+        r_on  = _get("ECG_R_Onsets")    # QRS onset
+        r_off = _get("ECG_R_Offsets")   # QRS offset (J-point)
+        t_off = _get("ECG_T_Offsets")   # T wave end
+        p_on  = _get("ECG_P_Onsets")    # P wave onset
+        r     = rpeaks.astype(float)
 
-        return (s[valid] - q[valid]) / fs * 1000   # ms
+        def _interval(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+            """(b - a) / fs * 1000 for valid pairs where b > a."""
+            if len(a) != len(b):
+                return empty
+            mask = ~(np.isnan(a) | np.isnan(b)) & (b > a)
+            return (b[mask] - a[mask]) / fs * 1000 if mask.any() else empty
+
+        result["qrs_widths"]   = _interval(r_on, r_off)           # QRS ms
+        result["qt_intervals"] = _interval(r_on, t_off)           # QT  ms
+        result["pr_intervals"] = _interval(p_on, r) if len(p_on) == len(r) \
+            else empty                                             # PR  ms
+
     except Exception:
-        return np.array([], dtype=float)
+        pass
+
+    return result
 
 
-def compute_qrs_width_mae(
+def compute_interval_metrics(
     pred: torch.Tensor,   # (B, 1, L)
     gt:   torch.Tensor,   # (B, 1, L)
     fs:   int = 200,
 ) -> dict[str, float]:
     """
-    QRS 波群时限平均绝对误差（ms）。
+    计算 QRS / QT / PR 三个临床间期的 MAE（ms）。
 
-    逐样本在 pred/GT 上检测 R 峰 → delineation 得到 Q/S 点 →
-    计算平均 QRS 宽度差的绝对值均值。跳过无法 delineate 的样本。
+    对每个样本做一次 DWT delineation（而非三次），跳过无法提取间期的样本。
+    单位均为 ms：
+      qrs_width_mae  : QRS 波群时限误差
+      qt_interval_mae: QT 间期误差（心室复极）
+      pr_interval_mae: PR 间期误差（房室传导）
     """
     if not _check_neurokit():
-        return {"qrs_width_mae": float("nan")}
+        return {
+            "qrs_width_mae":   float("nan"),
+            "qt_interval_mae": float("nan"),
+            "pr_interval_mae": float("nan"),
+        }
 
     pred_np = pred.detach().cpu().numpy().squeeze(1)
     gt_np   = gt.detach().cpu().numpy().squeeze(1)
 
-    errors = []
+    qrs_errs, qt_errs, pr_errs = [], [], []
+
     for i in range(len(pred_np)):
         pred_peaks = detect_rpeaks(pred_np[i], fs)
         gt_peaks   = detect_rpeaks(gt_np[i],   fs)
 
-        pred_qrs = _get_qrs_widths(pred_np[i], pred_peaks, fs)
-        gt_qrs   = _get_qrs_widths(gt_np[i],   gt_peaks,   fs)
+        pred_ivs = _delineate_one(pred_np[i], pred_peaks, fs)
+        gt_ivs   = _delineate_one(gt_np[i],   gt_peaks,   fs)
 
-        if len(pred_qrs) == 0 or len(gt_qrs) == 0:
-            continue
-        errors.append(abs(float(np.mean(pred_qrs)) - float(np.mean(gt_qrs))))
+        for errs, key in [
+            (qrs_errs, "qrs_widths"),
+            (qt_errs,  "qt_intervals"),
+            (pr_errs,  "pr_intervals"),
+        ]:
+            p_arr = pred_ivs[key]
+            g_arr = gt_ivs[key]
+            if len(p_arr) > 0 and len(g_arr) > 0:
+                errs.append(abs(float(np.mean(p_arr)) - float(np.mean(g_arr))))
 
-    return {"qrs_width_mae": float(np.mean(errors)) if errors else float("nan")}
+    def _mean(lst: list) -> float:
+        return float(np.mean(lst)) if lst else float("nan")
+
+    return {
+        "qrs_width_mae":   _mean(qrs_errs),
+        "qt_interval_mae": _mean(qt_errs),
+        "pr_interval_mae": _mean(pr_errs),
+    }
 
 
 def compute_advanced_metrics(
@@ -357,14 +404,14 @@ def compute_advanced_metrics(
 ) -> dict[str, float]:
     """
     一次性计算所有高级指标（耗时，仅在 test.py 最终评估时调用）：
-      - DTW（Sakoe-Chiba 窗口 25 samples）
+      - DTW（Sakoe-Chiba 窗口 25 samples，归一化）
       - RR interval MAE（ms）
-      - QRS width MAE（ms）
+      - QRS width MAE / QT interval MAE / PR interval MAE（ms，DWT delineation）
 
     max_dtw_samples : DTW 最多计算样本数（-1 = 全部）。
     """
     metrics: dict[str, float] = {}
     metrics.update(compute_dtw_metric(pred, gt, max_samples=max_dtw_samples))
     metrics.update(compute_rr_interval_mae(pred, gt, fs=fs))
-    metrics.update(compute_qrs_width_mae(pred, gt, fs=fs))
+    metrics.update(compute_interval_metrics(pred, gt, fs=fs))
     return metrics
