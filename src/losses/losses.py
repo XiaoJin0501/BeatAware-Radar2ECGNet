@@ -94,7 +94,7 @@ class MultiResolutionSTFTLoss(nn.Module):
             S_pred = self._stft_magnitude(pred_flat, n_fft, hop, win)
             S_gt   = self._stft_magnitude(gt_flat,   n_fft, hop, win)
             # 归一化 L1：消除幅度量纲差异
-            parts.append((S_pred - S_gt).abs().sum() / (S_gt.sum() + 1e-8))
+            parts.append((S_pred - S_gt).abs().sum() / (S_gt.sum() + 1e-8))  # S_gt already non-negative
 
         return sum(parts) / len(self.fft_sizes)
 
