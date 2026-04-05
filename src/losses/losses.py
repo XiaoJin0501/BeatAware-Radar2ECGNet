@@ -160,7 +160,9 @@ class TotalLoss(nn.Module):
         L_freq = self.stft_loss(ecg_pred, ecg_gt)
 
         if peak_pred is not None and peak_gt is not None:
-            L_peak  = F.binary_cross_entropy(peak_pred, peak_gt)
+            # clamp 防止浮点精度导致 BCE backward 时梯度 ±inf → CUDA assert
+            peak_pred_clamped = peak_pred.clamp(1e-6, 1 - 1e-6)
+            L_peak  = F.binary_cross_entropy(peak_pred_clamped, peak_gt)
             L_total = L_time + self.alpha * L_freq + self.beta * L_peak
         else:
             L_peak  = ecg_pred.new_zeros(())
