@@ -55,6 +55,7 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
     # ── 加载 checkpoint ───────────────────────────────────────────────────
     ckpt = torch.load(ckpt_path, map_location=device)
     print(f"[Fold {fold}] Loaded checkpoint (epoch={ckpt['epoch']}, "
+          f"val_pcc={ckpt.get('val_pcc', float('nan')):.4f}, "
           f"val_mae={ckpt['val_mae']:.4f})")
 
     model = BeatAwareRadar2ECGNet(

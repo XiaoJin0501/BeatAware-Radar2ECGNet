@@ -93,9 +93,11 @@ def train_one_fold(cfg: Config, fold: int) -> None:
     )
 
     # ── 训练循环 ──────────────────────────────────────────────────────────
-    best_val_mae = float("inf")
-    global_step  = 0
-    history = []
+    best_val_pcc     = -float("inf")
+    best_val_mae     = float("inf")   # 仅用于日志记录
+    early_stop_count = 0
+    global_step      = 0
+    history          = []
 
     for epoch in range(1, cfg.epochs + 1):
         model.train()
@@ -148,18 +150,30 @@ def train_one_fold(cfg: Config, fold: int) -> None:
                 f"{elapsed:.1f}s"
             )
 
-            # 保存最佳 checkpoint
-            if val_metrics["mae"] < best_val_mae:
+            # 保存最佳 checkpoint（以 val_pcc 为准，PCC 比 MAE 更稳定）
+            if val_metrics["pcc"] > best_val_pcc:
+                best_val_pcc = val_metrics["pcc"]
                 best_val_mae = val_metrics["mae"]
+                early_stop_count = 0
                 ckpt_path = cfg.ckpt_dir(fold) / "best.pt"
                 torch.save({
                     "epoch":      epoch,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
+                    "val_pcc":    best_val_pcc,
                     "val_mae":    best_val_mae,
                     "config":     cfg.__dict__,
                 }, ckpt_path)
-                logger.info(f"  -> Best checkpoint saved (val_mae={best_val_mae:.4f})")
+                logger.info(f"  -> Best checkpoint saved (val_pcc={best_val_pcc:.4f}, val_mae={best_val_mae:.4f})")
+            else:
+                early_stop_count += 1
+                if early_stop_count >= cfg.early_stop_patience:
+                    logger.info(
+                        f"  -> Early stopping at epoch {epoch} "
+                        f"(no val_pcc improvement for {cfg.early_stop_patience} epochs)"
+                    )
+                    history.append(hist_row)
+                    break
 
             hist_row.update({f"val_{k}": v for k, v in val_metrics.items()})
 
@@ -170,7 +184,7 @@ def train_one_fold(cfg: Config, fold: int) -> None:
     with open(hist_path, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2)
     logger.info(f"Training history saved: {hist_path}")
-    logger.info(f"Best val MAE: {best_val_mae:.4f}")
+    logger.info(f"Best val PCC: {best_val_pcc:.4f} | Best val MAE: {best_val_mae:.4f}")
     logger.close()
 
 

@@ -50,8 +50,9 @@ class Config:
 
     # ── 日志频率 ──────────────────────────────────────────────────────────
     log_every:   int  = 10       # 每 N step 打一次 train loss
-    val_every:   int  = 1        # 每 N epoch 做一次 val
-    f1_every:    int  = 10       # 每 N epoch 计算一次 R 峰 F1（耗时）
+    val_every:            int  = 1        # 每 N epoch 做一次 val
+    f1_every:             int  = 10       # 每 N epoch 计算一次 R 峰 F1（耗时）
+    early_stop_patience:  int  = 20       # val_pcc 连续 N epoch 无提升则停止训练
 
     # ── 路径（运行时自动推导，无需手动设置）──────────────────────────────
     @property
