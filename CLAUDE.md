@@ -12,6 +12,34 @@
 
 ---
 
+## SSM 训练速度说明
+
+`src/models/backbone/ssm.py` 的 SelectiveScan 后端按以下优先级自动选择：
+
+| 优先级 | 后端 | 速度 | 安装状态 |
+|--------|------|------|---------|
+| 1 | `mamba-ssm` 官方 CUDA kernel | ~14ms/call | **未安装**（需手动安装）|
+| 2 | `selective_scan_cuda`（手动编译）| ~14ms/call | 未安装 |
+| 3 | TorchScript JIT（当前使用）| **138ms/call** | 自动回退 |
+
+**当前 JIT 速度影响**：~274s/epoch（含 backward），约为 CUDA kernel 的 2x 慢。
+训练 150 epochs 约 11.4h/fold，早停后实际约 5-6h/fold。
+
+**安装 CUDA kernel（可选，需用户确认）**：
+```bash
+conda activate cyberbrain
+bash scripts/install_mamba_cuda.sh
+```
+> ⚠️ PyTorch 1.13.1+cu113 与 nvcc 11.6 存在 minor version mismatch，安装可能失败。
+> 若失败则保持 JIT 回退，训练结果完全一致。
+
+**Claude Code 行为约定**：
+- **不自动安装** `mamba-ssm` 或 `causal-conv1d`，须用户显式运行安装脚本
+- 安装成功后代码自动切换到 CUDA kernel，无需修改任何训练代码
+- 若用户要求安装，运行 `bash scripts/install_mamba_cuda.sh` 后验证速度
+
+---
+
 ## 数据集
 
 **Schellenberger et al., *Scientific Data* 7:291 (2020)**
