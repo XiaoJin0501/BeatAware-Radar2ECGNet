@@ -115,7 +115,6 @@ def train_one_fold(cfg: Config, fold: int) -> None:
 
             # NaN/Inf 保护：SSM 偶发数值爆炸时跳过该 batch，不让训练崩溃
             if not torch.isfinite(losses["total"]):
-                optimizer.zero_grad()
                 continue
 
             losses["total"].backward()
@@ -156,6 +155,9 @@ def train_one_fold(cfg: Config, fold: int) -> None:
                 f"{elapsed:.1f}s"
             )
 
+            # val 指标先并入 hist_row（保证 early stop 和正常路径都有完整记录）
+            hist_row.update({f"val_{k}": v for k, v in val_metrics.items()})
+
             # 保存最佳 checkpoint（以 val_pcc 为准，PCC 比 MAE 更稳定）
             if val_metrics["pcc"] > best_val_pcc:
                 best_val_pcc = val_metrics["pcc"]
@@ -180,8 +182,6 @@ def train_one_fold(cfg: Config, fold: int) -> None:
                     )
                     history.append(hist_row)
                     break
-
-            hist_row.update({f"val_{k}": v for k, v in val_metrics.items()})
 
         history.append(hist_row)
 
