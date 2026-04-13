@@ -160,9 +160,12 @@ class TotalLoss(nn.Module):
         L_freq = self.stft_loss(ecg_pred, ecg_gt)
 
         if peak_pred is not None and peak_gt is not None:
-            # clamp 防止浮点精度导致 BCE backward 时梯度 ±inf → CUDA assert
-            peak_pred_clamped = peak_pred.clamp(1e-6, 1 - 1e-6)
-            L_peak  = F.binary_cross_entropy(peak_pred_clamped, peak_gt)
+            # nan_to_num 先处理 NaN/Inf（clamp 不会处理 NaN），再 clamp 到安全范围
+            # NaN 来源：SSM 状态在长序列（L=1600）中数值爆炸 → Sigmoid(NaN)=NaN
+            peak_pred_safe = peak_pred.nan_to_num(
+                nan=0.5, posinf=1.0 - 1e-6, neginf=1e-6
+            ).clamp(1e-6, 1 - 1e-6)
+            L_peak  = F.binary_cross_entropy(peak_pred_safe, peak_gt)
             L_total = L_time + self.alpha * L_freq + self.beta * L_peak
         else:
             L_peak  = ecg_pred.new_zeros(())

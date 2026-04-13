@@ -160,6 +160,19 @@ class VSSSBlock1D(nn.Module):
         )
         self.dt_proj = nn.Linear(self.dt_rank, self.d_inner, bias=True)
 
+        # Mamba 论文推荐：dt_proj.bias 初始化到稳定的初始 delta 范围 [dt_min, dt_max]
+        # 避免默认均匀初始化导致 delta 在训练中漂移到极端值 → SSM 状态在 L=1600 步后爆炸 → NaN
+        dt_min, dt_max = 0.001, 0.1
+        dt_init = torch.exp(
+            torch.rand(self.d_inner) * (math.log(dt_max) - math.log(dt_min))
+            + math.log(dt_min)
+        )
+        inv_dt = dt_init + torch.log(-torch.expm1(-dt_init))
+        with torch.no_grad():
+            self.dt_proj.bias.copy_(inv_dt)
+        # dt_proj.weight 用默认初始化即可，bias 不参与梯度更新的额外约束
+        self.dt_proj.bias._no_reinit = True   # 标记，防止 reset_parameters 覆盖
+
         # 固定参数（S4D 初始化）
         A = torch.arange(1, d_state + 1, dtype=torch.float32).repeat(self.d_inner, 1)
         self.A_log = nn.Parameter(torch.log(A))

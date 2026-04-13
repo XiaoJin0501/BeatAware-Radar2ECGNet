@@ -112,6 +112,12 @@ def train_one_fold(cfg: Config, fold: int) -> None:
             optimizer.zero_grad()
             ecg_pred, peak_pred = model(radar)
             losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt)
+
+            # NaN/Inf 保护：SSM 偶发数值爆炸时跳过该 batch，不让训练崩溃
+            if not torch.isfinite(losses["total"]):
+                optimizer.zero_grad()
+                continue
+
             losses["total"].backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
