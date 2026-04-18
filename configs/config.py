@@ -20,10 +20,12 @@ class Config:
     scenarios:   list = field(default_factory=lambda: ["resting", "valsalva", "apnea"])
 
     # ── 模型 ──────────────────────────────────────────────────────────────
-    C:           int   = 64
-    d_state:     int   = 16
-    use_pam:     bool  = True
-    dropout:     float = 0.1
+    C:             int   = 64
+    d_state:       int   = 16
+    use_pam:       bool  = True
+    use_emd:       bool  = True   # Phase C EMD 对齐层（False = Model A/B）
+    emd_max_delay: int   = 20     # EMD 最大时移（采样点，20 = 100ms @ 200Hz）
+    dropout:       float = 0.1
 
     # ── Loss 权重（V2 自适应加权，alpha/beta 由 log_vars 取代）─────────────
     alpha_stft:     float = 0.1  # STFT loss 在 L_recon 内的固定权重

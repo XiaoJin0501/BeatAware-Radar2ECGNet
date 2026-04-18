@@ -94,6 +94,54 @@ class ConformerFusionBlock(nn.Module):
 
 
 # =============================================================================
+# EMDAlignLayer — 电-机械延迟物理对齐层（Phase C）
+# =============================================================================
+
+class EMDAlignLayer(nn.Module):
+    """
+    电-机械延迟（EMD）物理对齐层。
+
+    物理背景：ECG（电信号）触发领先于心脏机械运动 50-150ms。
+    雷达感知的是机械运动，因此特征图需要在时间轴上"提前"以对齐 ECG。
+
+    实现：逐通道（depthwise）可学习 FIR 滤波器。
+      - 初始化为 Dirac delta（单位冲激）= 零延迟恒等映射
+      - 训练中自发学习 ±max_delay 范围内的每通道时移
+
+    插入位置：ConformerFusionBlock 之后、Decoder 之前
+    特征 shape：(B, 4C, L_enc) = (B, 256, 400)
+
+    Parameters
+    ----------
+    channels  : int  特征通道数（= 4C）
+    max_delay : int  最大时移范围（采样点），默认 20 = 100ms @ 200Hz
+                     覆盖典型 EMD 范围 50-150ms (10-30 samples)
+    """
+
+    def __init__(self, channels: int, max_delay: int = 20):
+        super().__init__()
+        kernel_size = 2 * max_delay + 1   # 41-tap FIR
+        self.delay_conv = nn.Conv1d(
+            channels, channels,
+            kernel_size=kernel_size,
+            padding=max_delay,             # 保持时间轴长度 L_enc 不变
+            groups=channels,               # 逐通道独立滤波（depthwise）
+            bias=False,
+        )
+        # 手动 Dirac delta 初始化：每个通道的中心 tap=1，其余=0 → 恒等映射。
+        # 不用 nn.init.dirac_，因为 depthwise conv 权重形状 (C, 1, K) 中
+        # dirac_ 仅初始化 min(C, 1)=1 个通道，其余通道保持 0。
+        with torch.no_grad():
+            self.delay_conv.weight.zero_()
+            center = kernel_size // 2   # = max_delay
+            self.delay_conv.weight[:, :, center] = 1.0
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (B, C, L) → (B, C, L)"""
+        return self.delay_conv(x)
+
+
+# =============================================================================
 # Spec Adapter（radar_spec 表征专用前端）
 # =============================================================================
 
@@ -145,6 +193,9 @@ class BeatAwareRadar2ECGNet(nn.Module):
     spec_freq_bins: int    radar_spec_input 的频率 bins（默认33）
     d_state       : int    VSSSBlock1D 的 SSM 状态维度（默认16）
     dropout       : float  ConformerFusionBlock Dropout（默认0.1）
+    use_pam       : bool   是否使用 PAM + TFiLM（False = Exp A 基线）
+    use_emd       : bool   是否使用 EMD 物理对齐层（Phase C，False = Model A/B）
+    emd_max_delay : int    EMD 最大时移范围（采样点，默认20 = 100ms @ 200Hz）
     """
 
     def __init__(
@@ -156,12 +207,15 @@ class BeatAwareRadar2ECGNet(nn.Module):
         d_state:        int   = 16,
         dropout:        float = 0.1,
         use_pam:        bool  = True,
+        use_emd:        bool  = True,
+        emd_max_delay:  int   = 20,
     ):
         super().__init__()
         self.input_type = input_type
         self.C          = C
         self.signal_len = signal_len
         self.use_pam    = use_pam
+        self.use_emd    = use_emd
         L_enc           = signal_len // 4   # 1600 → 400
         self.L_enc      = L_enc
         PAM_DIM         = 96   # 3路 × 32
@@ -196,6 +250,11 @@ class BeatAwareRadar2ECGNet(nn.Module):
 
         # ── Fusion ────────────────────────────────────────────────
         self.fusion = ConformerFusionBlock(4 * C, num_heads=4, dropout=dropout)
+
+        # ── EMD 物理对齐层（Phase C，PA 消融开关）──────────────────
+        # 插入 Fusion 之后、Decoder 之前；use_emd=False 时为恒等映射
+        if use_emd:
+            self.emd = EMDAlignLayer(4 * C, max_delay=emd_max_delay)
 
         # ── Decoder（stride=2 上采样 × 2：400 → 800 → 1600）───────
         self.up1   = nn.ConvTranspose1d(4 * C, 2 * C, kernel_size=4, stride=2, padding=1)
@@ -288,6 +347,10 @@ class BeatAwareRadar2ECGNet(nn.Module):
 
         # ── Fusion ────────────────────────────────────────────────
         h = self.fusion(h)
+
+        # ── EMD 物理对齐（use_emd=True 时修正电-机械延迟）─────────
+        if self.use_emd:
+            h = self.emd(h)
 
         # ── Decoder ──────────────────────────────────────────────
         h = F.relu(self.up1(h))    # (B, 2C, 800)

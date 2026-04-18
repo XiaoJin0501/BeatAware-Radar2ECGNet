@@ -104,6 +104,8 @@ def train_one_fold(cfg: Config, fold: int) -> None:
         d_state=cfg.d_state,
         dropout=cfg.dropout,
         use_pam=cfg.use_pam,
+        use_emd=cfg.use_emd,
+        emd_max_delay=cfg.emd_max_delay,
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
