@@ -60,9 +60,10 @@ class PeakAuxiliaryModule(nn.Module):
             self.spec_bn   = nn.BatchNorm2d(pam_total)
         else:
             # 多尺度卷积（k=7, 15, 31，padding=k//2 保持长度）
+            # V2: in_channels=3（原始 + 速度 + 加速度三通道导数输入）
             kernels = [7, 15, 31]
             self.ms_convs = nn.ModuleList([
-                nn.Conv1d(1, pam_channels, kernel_size=k, padding=k // 2, bias=True)
+                nn.Conv1d(3, pam_channels, kernel_size=k, padding=k // 2, bias=True)
                 for k in kernels
             ])
             self.ms_bns = nn.ModuleList([
@@ -88,7 +89,7 @@ class PeakAuxiliaryModule(nn.Module):
         Parameters
         ----------
         x : Tensor
-            '1d'  : (B, 1, L)
+            '1d'  : (B, 3, L)  — [原始, 速度, 加速度] 三通道（V2 derivative encoder）
             'spec': (B, 1, F_spec, T_spec)
 
         Returns

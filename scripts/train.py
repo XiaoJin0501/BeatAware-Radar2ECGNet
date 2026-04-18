@@ -84,9 +84,14 @@ def train_one_fold(cfg: Config, fold: int) -> None:
     logger.info(f"Model params: {n_params:,}")
 
     # ── Loss / Optimizer / Scheduler ─────────────────────────────────────
-    criterion = TotalLoss(alpha=cfg.alpha, beta=cfg.beta)
+    criterion = TotalLoss(
+        alpha_stft=cfg.alpha_stft,
+        warmup_epochs=cfg.warmup_epochs,
+    ).to(device)
+    # log_vars 是可学习参数，须纳入 optimizer（与模型参数共享 lr 和 weight_decay）
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay
+        list(model.parameters()) + list(criterion.parameters()),
+        lr=cfg.lr, weight_decay=cfg.weight_decay,
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=cfg.epochs, eta_min=cfg.lr * 1e-2
@@ -98,10 +103,9 @@ def train_one_fold(cfg: Config, fold: int) -> None:
     early_stop_count = 0
     global_step      = 0
     history          = []
-
     for epoch in range(1, cfg.epochs + 1):
         model.train()
-        epoch_losses = {"total": 0.0, "time": 0.0, "freq": 0.0, "peak": 0.0}
+        epoch_losses = {"total": 0.0, "recon": 0.0, "time": 0.0, "freq": 0.0, "peak": 0.0, "der": 0.0}
         t0 = time.time()
 
         for batch in train_loader:
@@ -111,7 +115,7 @@ def train_one_fold(cfg: Config, fold: int) -> None:
 
             optimizer.zero_grad()
             ecg_pred, peak_pred = model(radar)
-            losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt)
+            losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt, epoch=epoch)
 
             # NaN/Inf 保护：SSM 偶发数值爆炸时跳过该 batch，不让训练崩溃
             if not torch.isfinite(losses["total"]):
@@ -137,6 +141,14 @@ def train_one_fold(cfg: Config, fold: int) -> None:
         n_batches = len(train_loader)
         avg_train = {k: v / n_batches for k, v in epoch_losses.items()}
         logger.log_dict(avg_train, step=epoch, prefix=f"fold{fold}/train_epoch")
+
+        # log_vars 权重轨迹（adaptive loss weights）
+        lv = criterion.log_vars.detach().cpu()
+        precision = (0.5 * torch.exp(-lv)).tolist()
+        logger.log_dict(
+            {"recon": precision[0], "peak": precision[1], "der": precision[2]},
+            step=epoch, prefix=f"fold{fold}/loss_weight",
+        )
 
         # ── Validation ────────────────────────────────────────────────────
         hist_row: dict = {"epoch": epoch, **avg_train}
@@ -218,7 +230,7 @@ def evaluate(
             rpeak_gt = batch["rpeak"].to(device)
 
             ecg_pred, peak_pred = model(radar)
-            losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt)
+            losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt, epoch=epoch)
             total_loss += losses["total"].item()
 
             all_pred.append(ecg_pred.cpu())

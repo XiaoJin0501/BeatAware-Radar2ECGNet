@@ -25,9 +25,9 @@ class Config:
     use_pam:     bool  = True
     dropout:     float = 0.1
 
-    # ── Loss 权重 ─────────────────────────────────────────────────────────
-    alpha:       float = 0.05    # L_freq 权重（待消融确定）
-    beta:        float = 1.0     # L_peak 权重（待消融确定）
+    # ── Loss 权重（V2 自适应加权，alpha/beta 由 log_vars 取代）─────────────
+    alpha_stft:     float = 0.1  # STFT loss 在 L_recon 内的固定权重
+    warmup_epochs:  int   = 5    # 前 N epoch 只训练 L_recon，log_vars 解冻后开始自适应
 
     # ── 训练 ──────────────────────────────────────────────────────────────
     epochs:       int   = 150

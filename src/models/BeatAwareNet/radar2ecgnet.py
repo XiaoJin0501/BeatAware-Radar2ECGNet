@@ -180,9 +180,10 @@ class BeatAwareRadar2ECGNet(nn.Module):
         # ── Encoder / Adapter ─────────────────────────────────────
         if input_type in ("raw", "phase"):
             # Multi-scale Conv1d (k=3,5,7,9, stride=4)
+            # V2: in_channels=3（原始 + 速度 + 加速度）
             # 1600 → 400（padding=k//2 保证各核输出等长）
             self.enc_convs = nn.ModuleList([
-                nn.Conv1d(1, C, kernel_size=k, padding=k // 2, stride=4, bias=False)
+                nn.Conv1d(3, C, kernel_size=k, padding=k // 2, stride=4, bias=False)
                 for k in [3, 5, 7, 9]
             ])
             self.enc_bns = nn.ModuleList([nn.BatchNorm1d(C) for _ in range(4)])
@@ -208,7 +209,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
         """
         Multi-scale Conv1d Encoder with per-branch TFiLM injection.
 
-        x     : (B, 1, L)
+        x     : (B, 3, L)  — [原始, 速度, 加速度] 三通道（V2 derivative encoder）
         gamma : (B, 4C) → reshape → (B, 4, C, 1)
         beta  : (B, 4C) → reshape → (B, 4, C, 1)
         Returns: (B, 4C, L_enc)
@@ -253,10 +254,21 @@ class BeatAwareRadar2ECGNet(nn.Module):
         ecg_pred  : Tensor, (B, 1, L) — 重建 ECG，值域 [0, 1]
         peak_mask : Tensor, (B, 1, L) — R峰软标签预测，值域 [0, 1]
         """
+        # ── V2 导数感知输入（仅 1D 路径）────────────────────────────
+        # 对 radar_phase（带通滤波后）计算一阶速度和二阶加速度，
+        # 拼接为 3 通道输入，突出 QRS 复合波的瞬时爆发点。
+        # spec 路径保持原始 (B, 1, F, T)，不做 diff。
+        if self.input_type in ("raw", "phase"):
+            v = torch.diff(x, dim=-1, prepend=x[:, :, :1])   # [B,1,1600] 速度
+            a = torch.diff(v, dim=-1, prepend=v[:, :, :1])   # [B,1,1600] 加速度
+            x_input = torch.cat([x, v, a], dim=1)            # [B,3,1600]
+        else:
+            x_input = x   # spec 路径不变
+
         # ── PAM + TFiLM（use_pam=False 时跳过，gamma/beta 置零 = 恒等映射）──
         if self.use_pam:
-            peak_mask, rhythm_vec = self.pam(x)        # (B,1,L), (B,96)
-            gamma, beta = self.tfilm_gen(rhythm_vec)   # each (B, 4C)
+            peak_mask, rhythm_vec = self.pam(x_input)     # (B,1,L), (B,96)
+            gamma, beta = self.tfilm_gen(rhythm_vec)       # each (B, 4C)
         else:
             peak_mask = None
             gamma = x.new_zeros(x.size(0), 4 * self.C)
@@ -264,9 +276,9 @@ class BeatAwareRadar2ECGNet(nn.Module):
 
         # ── Encoder ──────────────────────────────────────────────
         if self.input_type in ("raw", "phase"):
-            enc = self._encode_1d(x, gamma, beta)     # (B, 4C, L_enc)
+            enc = self._encode_1d(x_input, gamma, beta)   # (B, 4C, L_enc)
         else:
-            enc = self._encode_spec(x, gamma, beta)   # (B, 4C, L_enc)
+            enc = self._encode_spec(x_input, gamma, beta) # (B, 4C, L_enc)
 
         # ── Bottleneck ────────────────────────────────────────────
         h = self.mamba1(enc)
