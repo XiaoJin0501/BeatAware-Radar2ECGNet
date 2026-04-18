@@ -43,7 +43,9 @@ logger = logging.getLogger(__name__)
 
 WINDOW_LEN = 1600    # 8s @ 200Hz
 STRIDE = 800         # 50% 重叠
-GAUSSIAN_SIGMA = 5.0
+GAUSSIAN_SIGMA   = 5.0   # R 峰（QRS），25ms @ 200Hz
+PWAVE_SIGMA      = 10.0  # P 波，50ms @ 200Hz
+TWAVE_SIGMA      = 15.0  # T 波，75ms @ 200Hz
 TARGET_FS = 200
 N_FOLDS = 5
 RANDOM_SEED = 42
@@ -102,22 +104,48 @@ def generate_rpeak_segments(
     signal_len: int,
 ) -> np.ndarray:
     """
-    对整段信号的 R峰生成高斯Mask，再滑窗分段。
+    对整段信号的 R峰生成高斯Mask（σ=5），再滑窗分段。
+
+    Returns ndarray, shape (N, WINDOW_LEN), float32
+    """
+    full_mask = generate_gaussian_mask(rpeak_indices, signal_len, sigma=GAUSSIAN_SIGMA)
+    return segment_signal(full_mask)
+
+
+def generate_wave_segments(
+    wave_indices: np.ndarray,
+    signal_len: int,
+    sigma: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    对 P/T 波峰生成高斯 Mask 并分段，同时返回每段的有效性标志。
+
+    有效性定义：该段内存在 ≥1 个波峰（对应 ecg_delineate 成功的段）。
 
     Parameters
     ----------
-    rpeak_indices : ndarray, shape (M,)
-        R峰在整段信号（200Hz）中的全局索引
-    signal_len : int
-        信号总长度
+    wave_indices : ndarray, shape (M,)  波峰全局索引
+    signal_len   : int                   信号总长度
+    sigma        : float                 高斯标准差
 
     Returns
     -------
-    ndarray, shape (N, WINDOW_LEN), float32
+    segs  : ndarray, shape (N, WINDOW_LEN), float32  高斯 Mask 分段
+    valid : ndarray, shape (N,),            bool     每段是否有效
     """
-    full_mask = generate_gaussian_mask(rpeak_indices, signal_len, sigma=GAUSSIAN_SIGMA)
-    segs = segment_signal(full_mask)
-    return segs
+    full_mask = generate_gaussian_mask(wave_indices, signal_len, sigma=sigma)
+    segs  = segment_signal(full_mask)
+
+    # 计算每段内的有效性（对应 wave_indices 落在该段范围内的数量）
+    N = len(segs)
+    valid = np.zeros(N, dtype=bool)
+    wave_indices = np.asarray(wave_indices, dtype=np.int64)
+    for seg_i in range(N):
+        start = seg_i * STRIDE
+        end   = start + WINDOW_LEN
+        valid[seg_i] = np.any((wave_indices >= start) & (wave_indices < end))
+
+    return segs, valid
 
 
 def segment_spec(spec: np.ndarray) -> np.ndarray:
@@ -201,19 +229,42 @@ def process_scenario(
 
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    np.save(save_dir / "radar_raw.npy",   raw_segs[:, np.newaxis, :])    # (N,1,1600)
-    np.save(save_dir / "radar_phase.npy", phase_segs[:, np.newaxis, :])  # (N,1,1600)
+    np.save(save_dir / "radar_raw.npy",   raw_segs[:, np.newaxis, :])       # (N,1,1600)
+    np.save(save_dir / "radar_phase.npy", phase_segs[:, np.newaxis, :])     # (N,1,1600)
     np.save(save_dir / "ecg.npy",         ecg_segs_norm[:, np.newaxis, :])  # (N,1,1600)
-    np.save(save_dir / "rpeak.npy",       rpeak_segs[:, np.newaxis, :])  # (N,1,1600)
+    np.save(save_dir / "rpeak.npy",       rpeak_segs[:, np.newaxis, :])     # (N,1,1600)
 
-    # STFT spec: 整段保存（N个分段共享同一个spec，在dataset.py按需截取）
-    # 这里为了与其他NPY对齐，每个分段截取对应的时间帧
-    # spec形状 (3, F, T)，T对应整段信号
-    # 简单处理：将spec按时间轴分段，每段取对应时间帧
     _save_spec_segments(radar_spec_input, min_len, N, save_dir, fname="radar_spec_input.npy")
     _save_spec_segments(radar_spec_loss,  min_len, N, save_dir, fname="radar_spec_loss.npy")
 
-    logger.info(f"  {save_dir.parent.name}/{save_dir.name}: {N}个分段")
+    # ── P/T 波 Mask（可选，需 step2b_delineate.py 已运行）──────────────
+    pwave_idx_path = scenario_dir / "pwave_indices.npy"
+    twave_idx_path = scenario_dir / "twave_indices.npy"
+    if pwave_idx_path.exists() and twave_idx_path.exists():
+        pwave_indices = np.load(pwave_idx_path)
+        twave_indices = np.load(twave_idx_path)
+
+        pwave_segs, pwave_valid = generate_wave_segments(
+            pwave_indices, min_len, sigma=PWAVE_SIGMA
+        )
+        twave_segs, twave_valid = generate_wave_segments(
+            twave_indices, min_len, sigma=TWAVE_SIGMA
+        )
+
+        np.save(save_dir / "pwave.npy",       pwave_segs[:, np.newaxis, :])  # (N,1,1600)
+        np.save(save_dir / "twave.npy",       twave_segs[:, np.newaxis, :])  # (N,1,1600)
+        np.save(save_dir / "pwave_valid.npy", pwave_valid)                   # (N,)  bool
+        np.save(save_dir / "twave_valid.npy", twave_valid)                   # (N,)  bool
+
+        n_pvalid = pwave_valid.sum()
+        n_tvalid = twave_valid.sum()
+        logger.info(
+            f"  {save_dir.parent.name}/{save_dir.name}: {N}段 | "
+            f"P波有效={n_pvalid}/{N} | T波有效={n_tvalid}/{N}"
+        )
+    else:
+        logger.info(f"  {save_dir.parent.name}/{save_dir.name}: {N}段（无P/T波，请运行step2b）")
+
     return N
 
 

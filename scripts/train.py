@@ -32,6 +32,32 @@ from src.utils.seeding import set_seed
 
 
 # =============================================================================
+# 辅助：构建 peak_gts dict
+# =============================================================================
+
+def _build_peak_gts(batch: dict, rpeak_gt: torch.Tensor, device: torch.device) -> dict:
+    """
+    从 batch 中整理多头 PAM 所需的 GT 字典。
+
+    batch 中 'pwave'/'twave'/'pwave_valid'/'twave_valid' 在
+    dataset.py 里始终存在（step2b 未运行时为零 tensor + valid=False）。
+    """
+    gts = {"qrs": rpeak_gt}
+
+    pwave_gt    = batch["pwave"].to(device)      # (B,1,1600)
+    twave_gt    = batch["twave"].to(device)      # (B,1,1600)
+    pwave_valid = batch["pwave_valid"].to(device) # (B,) bool
+    twave_valid = batch["twave_valid"].to(device) # (B,) bool
+
+    gts["p"]       = pwave_gt
+    gts["t"]       = twave_gt
+    gts["p_valid"] = pwave_valid
+    gts["t_valid"] = twave_valid
+
+    return gts
+
+
+# =============================================================================
 # 单 Fold 训练
 # =============================================================================
 
@@ -105,17 +131,23 @@ def train_one_fold(cfg: Config, fold: int) -> None:
     history          = []
     for epoch in range(1, cfg.epochs + 1):
         model.train()
-        epoch_losses = {"total": 0.0, "recon": 0.0, "time": 0.0, "freq": 0.0, "peak": 0.0, "der": 0.0}
+        epoch_losses = {
+            "total": 0.0, "recon": 0.0, "time": 0.0,
+            "freq": 0.0, "peak": 0.0, "der": 0.0, "interval": 0.0,
+        }
         t0 = time.time()
 
         for batch in train_loader:
-            radar   = batch["radar"].to(device)
-            ecg_gt  = batch["ecg"].to(device)
+            radar    = batch["radar"].to(device)
+            ecg_gt   = batch["ecg"].to(device)
             rpeak_gt = batch["rpeak"].to(device)
 
+            # P/T 波 GT（V2 多头 PAM，需 step2b 预处理）
+            peak_gts = _build_peak_gts(batch, rpeak_gt, device)
+
             optimizer.zero_grad()
-            ecg_pred, peak_pred = model(radar)
-            losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt, epoch=epoch)
+            ecg_pred, peak_preds = model(radar)
+            losses = criterion(ecg_pred, ecg_gt, peak_preds, peak_gts, epoch=epoch)
 
             # NaN/Inf 保护：SSM 偶发数值爆炸时跳过该 batch，不让训练崩溃
             if not torch.isfinite(losses["total"]):
@@ -142,11 +174,14 @@ def train_one_fold(cfg: Config, fold: int) -> None:
         avg_train = {k: v / n_batches for k, v in epoch_losses.items()}
         logger.log_dict(avg_train, step=epoch, prefix=f"fold{fold}/train_epoch")
 
-        # log_vars 权重轨迹（adaptive loss weights）
+        # log_vars 权重轨迹（adaptive loss weights，4 tasks）
         lv = criterion.log_vars.detach().cpu()
         precision = (0.5 * torch.exp(-lv)).tolist()
         logger.log_dict(
-            {"recon": precision[0], "peak": precision[1], "der": precision[2]},
+            {
+                "recon": precision[0], "peak": precision[1],
+                "der":   precision[2], "interval": precision[3],
+            },
             step=epoch, prefix=f"fold{fold}/loss_weight",
         )
 
@@ -228,9 +263,10 @@ def evaluate(
             radar    = batch["radar"].to(device)
             ecg_gt   = batch["ecg"].to(device)
             rpeak_gt = batch["rpeak"].to(device)
+            peak_gts = _build_peak_gts(batch, rpeak_gt, device)
 
-            ecg_pred, peak_pred = model(radar)
-            losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt, epoch=epoch)
+            ecg_pred, peak_preds = model(radar)
+            losses = criterion(ecg_pred, ecg_gt, peak_preds, peak_gts, epoch=epoch)
             total_loss += losses["total"].item()
 
             all_pred.append(ecg_pred.cpu())

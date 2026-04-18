@@ -251,8 +251,9 @@ class BeatAwareRadar2ECGNet(nn.Module):
 
         Returns
         -------
-        ecg_pred  : Tensor, (B, 1, L) — 重建 ECG，值域 [0, 1]
-        peak_mask : Tensor, (B, 1, L) — R峰软标签预测，值域 [0, 1]
+        ecg_pred   : Tensor, (B, 1, L) — 重建 ECG，值域 [0, 1]
+        peak_masks : tuple (qrs_mask, p_mask, t_mask) 各 (B,1,L) | None
+                     use_pam=False 时为 None
         """
         # ── V2 导数感知输入（仅 1D 路径）────────────────────────────
         # 对 radar_phase（带通滤波后）计算一阶速度和二阶加速度，
@@ -267,10 +268,11 @@ class BeatAwareRadar2ECGNet(nn.Module):
 
         # ── PAM + TFiLM（use_pam=False 时跳过，gamma/beta 置零 = 恒等映射）──
         if self.use_pam:
-            peak_mask, rhythm_vec = self.pam(x_input)     # (B,1,L), (B,96)
+            # V2: PAM 返回 3 路峰值 Mask 元组 + 节律向量
+            peak_masks, rhythm_vec = self.pam(x_input)    # (qrs,p,t), (B,96)
             gamma, beta = self.tfilm_gen(rhythm_vec)       # each (B, 4C)
         else:
-            peak_mask = None
+            peak_masks = None
             gamma = x.new_zeros(x.size(0), 4 * self.C)
             beta  = x.new_zeros(x.size(0), 4 * self.C)
 
@@ -292,7 +294,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
         h = F.relu(self.up2(h))    # (B,  C, 1600)
         ecg_pred = torch.sigmoid(self.final(h))   # (B, 1, 1600)
 
-        return ecg_pred, peak_mask
+        return ecg_pred, peak_masks
 
 
 # =============================================================================
@@ -316,23 +318,23 @@ if __name__ == "__main__":
     for input_type in ["raw", "phase", "spec"]:
         model = BeatAwareRadar2ECGNet(input_type=input_type, C=64, use_pam=True).to(device)
         x = torch.randn(2, 1, 33, 196).to(device) if input_type == "spec" else torch.randn(2, 1, 1600).to(device)
-        ecg_pred, peak_mask = model(x)
-        assert ecg_pred.shape  == (2, 1, 1600)
-        assert peak_mask.shape == (2, 1, 1600)
+        ecg_pred, peak_masks = model(x)
+        qrs, p, t = peak_masks
+        assert ecg_pred.shape == (2, 1, 1600)
+        assert qrs.shape == p.shape == t.shape == (2, 1, 1600)
         assert ecg_pred.min() >= 0.0 and ecg_pred.max() <= 1.0
-        assert peak_mask.min() >= 0.0 and peak_mask.max() <= 1.0
-        print(f"  [PAM=True , {input_type}] ECG={ecg_pred.shape}, Mask={peak_mask.shape}, "
+        print(f"  [PAM=True , {input_type}] ECG={ecg_pred.shape}, QRS/P/T={qrs.shape}, "
               f"Params={count_parameters(model):,}")
 
     # use_pam=False（Exp A 基线）
     for input_type in ["raw", "phase", "spec"]:
         model = BeatAwareRadar2ECGNet(input_type=input_type, C=64, use_pam=False).to(device)
         x = torch.randn(2, 1, 33, 196).to(device) if input_type == "spec" else torch.randn(2, 1, 1600).to(device)
-        ecg_pred, peak_mask = model(x)
+        ecg_pred, peak_masks = model(x)
         assert ecg_pred.shape == (2, 1, 1600)
-        assert peak_mask is None, "use_pam=False 时 peak_mask 应为 None"
+        assert peak_masks is None, "use_pam=False 时 peak_masks 应为 None"
         assert ecg_pred.min() >= 0.0 and ecg_pred.max() <= 1.0
-        print(f"  [PAM=False, {input_type}] ECG={ecg_pred.shape}, Mask=None, "
+        print(f"  [PAM=False, {input_type}] ECG={ecg_pred.shape}, Masks=None, "
               f"Params={count_parameters(model):,}")
 
     print("All shape checks passed.")
