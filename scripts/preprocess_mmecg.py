@@ -101,9 +101,9 @@ def process_record(rcg_raw: np.ndarray, ecg_raw: np.ndarray,
     ecg_bp = bandpass(ecg_1d, lo=0.5, hi=40.0)
 
     # 对 RCG 每个 range bin 做宽带滤波（0.5–40 Hz）
-    # 保留全频段信息供模型学习，FMCWRangeEncoder 内部的 temporal_filter
-    # 会自适应地学习聚焦心脏频段。窄带滤波（0.8-3.5Hz）会使模型无法
-    # 重建 ECG 的高频 QRS 形态，导致 STFT 损失无法收敛。
+    # 宽带保留 RCG 中的心脏时序信息（含相位），模型从中学习向完整ECG的映射。
+    # 窄带(0.8-3.5Hz)虽然提升低频相关性，但会去除波形形态的高频信息，
+    # 导致模型无法重建ECG的QRS形态，实际表现更差。
     rcg_T  = rcg_raw.T.astype(np.float64)            # (50, T)
     rcg_bp = bandpass(rcg_T, lo=0.5, hi=40.0)        # (50, T)
 

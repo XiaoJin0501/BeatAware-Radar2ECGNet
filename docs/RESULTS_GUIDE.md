@@ -1,10 +1,12 @@
 # 实验结果解读指南
 
-本文件说明 `experiments/` 目录的结构、每个输出文件的含义、指标的解读方式，以及消融实验结果的横向比较方法。
+本文件说明 `experiments/` 和 `experiments_mmecg/` 目录的结构、每个输出文件的含义、指标的解读方式，以及消融实验结果的横向比较方法。
 
 ---
 
 ## 一、目录结构
+
+### 1.1 Schellenberger 实验（`experiments/`）
 
 每次运行 `scripts/train.py` + `scripts/test.py` 后，会在 `experiments/<EXP_TAG>/` 下生成：
 
@@ -16,7 +18,7 @@ experiments/
     ├── test_summary.json              ← 同上，JSON 格式（方便程序读取）
     └── fold_0/                        ← 每个 fold 独立目录
         ├── checkpoints/
-        │   └── best.pt                ← 在 val_mae 最低的 epoch 保存
+        │   └── best.pt                ← 在 val_pcc 最高的 epoch 保存
         ├── logs/
         │   ├── train.log              ← 文字日志（每 epoch 一行）
         │   └── events.out.tfevents.*  ← TensorBoard 事件文件
@@ -28,6 +30,39 @@ experiments/
             └── sample_predictions.png        ← 前 8 个样本 GT vs Pred + 功率谱对比图
 ```
 
+### 1.2 MMECG 实验（`experiments_mmecg/`）
+
+每次运行 `scripts/train_mmecg.py` + `scripts/test_mmecg.py` 后，会在 `experiments_mmecg/<EXP_TAG>/` 下生成：
+
+```
+experiments_mmecg/
+└── <EXP_TAG>/                         ← 如 mmecg_G
+    ├── summary_loso.json              ← 11折 LOSO 汇总（test_mmecg.py 生成）
+    └── fold_0/                        ← 每折（0~10）独立目录
+        ├── config.json                ← 本折的完整超参配置
+        ├── checkpoints/
+        │   └── best.pt                ← 在 val_pcc 最高的 epoch 保存
+        ├── logs/
+        │   └── train.log              ← 文字日志（每 epoch 一行）
+        └── results/
+            ├── train_history.json     ← 每 epoch 的 train/val 指标序列
+            └── test_metrics.json      ← 该折测试指标（含 per-state 细分）
+```
+
+**`summary_loso.json` 结构**：
+```json
+{
+  "pcc_mean": 0.72, "pcc_std": 0.08,
+  "mae_mean": 0.08, "mae_std": 0.01,
+  "f1_mean":  0.85, "f1_std":  0.05,
+  "per_fold": [...],
+  "per_state_summary": {
+    "NB": {"pcc_mean": 0.75, "pcc_std": 0.07, ...},
+    "IB": {...}, "SP": {...}, "PE": {...}
+  }
+}
+```
+
 ---
 
 ## 二、指标含义与解读
@@ -36,24 +71,22 @@ experiments/
 
 | 指标 | 公式 | 解读 | 目标方向 |
 |------|------|------|---------|
+| **PCC** | Pearson 相关系数 | 波形整体形态相似度，0=无关，1=完美，通常 >0.85 视为良好 | 越大越好，目标 >0.85 |
 | **MAE** | `mean(|pred - gt|)` | ECG 归一化到 [0,1]，MAE=0.05 意味着时域逐点平均误差 5% | 越小越好 |
 | **RMSE** | `sqrt(mean((pred-gt)²))` | 对大误差（如 QRS 峰偏差）惩罚更重 | 越小越好 |
-| **PCC** | Pearson 相关系数 | 波形整体形态相似度，0=无关，1=完美，通常 >0.85 视为良好 | 越大越好，目标 >0.85 |
 | **PRD** | `sqrt(Σ(p-g)²/Σg²)×100%` | ECG 领域标准，<10% 被认为重建质量良好，>20% 明显失真 | 越小越好，目标 <10% |
 
-> **smoke_test 参考值**（2 epochs，未充分训练）：
-> - Epoch 1: MAE=0.099, PCC=0.641, PRD=60%
-> - Epoch 2: MAE=0.086, PCC=0.685, PRD=54%
+> **MMECG 早期训练参考值（fold 0，epoch 5 附近）**：
+> - PCC ≈ 0.49（mmecg_D，有 ReLU bug）
+> - PCC 预期提升到 0.65+ （GELU 修复后，mmecg_G）
 >
-> PRD 在早期偏高是正常的，充分训练后预期 PRD 降至 10–20% 区间。
+> SOTA（radarODE，SST + Neural ODE）在 MMECG 上 PCC ≈ 0.89。
 
 ### 2.2 峰值检测指标
 
 | 指标 | 含义 | 解读 | 目标方向 |
 |------|------|------|---------|
 | **R-peak F1** | 在重建 ECG 上用 NeuroKit2 重检 R 峰，与 GT 比对，容忍 ±25ms（±5 samples @200Hz）| 0=完全检测失败，1=完美；F1>0.9 视为临床可用 | 越大越好，目标 >0.90 |
-
-> **R-peak F1 的前提**：重建波形的 QRS 峰形态须足够清晰，NeuroKit2 才能准确检测。早期训练 F1 偏低是正常的。smoke_test epoch 2 达到 0.779，说明波形已有基本 QRS 形态。
 
 ### 2.3 高级指标（仅 test.py 最终评估时计算，不在训练 val 中计算）
 
@@ -64,16 +97,6 @@ experiments/
 | **qrs_width_mae** | QRS 波群时限（QRS onset → J-point）的平均绝对误差，反映心室除极持续时间 | ms | 越小越好 |
 | **qt_interval_mae** | QT 间期（QRS onset → T-wave end）的平均绝对误差，与心室复极和心律失常风险相关 | ms | 越小越好 |
 | **pr_interval_mae** | PR 间期（P-wave onset → R-peak）的平均绝对误差，反映房室传导时间 | ms | 越小越好 |
-
-**实现方式**：
-- DTW：`compute_dtw_metric(max_samples=500)` 随机采样最多 500 条，防止全量计算过久
-- RR interval：NeuroKit2 `ecg_peaks` 检测，取 `mean(diff(peaks)) / fs * 1000`
-- QRS / QT / PR：NeuroKit2 DWT delineation（`ecg_delineate(method="dwt")`），一次调用提取所有波界点：
-  - `ECG_R_Onsets` = QRS 起始点（Q 波前）
-  - `ECG_R_Offsets` = QRS 终止点（J 点）
-  - `ECG_T_Offsets` = T 波终点
-  - `ECG_P_Onsets`  = P 波起始点
-- 所有间期误差单位均为 **ms**（对应论文表格中的临床参考值范围）
 
 **临床参考值范围**（正常成人）：
 | 间期 | 正常范围 |
@@ -91,15 +114,16 @@ experiments/
 
 每 epoch 一行，格式：
 ```
-Epoch   1/150 | train_loss=0.3902 | val_mae=0.0994 | val_pcc=0.6409 | lr=5.05e-05 | 806.9s
-  -> Best checkpoint saved (val_mae=0.0994)
+2026-04-26 02:05:45 [INFO] Epoch  40/150 | train_loss=0.2312 | val_loss=0.3041 |
+  val_pcc=0.5218 | val_mae=0.0724 | val_f1=0.8123 | lr=8.5e-05 | 28.3s
+  -> Best checkpoint saved (val_pcc=0.5218)
 ```
 
-- `train_loss`：训练集上 `L_total = L_time + α·L_freq + β·L_peak` 的均值
-- `val_mae`：验证集时域 MAE（**best checkpoint 的选择依据**）
-- `val_pcc`：验证集 Pearson 相关系数
+- `train_loss`：训练集上 `L_total = Σ [ 0.5·exp(-log_var_i)·L_i + 0.5·log_var_i ]` 的均值
+- `val_pcc`：验证集 Pearson 相关系数（**MMECG best checkpoint 的选择依据**）
+- `val_mae`：验证集时域 MAE
+- `val_f1`：验证集 R峰 F1（NeuroKit2 重检）
 - `lr`：当前学习率（CosineAnnealingLR 衰减）
-- `806.9s`：本 epoch 耗时（约 13 分钟/epoch @RTX 4080 Super，150 epochs ≈ 32 小时）
 
 ### 3.2 `train_history.json`
 
@@ -108,22 +132,80 @@ Epoch   1/150 | train_loss=0.3902 | val_mae=0.0994 | val_pcc=0.6409 | lr=5.05e-0
 [
   {
     "epoch": 1,
-    "total": 0.390,   // 总 loss
-    "time":  0.114,   // L_time（MAE）分量
-    "freq":  0.558,   // L_freq（STFT）分量
-    "peak":  0.248,   // L_peak（BCE）分量
-    "val_mae":  0.099,
-    "val_rmse": 0.140,
-    "val_pcc":  0.641,
-    "val_prd":  60.0,
-    "val_rpeak_f1": 0.779,  // 仅在 --f1_every 指定的 epoch 出现
-    "val_loss": 0.338
+    "train_loss": 0.390,
+    "val_pcc":  0.48,
+    "val_mae":  0.094,
+    "val_f1":   0.71,
+    "val_loss": 0.338,
+    "lr": 1.0e-4
   },
   ...
 ]
 ```
 
-### 3.3 `test_summary.csv`
+### 3.3 MMECG `test_metrics.json`（per-fold）
+
+```json
+{
+  "pcc": 0.72,
+  "mae": 0.078,
+  "rmse": 0.103,
+  "prd": 9.8,
+  "f1": 0.87,
+  "test_subject": 1,
+  "n_samples": 344,
+  "per_state": {
+    "NB": {"pcc": 0.75, "mae": 0.072, "f1": 0.88, "n_samples": 344},
+    "IB": {"pcc": 0.68, "mae": 0.085, "f1": 0.82, "n_samples": 0}
+  }
+}
+```
+
+**注意**：fold 0 的测试集是 subject_1，该受试者只有 344 个窗口且只有 NB 状态。折间性能差异可能很大，需看 11 折均值。
+
+### 3.4 MMECG `summary_loso.json`（11折汇总）
+
+论文中上报的数字 = `pcc_mean`、`f1_mean` 等均值 ± 标准差。
+
+---
+
+## 四、MMECG LOSO 评估注意事项
+
+### 4.1 折间差异来源
+
+LOSO 设计中每折测试集只有 1 个受试者，导致折间性能差异天然很大：
+
+| 来源 | 影响 |
+|------|------|
+| 受试者个体差异 | 不同受试者胸壁厚度/体位不同，RCG-ECG 相关性不同 |
+| 窗口数差异 | 各受试者录音数量不同，窗口数从 ~344 到 ~1000+ 不等 |
+| 状态分布 | 某些受试者只有 NB 状态，某些有 4 种状态 |
+
+**结论**：单折 PCC 不代表模型整体性能，必须看 11 折均值 ± 标准差。
+
+### 4.2 当前训练诊断历史
+
+| 实验 | 配置 | fold 0 PCC | 问题 |
+|------|------|-----------|------|
+| mmecg_D | 0.5-40Hz + ReLU bug | 0.49 (epoch5) | ReLU 截断负半周期 |
+| mmecg_E | STFT + 2D Conv | 0.21-0.35 | STFT幅度谱是能量包络，丢失时间精细结构 |
+| mmecg_F | 0.8-3.5Hz 窄带 | ~0 | 窄带去除 QRS 高频形态，模型无法重建 |
+| **mmecg_G** | **0.5-40Hz + GELU 修复** | **TBD（训练中）** | **当前最优配置** |
+
+### 4.3 per-state 指标解读
+
+| 状态 | 预期难度 | 原因 |
+|------|---------|------|
+| NB（正常呼吸）| 最易 | 呼吸规律，RCG 信噪比最高 |
+| IB（不规则呼吸）| 中等 | 呼吸变化引入时域扰动 |
+| SP（坐位）| 中等 | 体位改变影响 range bin 选择 |
+| PE（运动后）| 最难 | 心率加快，运动伪影 |
+
+---
+
+## 五、各输出文件解读（Schellenberger）
+
+### 5.1 `test_summary.csv`
 
 `test.py` 评估全部 5 folds 后生成，最后一行是 5-fold 均值：
 
@@ -139,7 +221,7 @@ mean, 0.081, 0.106, 0.71,  9.8,    0.83,     0.29
 
 **论文中上报的数字 = `mean` 行的各指标。**
 
-### 3.4 `sample_predictions.png`
+### 5.2 `sample_predictions.png`
 
 前 8 个验证样本的 GT（蓝色）vs 模型预测（红色）波形对比图，横轴为时间（秒），纵轴为归一化幅度 [0,1]。
 
@@ -151,70 +233,53 @@ mean, 0.081, 0.106, 0.71,  9.8,    0.83,     0.29
 
 ---
 
-## 四、当前结果粒度的局限性
+## 六、消融实验横向比较
 
-**当前 `test.py` 的指标粒度：fold 级别（混合所有受试者和场景）**
+### 6.1 MMECG 消融（计划）
 
-```
-Val fold 0 = {GDN0005, GDN0012, GDN0019, GDN0027, GDN0030}
-             × {resting, valsalva, apnea}
-             的所有 segments 混合 → 一个均值
-```
+| Exp | 配置 | PCC (11-fold 均值) | 备注 |
+|-----|------|------------------|------|
+| mmecg_G | 完整模型（fmcw+pam+emd）| TBD | 当前训练中 |
+| mmecg_A | fmcw only，无pam，无emd | TBD | 待执行 |
+| mmecg_B | fmcw+pam，无emd | TBD | 待执行 |
+| mmecg_C | fmcw，无pam，emd | TBD | 待执行 |
 
-`__getitem__` 虽然返回 `subject` 和 `scenario` 字段，但目前 `test.py` **未使用这两个字段**，全部混合计算。
+### 6.2 Schellenberger 消融（计划）
 
-**这意味着目前看不到**：
-- 某个受试者特别难/容易（个体差异）
-- resting vs valsalva vs apnea 的性能差异（场景泛化性）
-- D5 实验（仅 resting 训练 → 跨场景泛化）需要 per-scenario 指标
-
-**何时需要补充 per-scenario 粒度**：在完成 Exp B（基础性能验证）之后，进入 D5 实验时需要改 `test.py` 加入按 `scenario` 分组的细分指标。
-
----
-
-## 五、消融实验横向比较（当前缺失）
-
-### 5.1 当前状态
-
-每个 `exp_tag` 只有自己的 `test_summary.csv`，**没有自动跨实验汇总脚本**。
-
-消融实验完成后，各 exp 的 `mean` 行需要手动（或用脚本）拼成论文 Table 2：
-
-| Exp | MAE↓ | RMSE↓ | PCC↑ | PRD↓ | F1↑ |
-|-----|------|-------|------|------|-----|
-| A（基线，无PAM）| - | - | - | - | - |
-| B1（raw）       | - | - | - | - | - |
-| B2（phase）     | - | - | - | - | - |
-| B3（spec）      | - | - | - | - | - |
-| D4（无Conformer）| - | - | - | - | - |
-
-### 5.2 待实现：`scripts/summarize_ablation.py`
-
-计划实现一个汇总脚本，自动读取所有 exp 的 `test_summary.csv` 并输出对比表 + bar chart。实现后更新本文档。
+| Exp | KI | PA | CP | MAE↓ | PCC↑ | F1↑ |
+|-----|:--:|:--:|:--:|------|------|-----|
+| Model A（基线）| ✓ | | | TBD | TBD | TBD |
+| Model B（+PA）| ✓ | ✓ | | TBD | TBD | TBD |
+| Model C（完整）| ✓ | ✓ | ✓ | TBD | TBD | TBD |
 
 ---
 
-## 六、TensorBoard 可视化
+## 七、TensorBoard 可视化
 
 ```bash
 conda activate cyberbrain
+# Schellenberger
 tensorboard --logdir experiments/ --port 6006
-# 浏览器打开 http://localhost:6006
+# MMECG
+tensorboard --logdir experiments_mmecg/ --port 6007
+# 浏览器打开 http://localhost:6006 或 6007
 ```
 
 可查看：
 - 每 step 的 train loss（total / time / freq / peak 分量）
-- 每 epoch 的 val_mae、val_pcc、val_prd、val_rpeak_f1
+- 每 epoch 的 val_pcc、val_mae、val_f1、val_loss
 - 学习率曲线
 
 ---
 
-## 七、快速结果核查 Checklist
+## 八、快速结果核查 Checklist
 
 训练结束后按以下顺序确认结果可信：
 
 - [ ] `train.log`：loss 总体呈下降趋势，无突然暴涨
-- [ ] `train_history.json`：`val_mae` 逐 epoch 下降，无 NaN
-- [ ] `test_summary.csv`：5 fold 之间 MAE 方差不超过 0.01（否则某个 fold 可能有数据问题）
-- [ ] `sample_predictions.png`：QRS 峰与 GT 大致对齐，无全零预测
+- [ ] `train_history.json`：`val_pcc` 总体上升趋势，无 NaN
+- [ ] **MMECG**：`summary_loso.json` 存在，11折均值 PCC 合理
+- [ ] **MMECG**：`per_state` 细分存在，NB 通常最高，PE 通常最低
+- [ ] **Schellenberger**：`test_summary.csv` 的5折 MAE 方差不超过 0.01
+- [ ] `sample_predictions.png`（Schellenberger）：QRS 峰与 GT 大致对齐，无全零预测
 - [ ] `best.pt` 存在：checkpoint 已保存
