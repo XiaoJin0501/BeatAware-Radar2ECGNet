@@ -1,20 +1,14 @@
 """
-losses.py — BeatAware-Radar2ECGNet V2 损失函数
+losses.py — BeatAware-Radar2ECGNet 损失函数
 
-V2 改动（Phase A + Phase B）：
-  1. STFT Loss: plain L1 → 谱收敛 (SC) + 对数幅度 (log-mag) 双项
-  2. L_der：一阶 + 二阶导数 L1，强制 QRS 边界锐化
-  3. L_peak：3 路 BCE（QRS / P / T 波），P/T 波 GT 无效时对应头置零
-  4. L_interval：soft-argmax 提取 PR 间期（@200Hz），施加生理约束
-     PR 正常范围 120-200ms；惩罚超出该范围的重构结果
-  5. 自适应损失权重（同方差不确定性，Kendall & Gal 2018）：
-       L_total = Σ_i [0.5 * exp(-log_var_i) * L_i + 0.5 * log_var_i]
-     log_vars = nn.Parameter(zeros(4))，对应 [L_recon, L_peak, L_der, L_interval]
+L_total = L_recon + beta_peak * L_peak
+  L_recon = L1(pred, gt) + alpha_stft * MultiResSTFT(pred, gt)
+  L_peak  = BCE(qrs_pred, qrs_gt)   [QRS 峰值定位，固定权重]
 
-训练策略：前 warmup_epochs 个 epoch 只优化 L_recon（warm-up），之后解锁全部。
-
-历史（V1）：
-  L_total = L_time + alpha * L_freq + beta * L_peak（手动超参）
+设计原则：
+  - 固定权重，不使用自适应 log_vars（避免目标函数被套利）
+  - 仅监督 QRS 峰（P/T 波 GT 质量不稳定，引入噪声）
+  - MultiResSTFT 使用 SC + log-mag 双项（V2 保留）
 
 STFT 参数（@200Hz）：
     FFT_SIZES   = [128, 256, 512]
@@ -109,91 +103,39 @@ class MultiResolutionSTFTLoss(nn.Module):
 
 
 # =============================================================================
-# 导数损失 L_der
-# =============================================================================
-
-def derivative_loss(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
-    """
-    一阶 + 二阶导数 L1 Loss。
-
-    强制 QRS 波群高频转折点对齐，防止 Q/S 波在 MAE 平滑特性下消失。
-
-    pred, gt : (B, 1, L)
-    Returns  : scalar
-    """
-    d1_pred = torch.diff(pred, n=1, dim=-1)
-    d1_gt   = torch.diff(gt,   n=1, dim=-1)
-    d2_pred = torch.diff(pred, n=2, dim=-1)
-    d2_gt   = torch.diff(gt,   n=2, dim=-1)
-    return F.l1_loss(d1_pred, d1_gt) + F.l1_loss(d2_pred, d2_gt)
-
-
-# =============================================================================
-# 辅助：soft-argmax（可微分峰值位置提取）
-# =============================================================================
-
-def soft_argmax(mask: torch.Tensor, tau: float = 0.1) -> torch.Tensor:
-    """
-    可微分的 argmax，通过 softmax 近似峰值位置（单位：采样点）。
-
-    mask : (B, 1, L)
-    Returns: (B,) — 峰值的期望位置（连续值，@200Hz 单位为采样点）
-    """
-    logits = mask.squeeze(1) / tau                                 # (B, L)
-    w = F.softmax(logits, dim=-1)                                  # (B, L)
-    pos = torch.arange(mask.shape[-1], device=mask.device, dtype=torch.float32)
-    return (w * pos).sum(-1)                                       # (B,)
-
-
-# =============================================================================
-# TotalLoss（V2：4 任务自适应损失权重）
+# TotalLoss（固定权重：L_recon + beta_peak * L_peak_QRS）
 # =============================================================================
 
 class TotalLoss(nn.Module):
     """
-    BeatAware-Radar2ECGNet V2 总损失函数（Phase A + Phase B）。
+    BeatAware-Radar2ECGNet 总损失函数。
 
-    4 个任务自适应加权（同方差不确定性，Kendall & Gal 2018）：
-        [0] L_recon    = L_time + alpha_stft * L_freq
-        [1] L_peak     = BCE(QRS) + masked BCE(P) + masked BCE(T)
-        [2] L_der      = L1(diff1) + L1(diff2)
-        [3] L_interval = PR 间期软约束（soft-argmax）
-
-    加权公式：L_total = Σ_i [0.5 * exp(-log_var_i) * L_i + 0.5 * log_var_i]
-
-    log_vars = nn.Parameter(zeros(4))，须纳入 optimizer。
-    初始 log_vars=0 → σ=1 → 各任务等权。
-
-    训练策略：前 warmup_epochs epoch 只优化 L_recon，之后全部解锁。
+    L_total = L_recon + beta_peak * L_peak
+      L_recon = L1(pred, gt) + alpha_stft * MultiResSTFT(pred, gt)
+      L_peak  = BCE(qrs_pred, qrs_gt)   — 仅 QRS，固定权重
 
     Parameters
     ----------
-    alpha_stft    : float  STFT 在 L_recon 内的固定权重（默认 0.1）
-    warmup_epochs : int    预热 epoch 数（默认 5）
-    soft_argmax_tau : float  soft-argmax 温度参数（默认 0.1）
+    alpha_stft : float  STFT loss 在 L_recon 内的权重（默认 0.05）
+    beta_peak  : float  L_peak 的权重（默认 1.0）
     """
 
     def __init__(
         self,
-        alpha_stft:      float = 0.1,
-        warmup_epochs:   int   = 5,
-        soft_argmax_tau: float = 0.1,
-        fft_sizes:       list  = [128, 256, 512],
-        hop_sizes:       list  = [64,  128, 256],
-        win_lengths:     list  = [16,   32,  64],
+        alpha_stft: float = 0.05,
+        beta_peak:  float = 1.0,
+        fft_sizes:  list  = [128, 256, 512],
+        hop_sizes:  list  = [64,  128, 256],
+        win_lengths: list = [16,   32,  64],
     ):
         super().__init__()
-        self.alpha_stft      = alpha_stft
-        self.warmup_epochs   = warmup_epochs
-        self.soft_argmax_tau = soft_argmax_tau
-        self.stft_loss = MultiResolutionSTFTLoss(fft_sizes, hop_sizes, win_lengths)
-
-        # 4 个可学习 log σ²，对应 [recon, peak, der, interval]
-        self.log_vars = nn.Parameter(torch.zeros(4))
+        self.alpha_stft = alpha_stft
+        self.beta_peak  = beta_peak
+        self.stft_loss  = MultiResolutionSTFTLoss(fft_sizes, hop_sizes, win_lengths)
 
     @staticmethod
     def _safe_bce(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
-        """NaN 安全的 BCE，对预测值做 clamp。"""
+        """NaN 安全的 BCE。"""
         pred_safe = pred.nan_to_num(
             nan=0.5, posinf=1.0 - 1e-6, neginf=1e-6
         ).clamp(1e-6, 1.0 - 1e-6)
@@ -204,82 +146,12 @@ class TotalLoss(nn.Module):
         peak_preds: tuple | None,
         peak_gts:   dict  | None,
     ) -> torch.Tensor:
-        """
-        3 路 BCE 峰值损失。
-
-        peak_preds : (qrs_pred, p_pred, t_pred) 各 (B,1,L) | None
-        peak_gts   : {
-            'qrs': Tensor (B,1,L),
-            'p':   Tensor (B,1,L) | None,
-            't':   Tensor (B,1,L) | None,
-            'p_valid': Tensor (B,) bool | None,
-            't_valid': Tensor (B,) bool | None,
-        } | None
-        """
+        """QRS-only BCE 峰值损失。"""
         if peak_preds is None or peak_gts is None:
             return torch.tensor(0.0)
-
-        qrs_pred, p_pred, t_pred = peak_preds
-        qrs_gt = peak_gts["qrs"]
-
-        # QRS BCE（必选）
-        l_qrs = self._safe_bce(qrs_pred, qrs_gt)
-
-        # P 波 BCE（仅对有效样本，P/T 波 GT 文件存在且 delineation 成功）
-        p_gt      = peak_gts.get("p")
-        p_valid   = peak_gts.get("p_valid")
-        if p_gt is not None and p_valid is not None and p_valid.any():
-            vm = p_valid.view(-1, 1, 1)   # (B,1,1) broadcast mask
-            l_p = self._safe_bce(p_pred[vm.expand_as(p_pred)].view(-1, 1, p_pred.shape[-1]),
-                                 p_gt[vm.expand_as(p_gt)].view(-1, 1, p_gt.shape[-1]))
-        else:
-            l_p = qrs_pred.new_zeros(())
-
-        # T 波 BCE（同上）
-        t_gt      = peak_gts.get("t")
-        t_valid   = peak_gts.get("t_valid")
-        if t_gt is not None and t_valid is not None and t_valid.any():
-            vm = t_valid.view(-1, 1, 1)
-            l_t = self._safe_bce(t_pred[vm.expand_as(t_pred)].view(-1, 1, t_pred.shape[-1]),
-                                 t_gt[vm.expand_as(t_gt)].view(-1, 1, t_gt.shape[-1]))
-        else:
-            l_t = qrs_pred.new_zeros(())
-
-        return l_qrs + l_p + l_t
-
-    def _interval_loss(
-        self,
-        peak_preds: tuple | None,
-        peak_gts:   dict  | None,
-    ) -> torch.Tensor:
-        """
-        PR 间期约束损失（soft-argmax，@200Hz，1 sample = 5ms）。
-
-        正常 PR 间期：120-200ms（24-40 samples@200Hz）。
-        仅对有有效 P 波 GT 的样本计算（否则 p_pred 梯度不稳定）。
-
-        惩罚超出生理阈值：
-            pr_penalty = ReLU(120 - pr_ms) + ReLU(pr_ms - 200)
-        """
-        if peak_preds is None:
-            return torch.tensor(0.0)
-
-        p_valid = peak_gts.get("p_valid") if peak_gts else None
-        if p_valid is None or not p_valid.any():
-            return torch.tensor(0.0)
-
-        qrs_pred, p_pred, _ = peak_preds
-
-        # 只对 p_valid=True 的样本计算
-        qrs_pos = soft_argmax(qrs_pred[p_valid], tau=self.soft_argmax_tau)  # (B_valid,)
-        p_pos   = soft_argmax(p_pred[p_valid],   tau=self.soft_argmax_tau)  # (B_valid,)
-
-        pr_samples = qrs_pos - p_pos           # PR 间期（采样点，@200Hz）
-        pr_ms      = pr_samples * 5.0          # 转换为毫秒
-
-        # PR 在 [120, 200] ms 内无惩罚
-        pr_penalty = F.relu(120.0 - pr_ms) + F.relu(pr_ms - 200.0)
-        return pr_penalty.mean()
+        qrs_pred = peak_preds[0]          # (B, 1, L)
+        qrs_gt   = peak_gts["qrs"]        # (B, 1, L)
+        return self._safe_bce(qrs_pred, qrs_gt)
 
     def forward(
         self,
@@ -287,63 +159,27 @@ class TotalLoss(nn.Module):
         ecg_gt:     torch.Tensor,
         peak_preds: tuple | None,
         peak_gts:   dict  | None,
-        epoch:      int = 999,
+        epoch:      int = 999,            # 保留参数签名兼容性，不再使用
     ) -> dict:
         """
-        Parameters
-        ----------
-        ecg_pred   : (B, 1, L) — 重建 ECG，值域 [0, 1]
-        ecg_gt     : (B, 1, L) — GT ECG
-        peak_preds : (qrs_pred, p_pred, t_pred) 各 (B,1,L) | None
-        peak_gts   : dict {
-                         'qrs': (B,1,L),
-                         'p':   (B,1,L) | None,
-                         't':   (B,1,L) | None,
-                         'p_valid': (B,) bool | None,
-                         't_valid': (B,) bool | None,
-                     } | None
-        epoch      : int  当前 epoch（warm-up 判断）
-
-        Returns
-        -------
-        dict:
-            'total'     : L_total（用于 backward）
-            'recon'     : L_recon
-            'time'      : L_time
-            'freq'      : L_freq
-            'peak'      : L_peak（QRS + P + T）
-            'der'       : L_der
-            'interval'  : L_interval
-            'log_vars'  : Tensor(4)，TensorBoard 权重轨迹
+        Returns dict:
+            'total' : L_total（backward 用）
+            'recon' : L_recon
+            'time'  : L_time
+            'freq'  : L_freq
+            'peak'  : L_peak
         """
-        # ── 各子损失 ────────────────────────────────────────────────────────
         L_time  = F.l1_loss(ecg_pred, ecg_gt)
         L_freq  = self.stft_loss(ecg_pred, ecg_gt)
         L_recon = L_time + self.alpha_stft * L_freq
-
-        L_der      = derivative_loss(ecg_pred, ecg_gt)
-        L_peak     = self._peak_loss(peak_preds, peak_gts)
-        L_interval = self._interval_loss(peak_preds, peak_gts)
-
-        # ── 自适应加权 ─────────────────────────────────────────────────────
-        losses = [L_recon, L_peak, L_der, L_interval]
-
-        if epoch <= self.warmup_epochs:
-            L_total = L_recon
-        else:
-            precision = torch.exp(-self.log_vars)   # (4,)
-            L_total = sum(
-                0.5 * p * l + 0.5 * lv
-                for p, l, lv in zip(precision, losses, self.log_vars)
-            )
+        L_peak  = self._peak_loss(peak_preds, peak_gts)
+        L_total = L_recon + self.beta_peak * L_peak
 
         return {
-            "total":    L_total,
-            "recon":    L_recon.detach(),
-            "time":     L_time.detach(),
-            "freq":     L_freq.detach(),
-            "peak":     L_peak.detach() if isinstance(L_peak, torch.Tensor) else torch.tensor(0.0),
-            "der":      L_der.detach(),
-            "interval": L_interval.detach() if isinstance(L_interval, torch.Tensor) else torch.tensor(0.0),
-            "log_vars": self.log_vars.detach(),
+            "total": L_total,
+            "recon": L_recon.detach(),
+            "time":  L_time.detach(),
+            "freq":  L_freq.detach(),
+            "peak":  L_peak.detach() if isinstance(L_peak, torch.Tensor)
+                     else torch.tensor(0.0),
         }

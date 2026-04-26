@@ -114,11 +114,10 @@ def train_one_fold(cfg: Config, fold: int) -> None:
     # ── Loss / Optimizer / Scheduler ─────────────────────────────────────
     criterion = TotalLoss(
         alpha_stft=cfg.alpha_stft,
-        warmup_epochs=cfg.warmup_epochs,
+        beta_peak=cfg.beta_peak,
     ).to(device)
-    # log_vars 是可学习参数，须纳入 optimizer（与模型参数共享 lr 和 weight_decay）
     optimizer = torch.optim.AdamW(
-        list(model.parameters()) + list(criterion.parameters()),
+        model.parameters(),
         lr=cfg.lr, weight_decay=cfg.weight_decay,
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -134,8 +133,7 @@ def train_one_fold(cfg: Config, fold: int) -> None:
     for epoch in range(1, cfg.epochs + 1):
         model.train()
         epoch_losses = {
-            "total": 0.0, "recon": 0.0, "time": 0.0,
-            "freq": 0.0, "peak": 0.0, "der": 0.0, "interval": 0.0,
+            "total": 0.0, "recon": 0.0, "time": 0.0, "freq": 0.0, "peak": 0.0,
         }
         t0 = time.time()
 
@@ -149,9 +147,21 @@ def train_one_fold(cfg: Config, fold: int) -> None:
 
             optimizer.zero_grad()
             ecg_pred, peak_preds = model(radar)
+
+            # NaN/Inf 保护（双层）：
+            # 1. 检测 ecg_pred 是否包含 NaN/Inf（不依赖 loss 计算）
+            # 2. BatchNorm running stats 在 forward 时已更新；若 ecg_pred 含 NaN，
+            #    running_mean/var 可能被污染，导致 eval() 模式下 val 指标全为 NaN。
+            #    因此须立即修复 BN running stats，再跳过本批次。
+            if not torch.isfinite(ecg_pred).all():
+                for m in model.modules():
+                    if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                        m.running_mean.nan_to_num_(nan=0.0)
+                        m.running_var.nan_to_num_(nan=1.0, posinf=1.0).clamp_(min=0.0)
+                continue
+
             losses = criterion(ecg_pred, ecg_gt, peak_preds, peak_gts, epoch=epoch)
 
-            # NaN/Inf 保护：SSM 偶发数值爆炸时跳过该 batch，不让训练崩溃
             if not torch.isfinite(losses["total"]):
                 continue
 
@@ -175,17 +185,6 @@ def train_one_fold(cfg: Config, fold: int) -> None:
         n_batches = len(train_loader)
         avg_train = {k: v / n_batches for k, v in epoch_losses.items()}
         logger.log_dict(avg_train, step=epoch, prefix=f"fold{fold}/train_epoch")
-
-        # log_vars 权重轨迹（adaptive loss weights，4 tasks）
-        lv = criterion.log_vars.detach().cpu()
-        precision = (0.5 * torch.exp(-lv)).tolist()
-        logger.log_dict(
-            {
-                "recon": precision[0], "peak": precision[1],
-                "der":   precision[2], "interval": precision[3],
-            },
-            step=epoch, prefix=f"fold{fold}/loss_weight",
-        )
 
         # ── Validation ────────────────────────────────────────────────────
         hist_row: dict = {"epoch": epoch, **avg_train}
@@ -268,17 +267,29 @@ def evaluate(
             peak_gts = _build_peak_gts(batch, rpeak_gt, device)
 
             ecg_pred, peak_preds = model(radar)
+
+            # NaN 保护：跳过预测含 NaN/Inf 的批次（SSM 偶发数值问题）
+            if not torch.isfinite(ecg_pred).all():
+                continue
+
             losses = criterion(ecg_pred, ecg_gt, peak_preds, peak_gts, epoch=epoch)
-            total_loss += losses["total"].item()
+            if torch.isfinite(losses["total"]):
+                total_loss += losses["total"].item()
 
             all_pred.append(ecg_pred.cpu())
             all_gt.append(ecg_gt.cpu())
+
+    if not all_pred:
+        # 极端情况：全部批次均为 NaN，返回哨兵值
+        return {"mae": float("nan"), "rmse": float("nan"),
+                "pcc": float("nan"), "prd": float("nan"), "loss": float("nan")}
 
     all_pred = torch.cat(all_pred, dim=0)
     all_gt   = torch.cat(all_gt,   dim=0)
 
     metrics = compute_all_metrics(all_pred, all_gt, compute_f1=compute_f1)
-    metrics["loss"] = total_loss / len(loader)
+    n_val_batches = max(len(all_pred) // loader.batch_size, 1)
+    metrics["loss"] = total_loss / n_val_batches
     return metrics
 
 

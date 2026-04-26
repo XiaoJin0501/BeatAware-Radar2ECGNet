@@ -27,9 +27,9 @@ class Config:
     emd_max_delay: int   = 20     # EMD 最大时移（采样点，20 = 100ms @ 200Hz）
     dropout:       float = 0.1
 
-    # ── Loss 权重（V2 自适应加权，alpha/beta 由 log_vars 取代）─────────────
-    alpha_stft:     float = 0.1  # STFT loss 在 L_recon 内的固定权重
-    warmup_epochs:  int   = 5    # 前 N epoch 只训练 L_recon，log_vars 解冻后开始自适应
+    # ── Loss 权重（固定权重，L_recon + beta_peak * L_peak_QRS）──────────
+    alpha_stft: float = 0.05   # STFT loss 在 L_recon 内的权重
+    beta_peak:  float = 1.0    # L_peak（QRS BCE）的权重
 
     # ── 训练 ──────────────────────────────────────────────────────────────
     epochs:       int   = 150

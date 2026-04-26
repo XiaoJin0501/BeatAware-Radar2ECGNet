@@ -29,6 +29,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..backbone.group_mamba import GroupMambaBlock
+from ..modules.fmcw_encoder import FMCWRangeEncoder
 from ..modules.peak_module import PeakAuxiliaryModule
 from ..modules.tfilm import TFiLMGenerator
 
@@ -209,6 +210,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
         use_pam:        bool  = True,
         use_emd:        bool  = True,
         emd_max_delay:  int   = 20,
+        n_range_bins:   int   = 50,
     ):
         super().__init__()
         self.input_type = input_type
@@ -219,6 +221,14 @@ class BeatAwareRadar2ECGNet(nn.Module):
         L_enc           = signal_len // 4   # 1600 → 400
         self.L_enc      = L_enc
         PAM_DIM         = 96   # 3路 × 32
+
+        # ── FMCW 空间聚合前端（仅 input_type='fmcw' 时启用）────────
+        # 将 (B, 50, L) 50通道距离-时间信号聚合为 (B, 3, L) 运动学表征，
+        # 之后完全复用现有 Encoder/Backbone/PAM/TFiLM/EMD/Decoder。
+        if input_type == "fmcw":
+            self.fmcw_enc = FMCWRangeEncoder(
+                n_range=n_range_bins, L=signal_len
+            )
 
         # ── PAM + TFiLM（Exp A 基线时禁用，use_pam=False）────────
         if use_pam:
@@ -232,7 +242,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
             self.tfilm_gen = TFiLMGenerator(input_dim=PAM_DIM, output_channels=4 * C)
 
         # ── Encoder / Adapter ─────────────────────────────────────
-        if input_type in ("raw", "phase"):
+        if input_type in ("raw", "phase", "fmcw"):
             # Multi-scale Conv1d (k=3,5,7,9, stride=4)
             # V2: in_channels=3（原始 + 速度 + 加速度）
             # 1600 → 400（padding=k//2 保证各核输出等长）
@@ -314,14 +324,16 @@ class BeatAwareRadar2ECGNet(nn.Module):
         peak_masks : tuple (qrs_mask, p_mask, t_mask) 各 (B,1,L) | None
                      use_pam=False 时为 None
         """
-        # ── V2 导数感知输入（仅 1D 路径）────────────────────────────
-        # 对 radar_phase（带通滤波后）计算一阶速度和二阶加速度，
-        # 拼接为 3 通道输入，突出 QRS 复合波的瞬时爆发点。
-        # spec 路径保持原始 (B, 1, F, T)，不做 diff。
-        if self.input_type in ("raw", "phase"):
-            v = torch.diff(x, dim=-1, prepend=x[:, :, :1])   # [B,1,1600] 速度
-            a = torch.diff(v, dim=-1, prepend=v[:, :, :1])   # [B,1,1600] 加速度
-            x_input = torch.cat([x, v, a], dim=1)            # [B,3,1600]
+        # ── 输入预处理（按 input_type 选路径）────────────────────────
+        # fmcw  : (B, 50, L) → FMCWRangeEncoder → (B, 3, L)  [KI 已内含]
+        # raw/phase : (B, 1, L) → KI diff → (B, 3, L)
+        # spec  : (B, 1, F, T) 不变
+        if self.input_type == "fmcw":
+            x_input = self.fmcw_enc(x)                        # (B, 3, L)
+        elif self.input_type in ("raw", "phase"):
+            v = torch.diff(x, dim=-1, prepend=x[:, :, :1])   # (B, 1, L)
+            a = torch.diff(v, dim=-1, prepend=v[:, :, :1])   # (B, 1, L)
+            x_input = torch.cat([x, v, a], dim=1)            # (B, 3, L)
         else:
             x_input = x   # spec 路径不变
 
@@ -336,7 +348,8 @@ class BeatAwareRadar2ECGNet(nn.Module):
             beta  = x.new_zeros(x.size(0), 4 * self.C)
 
         # ── Encoder ──────────────────────────────────────────────
-        if self.input_type in ("raw", "phase"):
+        # fmcw 输出已是 (B, 3, L)，与 raw/phase 路径一致，走 _encode_1d
+        if self.input_type in ("raw", "phase", "fmcw"):
             enc = self._encode_1d(x_input, gamma, beta)   # (B, 4C, L_enc)
         else:
             enc = self._encode_spec(x_input, gamma, beta) # (B, 4C, L_enc)

@@ -64,6 +64,8 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
         d_state=cfg.d_state,
         dropout=0.0,        # test 时关闭 dropout
         use_pam=cfg.use_pam,
+        use_emd=cfg.use_emd,
+        emd_max_delay=cfg.emd_max_delay,
     ).to(device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
@@ -79,7 +81,10 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
     )
     print(f"[Fold {fold}] Val samples: {len(val_ds)}")
 
-    criterion = TotalLoss(alpha=cfg.alpha, beta=cfg.beta)
+    criterion = TotalLoss(
+        alpha_stft=cfg.alpha_stft,
+        beta_peak=cfg.beta_peak,
+    ).to(device)
 
     # ── 推理 ──────────────────────────────────────────────────────────────
     all_pred, all_gt, all_scenarios, all_subjects, total_loss = [], [], [], [], 0.0
@@ -91,9 +96,17 @@ def test_one_fold(cfg: Config, fold: int) -> dict[str, float]:
             ecg_gt   = batch["ecg"].to(device)
             rpeak_gt = batch["rpeak"].to(device)
 
-            ecg_pred, peak_pred = model(radar)
-            losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt)
-            total_loss += losses["total"].item()
+            ecg_pred, peak_preds = model(radar)
+            peak_gts = {
+                "qrs": rpeak_gt,
+                "p":   batch["pwave"].to(device),
+                "t":   batch["twave"].to(device),
+                "p_valid": batch["pwave_valid"].to(device),
+                "t_valid": batch["twave_valid"].to(device),
+            }
+            losses = criterion(ecg_pred, ecg_gt, peak_preds, peak_gts, epoch=9999)
+            if torch.isfinite(losses["total"]):
+                total_loss += losses["total"].item()
 
             all_pred.append(ecg_pred.cpu())
             all_gt.append(ecg_gt.cpu())
