@@ -32,6 +32,32 @@ from src.utils.seeding import set_seed
 
 
 # =============================================================================
+# 辅助：构建 peak_gts dict
+# =============================================================================
+
+def _build_peak_gts(batch: dict, rpeak_gt: torch.Tensor, device: torch.device) -> dict:
+    """
+    从 batch 中整理多头 PAM 所需的 GT 字典。
+
+    batch 中 'pwave'/'twave'/'pwave_valid'/'twave_valid' 在
+    dataset.py 里始终存在（step2b 未运行时为零 tensor + valid=False）。
+    """
+    gts = {"qrs": rpeak_gt}
+
+    pwave_gt    = batch["pwave"].to(device)      # (B,1,1600)
+    twave_gt    = batch["twave"].to(device)      # (B,1,1600)
+    pwave_valid = batch["pwave_valid"].to(device) # (B,) bool
+    twave_valid = batch["twave_valid"].to(device) # (B,) bool
+
+    gts["p"]       = pwave_gt
+    gts["t"]       = twave_gt
+    gts["p_valid"] = pwave_valid
+    gts["t_valid"] = twave_valid
+
+    return gts
+
+
+# =============================================================================
 # 单 Fold 训练
 # =============================================================================
 
@@ -78,15 +104,21 @@ def train_one_fold(cfg: Config, fold: int) -> None:
         d_state=cfg.d_state,
         dropout=cfg.dropout,
         use_pam=cfg.use_pam,
+        use_emd=cfg.use_emd,
+        emd_max_delay=cfg.emd_max_delay,
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Model params: {n_params:,}")
 
     # ── Loss / Optimizer / Scheduler ─────────────────────────────────────
-    criterion = TotalLoss(alpha=cfg.alpha, beta=cfg.beta)
+    criterion = TotalLoss(
+        alpha_stft=cfg.alpha_stft,
+        beta_peak=cfg.beta_peak,
+    ).to(device)
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay
+        model.parameters(),
+        lr=cfg.lr, weight_decay=cfg.weight_decay,
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=cfg.epochs, eta_min=cfg.lr * 1e-2
@@ -98,22 +130,38 @@ def train_one_fold(cfg: Config, fold: int) -> None:
     early_stop_count = 0
     global_step      = 0
     history          = []
-
     for epoch in range(1, cfg.epochs + 1):
         model.train()
-        epoch_losses = {"total": 0.0, "time": 0.0, "freq": 0.0, "peak": 0.0}
+        epoch_losses = {
+            "total": 0.0, "recon": 0.0, "time": 0.0, "freq": 0.0, "peak": 0.0,
+        }
         t0 = time.time()
 
         for batch in train_loader:
-            radar   = batch["radar"].to(device)
-            ecg_gt  = batch["ecg"].to(device)
+            radar    = batch["radar"].to(device)
+            ecg_gt   = batch["ecg"].to(device)
             rpeak_gt = batch["rpeak"].to(device)
 
-            optimizer.zero_grad()
-            ecg_pred, peak_pred = model(radar)
-            losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt)
+            # P/T 波 GT（V2 多头 PAM，需 step2b 预处理）
+            peak_gts = _build_peak_gts(batch, rpeak_gt, device)
 
-            # NaN/Inf 保护：SSM 偶发数值爆炸时跳过该 batch，不让训练崩溃
+            optimizer.zero_grad()
+            ecg_pred, peak_preds = model(radar)
+
+            # NaN/Inf 保护（双层）：
+            # 1. 检测 ecg_pred 是否包含 NaN/Inf（不依赖 loss 计算）
+            # 2. BatchNorm running stats 在 forward 时已更新；若 ecg_pred 含 NaN，
+            #    running_mean/var 可能被污染，导致 eval() 模式下 val 指标全为 NaN。
+            #    因此须立即修复 BN running stats，再跳过本批次。
+            if not torch.isfinite(ecg_pred).all():
+                for m in model.modules():
+                    if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                        m.running_mean.nan_to_num_(nan=0.0)
+                        m.running_var.nan_to_num_(nan=1.0, posinf=1.0).clamp_(min=0.0)
+                continue
+
+            losses = criterion(ecg_pred, ecg_gt, peak_preds, peak_gts, epoch=epoch)
+
             if not torch.isfinite(losses["total"]):
                 continue
 
@@ -216,19 +264,32 @@ def evaluate(
             radar    = batch["radar"].to(device)
             ecg_gt   = batch["ecg"].to(device)
             rpeak_gt = batch["rpeak"].to(device)
+            peak_gts = _build_peak_gts(batch, rpeak_gt, device)
 
-            ecg_pred, peak_pred = model(radar)
-            losses = criterion(ecg_pred, ecg_gt, peak_pred, rpeak_gt)
-            total_loss += losses["total"].item()
+            ecg_pred, peak_preds = model(radar)
+
+            # NaN 保护：跳过预测含 NaN/Inf 的批次（SSM 偶发数值问题）
+            if not torch.isfinite(ecg_pred).all():
+                continue
+
+            losses = criterion(ecg_pred, ecg_gt, peak_preds, peak_gts, epoch=epoch)
+            if torch.isfinite(losses["total"]):
+                total_loss += losses["total"].item()
 
             all_pred.append(ecg_pred.cpu())
             all_gt.append(ecg_gt.cpu())
+
+    if not all_pred:
+        # 极端情况：全部批次均为 NaN，返回哨兵值
+        return {"mae": float("nan"), "rmse": float("nan"),
+                "pcc": float("nan"), "prd": float("nan"), "loss": float("nan")}
 
     all_pred = torch.cat(all_pred, dim=0)
     all_gt   = torch.cat(all_gt,   dim=0)
 
     metrics = compute_all_metrics(all_pred, all_gt, compute_f1=compute_f1)
-    metrics["loss"] = total_loss / len(loader)
+    n_val_batches = max(len(all_pred) // loader.batch_size, 1)
+    metrics["loss"] = total_loss / n_val_batches
     return metrics
 
 

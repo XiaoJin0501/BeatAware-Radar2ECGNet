@@ -62,10 +62,10 @@ def compute_waveform_metrics(
         prd_list.append(prd)
 
     return {
-        "mae":  float(np.mean(mae_list)),
-        "rmse": float(np.mean(rmse_list)),
-        "pcc":  float(np.mean(pcc_list)),
-        "prd":  float(np.mean(prd_list)),
+        "mae":  float(np.nanmean(mae_list)),
+        "rmse": float(np.nanmean(rmse_list)),
+        "pcc":  float(np.nanmean(pcc_list)),
+        "prd":  float(np.nanmean(prd_list)),
     }
 
 

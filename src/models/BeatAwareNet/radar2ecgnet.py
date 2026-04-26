@@ -29,6 +29,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..backbone.group_mamba import GroupMambaBlock
+from ..modules.fmcw_encoder import FMCWRangeEncoder
 from ..modules.peak_module import PeakAuxiliaryModule
 from ..modules.tfilm import TFiLMGenerator
 
@@ -94,6 +95,54 @@ class ConformerFusionBlock(nn.Module):
 
 
 # =============================================================================
+# EMDAlignLayer — 电-机械延迟物理对齐层（Phase C）
+# =============================================================================
+
+class EMDAlignLayer(nn.Module):
+    """
+    电-机械延迟（EMD）物理对齐层。
+
+    物理背景：ECG（电信号）触发领先于心脏机械运动 50-150ms。
+    雷达感知的是机械运动，因此特征图需要在时间轴上"提前"以对齐 ECG。
+
+    实现：逐通道（depthwise）可学习 FIR 滤波器。
+      - 初始化为 Dirac delta（单位冲激）= 零延迟恒等映射
+      - 训练中自发学习 ±max_delay 范围内的每通道时移
+
+    插入位置：ConformerFusionBlock 之后、Decoder 之前
+    特征 shape：(B, 4C, L_enc) = (B, 256, 400)
+
+    Parameters
+    ----------
+    channels  : int  特征通道数（= 4C）
+    max_delay : int  最大时移范围（采样点），默认 20 = 100ms @ 200Hz
+                     覆盖典型 EMD 范围 50-150ms (10-30 samples)
+    """
+
+    def __init__(self, channels: int, max_delay: int = 20):
+        super().__init__()
+        kernel_size = 2 * max_delay + 1   # 41-tap FIR
+        self.delay_conv = nn.Conv1d(
+            channels, channels,
+            kernel_size=kernel_size,
+            padding=max_delay,             # 保持时间轴长度 L_enc 不变
+            groups=channels,               # 逐通道独立滤波（depthwise）
+            bias=False,
+        )
+        # 手动 Dirac delta 初始化：每个通道的中心 tap=1，其余=0 → 恒等映射。
+        # 不用 nn.init.dirac_，因为 depthwise conv 权重形状 (C, 1, K) 中
+        # dirac_ 仅初始化 min(C, 1)=1 个通道，其余通道保持 0。
+        with torch.no_grad():
+            self.delay_conv.weight.zero_()
+            center = kernel_size // 2   # = max_delay
+            self.delay_conv.weight[:, :, center] = 1.0
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (B, C, L) → (B, C, L)"""
+        return self.delay_conv(x)
+
+
+# =============================================================================
 # Spec Adapter（radar_spec 表征专用前端）
 # =============================================================================
 
@@ -145,6 +194,9 @@ class BeatAwareRadar2ECGNet(nn.Module):
     spec_freq_bins: int    radar_spec_input 的频率 bins（默认33）
     d_state       : int    VSSSBlock1D 的 SSM 状态维度（默认16）
     dropout       : float  ConformerFusionBlock Dropout（默认0.1）
+    use_pam       : bool   是否使用 PAM + TFiLM（False = Exp A 基线）
+    use_emd       : bool   是否使用 EMD 物理对齐层（Phase C，False = Model A/B）
+    emd_max_delay : int    EMD 最大时移范围（采样点，默认20 = 100ms @ 200Hz）
     """
 
     def __init__(
@@ -156,15 +208,27 @@ class BeatAwareRadar2ECGNet(nn.Module):
         d_state:        int   = 16,
         dropout:        float = 0.1,
         use_pam:        bool  = True,
+        use_emd:        bool  = True,
+        emd_max_delay:  int   = 20,
+        n_range_bins:   int   = 50,
     ):
         super().__init__()
         self.input_type = input_type
         self.C          = C
         self.signal_len = signal_len
         self.use_pam    = use_pam
+        self.use_emd    = use_emd
         L_enc           = signal_len // 4   # 1600 → 400
         self.L_enc      = L_enc
         PAM_DIM         = 96   # 3路 × 32
+
+        # ── FMCW 空间聚合前端（仅 input_type='fmcw' 时启用）────────
+        # 将 (B, 50, L) 50通道距离-时间信号聚合为 (B, 3, L) 运动学表征，
+        # 之后完全复用现有 Encoder/Backbone/PAM/TFiLM/EMD/Decoder。
+        if input_type == "fmcw":
+            self.fmcw_enc = FMCWRangeEncoder(
+                n_range=n_range_bins, L=signal_len
+            )
 
         # ── PAM + TFiLM（Exp A 基线时禁用，use_pam=False）────────
         if use_pam:
@@ -178,11 +242,12 @@ class BeatAwareRadar2ECGNet(nn.Module):
             self.tfilm_gen = TFiLMGenerator(input_dim=PAM_DIM, output_channels=4 * C)
 
         # ── Encoder / Adapter ─────────────────────────────────────
-        if input_type in ("raw", "phase"):
+        if input_type in ("raw", "phase", "fmcw"):
             # Multi-scale Conv1d (k=3,5,7,9, stride=4)
+            # V2: in_channels=3（原始 + 速度 + 加速度）
             # 1600 → 400（padding=k//2 保证各核输出等长）
             self.enc_convs = nn.ModuleList([
-                nn.Conv1d(1, C, kernel_size=k, padding=k // 2, stride=4, bias=False)
+                nn.Conv1d(3, C, kernel_size=k, padding=k // 2, stride=4, bias=False)
                 for k in [3, 5, 7, 9]
             ])
             self.enc_bns = nn.ModuleList([nn.BatchNorm1d(C) for _ in range(4)])
@@ -196,6 +261,11 @@ class BeatAwareRadar2ECGNet(nn.Module):
         # ── Fusion ────────────────────────────────────────────────
         self.fusion = ConformerFusionBlock(4 * C, num_heads=4, dropout=dropout)
 
+        # ── EMD 物理对齐层（Phase C，PA 消融开关）──────────────────
+        # 插入 Fusion 之后、Decoder 之前；use_emd=False 时为恒等映射
+        if use_emd:
+            self.emd = EMDAlignLayer(4 * C, max_delay=emd_max_delay)
+
         # ── Decoder（stride=2 上采样 × 2：400 → 800 → 1600）───────
         self.up1   = nn.ConvTranspose1d(4 * C, 2 * C, kernel_size=4, stride=2, padding=1)
         self.up2   = nn.ConvTranspose1d(2 * C,     C, kernel_size=4, stride=2, padding=1)
@@ -208,7 +278,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
         """
         Multi-scale Conv1d Encoder with per-branch TFiLM injection.
 
-        x     : (B, 1, L)
+        x     : (B, 3, L)  — [原始, 速度, 加速度] 三通道（V2 derivative encoder）
         gamma : (B, 4C) → reshape → (B, 4, C, 1)
         beta  : (B, 4C) → reshape → (B, 4, C, 1)
         Returns: (B, 4C, L_enc)
@@ -250,23 +320,39 @@ class BeatAwareRadar2ECGNet(nn.Module):
 
         Returns
         -------
-        ecg_pred  : Tensor, (B, 1, L) — 重建 ECG，值域 [0, 1]
-        peak_mask : Tensor, (B, 1, L) — R峰软标签预测，值域 [0, 1]
+        ecg_pred   : Tensor, (B, 1, L) — 重建 ECG，值域 [0, 1]
+        peak_masks : tuple (qrs_mask, p_mask, t_mask) 各 (B,1,L) | None
+                     use_pam=False 时为 None
         """
+        # ── 输入预处理（按 input_type 选路径）────────────────────────
+        # fmcw  : (B, 50, L) → FMCWRangeEncoder → (B, 3, L)  [KI 已内含]
+        # raw/phase : (B, 1, L) → KI diff → (B, 3, L)
+        # spec  : (B, 1, F, T) 不变
+        if self.input_type == "fmcw":
+            x_input = self.fmcw_enc(x)                        # (B, 3, L)
+        elif self.input_type in ("raw", "phase"):
+            v = torch.diff(x, dim=-1, prepend=x[:, :, :1])   # (B, 1, L)
+            a = torch.diff(v, dim=-1, prepend=v[:, :, :1])   # (B, 1, L)
+            x_input = torch.cat([x, v, a], dim=1)            # (B, 3, L)
+        else:
+            x_input = x   # spec 路径不变
+
         # ── PAM + TFiLM（use_pam=False 时跳过，gamma/beta 置零 = 恒等映射）──
         if self.use_pam:
-            peak_mask, rhythm_vec = self.pam(x)        # (B,1,L), (B,96)
-            gamma, beta = self.tfilm_gen(rhythm_vec)   # each (B, 4C)
+            # V2: PAM 返回 3 路峰值 Mask 元组 + 节律向量
+            peak_masks, rhythm_vec = self.pam(x_input)    # (qrs,p,t), (B,96)
+            gamma, beta = self.tfilm_gen(rhythm_vec)       # each (B, 4C)
         else:
-            peak_mask = None
+            peak_masks = None
             gamma = x.new_zeros(x.size(0), 4 * self.C)
             beta  = x.new_zeros(x.size(0), 4 * self.C)
 
         # ── Encoder ──────────────────────────────────────────────
-        if self.input_type in ("raw", "phase"):
-            enc = self._encode_1d(x, gamma, beta)     # (B, 4C, L_enc)
+        # fmcw 输出已是 (B, 3, L)，与 raw/phase 路径一致，走 _encode_1d
+        if self.input_type in ("raw", "phase", "fmcw"):
+            enc = self._encode_1d(x_input, gamma, beta)   # (B, 4C, L_enc)
         else:
-            enc = self._encode_spec(x, gamma, beta)   # (B, 4C, L_enc)
+            enc = self._encode_spec(x_input, gamma, beta) # (B, 4C, L_enc)
 
         # ── Bottleneck ────────────────────────────────────────────
         h = self.mamba1(enc)
@@ -275,12 +361,16 @@ class BeatAwareRadar2ECGNet(nn.Module):
         # ── Fusion ────────────────────────────────────────────────
         h = self.fusion(h)
 
+        # ── EMD 物理对齐（use_emd=True 时修正电-机械延迟）─────────
+        if self.use_emd:
+            h = self.emd(h)
+
         # ── Decoder ──────────────────────────────────────────────
         h = F.relu(self.up1(h))    # (B, 2C, 800)
         h = F.relu(self.up2(h))    # (B,  C, 1600)
         ecg_pred = torch.sigmoid(self.final(h))   # (B, 1, 1600)
 
-        return ecg_pred, peak_mask
+        return ecg_pred, peak_masks
 
 
 # =============================================================================
@@ -304,23 +394,23 @@ if __name__ == "__main__":
     for input_type in ["raw", "phase", "spec"]:
         model = BeatAwareRadar2ECGNet(input_type=input_type, C=64, use_pam=True).to(device)
         x = torch.randn(2, 1, 33, 196).to(device) if input_type == "spec" else torch.randn(2, 1, 1600).to(device)
-        ecg_pred, peak_mask = model(x)
-        assert ecg_pred.shape  == (2, 1, 1600)
-        assert peak_mask.shape == (2, 1, 1600)
+        ecg_pred, peak_masks = model(x)
+        qrs, p, t = peak_masks
+        assert ecg_pred.shape == (2, 1, 1600)
+        assert qrs.shape == p.shape == t.shape == (2, 1, 1600)
         assert ecg_pred.min() >= 0.0 and ecg_pred.max() <= 1.0
-        assert peak_mask.min() >= 0.0 and peak_mask.max() <= 1.0
-        print(f"  [PAM=True , {input_type}] ECG={ecg_pred.shape}, Mask={peak_mask.shape}, "
+        print(f"  [PAM=True , {input_type}] ECG={ecg_pred.shape}, QRS/P/T={qrs.shape}, "
               f"Params={count_parameters(model):,}")
 
     # use_pam=False（Exp A 基线）
     for input_type in ["raw", "phase", "spec"]:
         model = BeatAwareRadar2ECGNet(input_type=input_type, C=64, use_pam=False).to(device)
         x = torch.randn(2, 1, 33, 196).to(device) if input_type == "spec" else torch.randn(2, 1, 1600).to(device)
-        ecg_pred, peak_mask = model(x)
+        ecg_pred, peak_masks = model(x)
         assert ecg_pred.shape == (2, 1, 1600)
-        assert peak_mask is None, "use_pam=False 时 peak_mask 应为 None"
+        assert peak_masks is None, "use_pam=False 时 peak_masks 应为 None"
         assert ecg_pred.min() >= 0.0 and ecg_pred.max() <= 1.0
-        print(f"  [PAM=False, {input_type}] ECG={ecg_pred.shape}, Mask=None, "
+        print(f"  [PAM=False, {input_type}] ECG={ecg_pred.shape}, Masks=None, "
               f"Params={count_parameters(model):,}")
 
     print("All shape checks passed.")

@@ -1,63 +1,62 @@
 #!/usr/bin/env bash
-# run_ablation.sh — 消融实验批量运行脚本
+# run_ablation.sh — V2 消融实验批量运行脚本
 #
 # 用法：
-#   bash scripts/run_ablation.sh
-#   bash scripts/run_ablation.sh --fold_idx 0   # 只跑单个 fold（调试用）
+#   bash scripts/run_ablation.sh               # 全部实验，全部 folds
+#   bash scripts/run_ablation.sh --fold_idx 0  # 只跑 fold 0（调试用）
 #
-# 实验列表（与 CLAUDE.md / docs/ARCHITECTURE.md 编号一致）：
-#   Exp A  — 基线：无 PAM/TFiLM，输入 radar_phase
-#   Exp B1 — 完整模型，输入 radar_raw
-#   Exp B2 — 完整模型，输入 radar_phase（主实验）
-#   Exp B3 — 完整模型，输入 radar_spec
-#   D1     — PAM 二值标签 vs 高斯软标签（待数据支持）
-#   D2     — PAM→TFiLM 串联 vs 平行（待模型支持 --tfilm_parallel 参数）
-#   D3     — PAM 多尺度 vs 单卷积核 k=15（待模型支持 --pam_single_scale 参数）
-#   D4     — 去除 ConformerFusionBlock（待模型支持 --use_conformer 参数）
-#   D5     — 仅 resting 训练，全场景测试（跨场景泛化）
+# V2 消融实验框架（三维 KI / PA / CP）：
+#   Model A — Baseline：use_pam=false, use_emd=false（无 KI/PA/CP）
+#   Model B — +KI：导数感知编码器（3通道 diff 输入），use_pam=false, use_emd=false
+#   Model C — +KI+PA：在 Model B 基础上加 EMD 物理对齐层，use_pam=false, use_emd=true
+#   Model D — Full（+KI+PA+CP）：完整模型，use_pam=true, use_emd=true
+#
+# 其他消融：
+#   D4 — 去除 ConformerFusionBlock（待模型支持 --use_conformer 参数）
+#   D5 — 仅 resting 训练，全场景测试（跨场景泛化）
 
 set -e
 
 # ── 公共参数 ──────────────────────────────────────────────────────────────
-COMMON="--epochs 150 --batch_size 32 --lr 1e-4 --seed 42 $@"
+COMMON="--epochs 150 --batch_size 32 --lr 1e-4 --seed 42 --input_type phase $@"
 TRAIN="python scripts/train.py"
 TEST="python scripts/test.py"
 
 echo "============================================================"
-echo " BeatAware-Radar2ECGNet Ablation Study"
+echo " BeatAware-Radar2ECGNet V2 Ablation Study"
 echo "============================================================"
 
-# ── Exp A: 基线（无 PAM/TFiLM）──────────────────────────────────────────
-echo "[$(date +%H:%M:%S)] Starting Exp A (baseline, no PAM/TFiLM)..."
-$TRAIN $COMMON --exp_tag ExpA_baseline  --input_type phase --use_pam false
-$TEST         --exp_tag ExpA_baseline  --input_type phase --use_pam false
+# ── Model A: Baseline（无 PAM/TFiLM/EMD）────────────────────────────────
+echo "[$(date +%H:%M:%S)] Starting Model A (baseline, no PAM/EMD)..."
+$TRAIN $COMMON --exp_tag ModelA_baseline --use_pam false --use_emd false
+$TEST         --exp_tag ModelA_baseline --use_pam false --use_emd false
 
-# ── Exp B1: 完整模型 × radar_raw ─────────────────────────────────────────
-echo "[$(date +%H:%M:%S)] Starting Exp B1 (full model, radar_raw)..."
-$TRAIN $COMMON --exp_tag ExpB1_raw    --input_type raw
-$TEST         --exp_tag ExpB1_raw    --input_type raw
+# ── Model B: +KI（导数感知 Encoder，仍无 PAM/EMD）───────────────────────
+# 注：KI (torch.diff 三通道输入) 在 radar_phase 输入时始终激活
+# Model A vs B 的差异体现在有无完整 PAM 多头监督；
+# 若需严格隔离 KI 效果，可为 Model A 额外加 --use_ki false 参数（待实现）
+echo "[$(date +%H:%M:%S)] Starting Model B (+KI, no PAM/EMD)..."
+$TRAIN $COMMON --exp_tag ModelB_ki      --use_pam false --use_emd false
+$TEST         --exp_tag ModelB_ki      --use_pam false --use_emd false
 
-# ── Exp B2: 完整模型 × radar_phase（主实验）──────────────────────────────
-echo "[$(date +%H:%M:%S)] Starting Exp B2 (full model, radar_phase)..."
-$TRAIN $COMMON --exp_tag ExpB2_phase  --input_type phase
-$TEST         --exp_tag ExpB2_phase  --input_type phase
+# ── Model C: +KI+PA（加 EMD 物理对齐层，仍无多头 PAM）───────────────────
+echo "[$(date +%H:%M:%S)] Starting Model C (+KI+PA, no full PAM)..."
+$TRAIN $COMMON --exp_tag ModelC_ki_pa   --use_pam false --use_emd true
+$TEST         --exp_tag ModelC_ki_pa   --use_pam false --use_emd true
 
-# ── Exp B3: 完整模型 × radar_spec ────────────────────────────────────────
-echo "[$(date +%H:%M:%S)] Starting Exp B3 (full model, radar_spec)..."
-$TRAIN $COMMON --exp_tag ExpB3_spec   --input_type spec
-$TEST         --exp_tag ExpB3_spec   --input_type spec
+# ── Model D: Full（+KI+PA+CP，完整 V2 架构）──────────────────────────────
+echo "[$(date +%H:%M:%S)] Starting Model D (full model)..."
+$TRAIN $COMMON --exp_tag ModelD_full    --use_pam true  --use_emd true
+$TEST         --exp_tag ModelD_full    --use_pam true  --use_emd true
 
 # ── D5: 仅 resting 训练 → 全场景测试（跨场景泛化）────────────────────────
-# 训练：只用 resting 数据
-# 测试：用全部场景（resting + valsalva + apnea），才能观察泛化能力
 echo "[$(date +%H:%M:%S)] Starting D5 (resting-only train, all-scenario test)..."
-$TRAIN $COMMON --exp_tag D5_generalization --input_type phase \
+$TRAIN $COMMON --exp_tag D5_generalization --use_pam true --use_emd true \
                --scenarios resting
-$TEST         --exp_tag D5_generalization --input_type phase
-# 注意：test 不传 --scenarios，默认使用全部三种场景
+$TEST         --exp_tag D5_generalization --use_pam true --use_emd true
+# test 不传 --scenarios，默认使用全部三种场景，观察跨场景泛化
 
 echo "============================================================"
-echo " All experiments done. D1/D2/D3/D4 pending model support."
+echo " All experiments done."
 echo " Results: experiments/"
-echo " Next: python scripts/summarize_ablation.py"
 echo "============================================================"

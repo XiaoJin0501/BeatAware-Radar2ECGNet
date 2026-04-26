@@ -34,13 +34,10 @@ def _selective_scan_ref(
     delta_softplus: bool = False,
 ) -> torch.Tensor:
     """
-    TorchScript 编译的 Selective Scan (SSM 前向传播)。
+    TorchScript 顺序扫描（回退方案，当并行扫描显存不足时使用）。
 
-    数学等价于：
-        h[t] = exp(delta[t]*A) * h[t-1] + delta[t]*B[t] * u[t]
-        y[t] = C[t]^T * h[t]  +  D * u[t]
-
-    Returns: (B, D, L)
+    显存需求：O(B·D·L·N)。L=1600, B=32, D=192, N=16 时约需 3.8GB 额外显存。
+    若显存紧张，回退到此实现（138ms/call 但显存仅 O(B·D·N)）。
     """
     B_size = u.shape[0]
     D_size = u.shape[1]
@@ -52,20 +49,17 @@ def _selective_scan_ref(
     if delta_softplus:
         delta = F.softplus(delta)
 
-    # 顺序扫描（逐时间步离散化，避免展开 (B,D,L,N) 大张量）
-    # dA_t = exp(delta_t * A): (B, D, N)
-    # dB_t = delta_t * B_t:   (B, D, N)
     h = torch.zeros(B_size, D_size, N, dtype=u.dtype, device=u.device)
     ys: List[torch.Tensor] = []
     for t in range(L):
-        dt   = delta[:, :, t]                                      # (B, D)
-        dA_t = torch.exp(dt.unsqueeze(-1) * A)                     # (B, D, N)
-        dB_t = dt.unsqueeze(-1) * B_ssm[:, :, t].unsqueeze(1)     # (B, D, N)
-        h    = dA_t * h + dB_t * u[:, :, t].unsqueeze(-1)         # (B, D, N)
-        y_t  = (h * C_ssm[:, :, t].unsqueeze(1)).sum(-1)           # (B, D)
+        dt   = delta[:, :, t]
+        dA_t = torch.exp(dt.unsqueeze(-1) * A)
+        dB_t = dt.unsqueeze(-1) * B_ssm[:, :, t].unsqueeze(1)
+        h    = dA_t * h + dB_t * u[:, :, t].unsqueeze(-1)
+        y_t  = (h * C_ssm[:, :, t].unsqueeze(1)).sum(-1)
         ys.append(y_t)
 
-    y = torch.stack(ys, dim=2)   # (B, D, L)
+    y = torch.stack(ys, dim=2)
     if D is not None:
         y = y + D.unsqueeze(-1) * u
     return y
@@ -109,10 +103,11 @@ def selective_scan_1d(
 ) -> torch.Tensor:
     """
     统一 Selective Scan 接口，按优先级自动选择后端：
-      mamba-ssm CUDA kernel > selective_scan_cuda > TorchScript JIT
+      1. mamba-ssm 官方 CUDA kernel（最快，需安装）
+      2. selective_scan_cuda（手动编译）
+      3. TorchScript 顺序扫描（回退，~71ms/call with warmup）
     """
     if _MAMBA_SSM_AVAILABLE:
-        # mamba-ssm 接口：delta_bias 作为 delta_bias 参数传入
         return _mamba_scan_fn(
             u, delta, A, B_ssm, C_ssm, D,
             delta_bias=delta_bias,
@@ -124,7 +119,9 @@ def selective_scan_1d(
             return out
         except Exception:
             pass
-    return _selective_scan_ref(u, delta, A, B_ssm, C_ssm, D, delta_bias, delta_softplus)
+
+    return _selective_scan_ref(u, delta, A, B_ssm, C_ssm, D,
+                               delta_bias=delta_bias, delta_softplus=delta_softplus)
 
 
 # =============================================================================

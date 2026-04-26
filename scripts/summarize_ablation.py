@@ -37,14 +37,14 @@ import numpy as np
 # =============================================================================
 
 PLANNED_ORDER = [
-    "ExpA",
-    "ExpB_raw", "ExpB_phase", "ExpB_spec",
-    "ExpC",
-    "ExpD1", "ExpD2", "ExpD3", "ExpD4", "ExpD5",
+    "ModelA_baseline",
+    "ModelC_ki_pa",
+    "ModelD_full",
+    "D5_generalization",
 ]
 
 # 在表格中展示的配置字段（从 config.json 读取）
-CONFIG_FIELDS = ["input_type", "use_pam", "alpha", "beta"]
+CONFIG_FIELDS = ["input_type", "use_pam", "use_emd"]
 
 # 展示的指标字段（从 test_summary.csv 的 mean 行读取）
 METRIC_FIELDS = [

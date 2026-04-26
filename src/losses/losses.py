@@ -1,21 +1,19 @@
 """
-losses.py — BeatAwareRadar2ECGNet 损失函数
+losses.py — BeatAware-Radar2ECGNet 损失函数
 
-L_total = L_time + α·L_freq + β·L_peak
+L_total = L_recon + beta_peak * L_peak
+  L_recon = L1(pred, gt) + alpha_stft * MultiResSTFT(pred, gt)
+  L_peak  = BCE(qrs_pred, qrs_gt)   [QRS 峰值定位，固定权重]
 
-| 项      | 公式                                 | 默认权重 |
-|---------|--------------------------------------|---------|
-| L_time  | MAE(pred_ecg, gt_ecg)               | 1.0（基准，不调整）|
-| L_freq  | 多分辨率 STFT Loss（在线计算）          | α：待实验确定 |
-| L_peak  | BCE(pred_mask, gt_mask)             | β：待实验确定 |
+设计原则：
+  - 固定权重，不使用自适应 log_vars（避免目标函数被套利）
+  - 仅监督 QRS 峰（P/T 波 GT 质量不稳定，引入噪声）
+  - MultiResSTFT 使用 SC + log-mag 双项（V2 保留）
 
-STFT Loss 参数（@200Hz 目标采样率）：
-    FFT_SIZES   = [128, 256, 512]   覆盖 QRS(~40ms) / P-T波(~150ms) / RR间期(~600ms)
+STFT 参数（@200Hz）：
+    FFT_SIZES   = [128, 256, 512]
     HOP_SIZES   = [64,  128, 256]
     WIN_LENGTHS = [16,   32,  64]
-
-参考：Li et al., "Neural Speech Synthesis with Transformer Network" (ICASSP 2019)
-     — STFT Loss 方案
 """
 
 import torch
@@ -24,14 +22,19 @@ import torch.nn.functional as F
 
 
 # =============================================================================
-# 多分辨率 STFT Loss
+# 多分辨率 STFT：谱收敛 + 对数幅度
 # =============================================================================
 
 class MultiResolutionSTFTLoss(nn.Module):
     """
-    多分辨率 STFT 幅度谱 L1 Loss。
+    多分辨率 STFT Loss（V2）。
 
-    对 pred_ecg 和 gt_ecg 分别计算多组 STFT，取归一化 L1 之均值。
+    每组参数计算：
+        SC   = ||gt_mag - pred_mag||_F / (||gt_mag||_F + ε)      谱收敛损失
+        logM = mean |log(pred_mag+ε) - log(gt_mag+ε)|            对数幅度损失
+        stft_i = (SC + logM) / 2
+
+    最终取各分辨率均值。
 
     Parameters
     ----------
@@ -47,9 +50,7 @@ class MultiResolutionSTFTLoss(nn.Module):
         win_lengths: list = [16,   32,  64],
     ):
         super().__init__()
-        assert len(fft_sizes) == len(hop_sizes) == len(win_lengths), (
-            "fft_sizes, hop_sizes, win_lengths 长度必须一致"
-        )
+        assert len(fft_sizes) == len(hop_sizes) == len(win_lengths)
         self.fft_sizes   = fft_sizes
         self.hop_sizes   = hop_sizes
         self.win_lengths = win_lengths
@@ -58,12 +59,7 @@ class MultiResolutionSTFTLoss(nn.Module):
     def _stft_magnitude(
         x: torch.Tensor, n_fft: int, hop_length: int, win_length: int
     ) -> torch.Tensor:
-        """
-        计算单分辨率 STFT 幅度谱。
-
-        x : Tensor, (B, L)
-        Returns: (B, F, T)，F = n_fft//2 + 1
-        """
+        """x: (B, L) → (B, F, T)，F = n_fft//2 + 1"""
         window = torch.hann_window(win_length, device=x.device)
         S = torch.stft(
             x,
@@ -74,106 +70,116 @@ class MultiResolutionSTFTLoss(nn.Module):
             center=False,
             return_complex=True,
         )
-        return S.abs() + 1e-8   # (B, F, T)
+        return S.abs()   # (B, F, T)，非负，无需 abs()
 
     def forward(self, pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
         """
-        Parameters
-        ----------
-        pred, gt : Tensor, (B, 1, L)
-
-        Returns
-        -------
-        Tensor : scalar STFT Loss
+        pred, gt : (B, 1, L)
+        Returns  : scalar STFT Loss
         """
         pred_flat = pred.squeeze(1)   # (B, L)
         gt_flat   = gt.squeeze(1)
 
         parts = []
         for n_fft, hop, win in zip(self.fft_sizes, self.hop_sizes, self.win_lengths):
-            S_pred = self._stft_magnitude(pred_flat, n_fft, hop, win)
-            S_gt   = self._stft_magnitude(gt_flat,   n_fft, hop, win)
-            # 归一化 L1：消除幅度量纲差异
-            parts.append((S_pred - S_gt).abs().sum() / (S_gt.sum() + 1e-8))  # S_gt already non-negative
+            pred_mag = self._stft_magnitude(pred_flat, n_fft, hop, win)
+            gt_mag   = self._stft_magnitude(gt_flat,   n_fft, hop, win)
+
+            # 谱收敛损失 (Spectral Convergence)
+            sc = (
+                torch.norm(gt_mag - pred_mag, p="fro", dim=(-2, -1))
+                / (torch.norm(gt_mag, p="fro", dim=(-2, -1)) + 1e-8)
+            ).mean()
+
+            # 对数幅度损失 (Log-magnitude)
+            logm = F.l1_loss(
+                torch.log(pred_mag + 1e-7),
+                torch.log(gt_mag   + 1e-7),
+            )
+
+            parts.append((sc + logm) * 0.5)
 
         return sum(parts) / len(self.fft_sizes)
 
 
 # =============================================================================
-# TotalLoss
+# TotalLoss（固定权重：L_recon + beta_peak * L_peak_QRS）
 # =============================================================================
 
 class TotalLoss(nn.Module):
     """
-    BeatAwareRadar2ECGNet 总损失函数。
+    BeatAware-Radar2ECGNet 总损失函数。
 
-    L_total = L_time + alpha * L_freq + beta * L_peak
-
-    注意：alpha 和 beta 均须经实验验证后确定，不预设固定值。
-    默认值仅为起始参考（参考 BeatAware_R-M2Net 的经验值）。
+    L_total = L_recon + beta_peak * L_peak
+      L_recon = L1(pred, gt) + alpha_stft * MultiResSTFT(pred, gt)
+      L_peak  = BCE(qrs_pred, qrs_gt)   — 仅 QRS，固定权重
 
     Parameters
     ----------
-    alpha : float  L_freq 权重（建议起点 0.05，待消融实验确定）
-    beta  : float  L_peak 权重（建议起点 1.0，待消融实验确定）
-    fft_sizes, hop_sizes, win_lengths : list[int]
-        多分辨率 STFT 参数（@200Hz 目标采样率）
+    alpha_stft : float  STFT loss 在 L_recon 内的权重（默认 0.05）
+    beta_peak  : float  L_peak 的权重（默认 1.0）
     """
 
     def __init__(
         self,
-        alpha: float = 0.05,
-        beta:  float = 1.0,
-        fft_sizes:   list = [128, 256, 512],
-        hop_sizes:   list = [64,  128, 256],
+        alpha_stft: float = 0.05,
+        beta_peak:  float = 1.0,
+        fft_sizes:  list  = [128, 256, 512],
+        hop_sizes:  list  = [64,  128, 256],
         win_lengths: list = [16,   32,  64],
     ):
         super().__init__()
-        self.alpha     = alpha
-        self.beta      = beta
-        self.stft_loss = MultiResolutionSTFTLoss(fft_sizes, hop_sizes, win_lengths)
+        self.alpha_stft = alpha_stft
+        self.beta_peak  = beta_peak
+        self.stft_loss  = MultiResolutionSTFTLoss(fft_sizes, hop_sizes, win_lengths)
+
+    @staticmethod
+    def _safe_bce(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+        """NaN 安全的 BCE。"""
+        pred_safe = pred.nan_to_num(
+            nan=0.5, posinf=1.0 - 1e-6, neginf=1e-6
+        ).clamp(1e-6, 1.0 - 1e-6)
+        return F.binary_cross_entropy(pred_safe, gt)
+
+    def _peak_loss(
+        self,
+        peak_preds: tuple | None,
+        peak_gts:   dict  | None,
+    ) -> torch.Tensor:
+        """QRS-only BCE 峰值损失。"""
+        if peak_preds is None or peak_gts is None:
+            return torch.tensor(0.0)
+        qrs_pred = peak_preds[0]          # (B, 1, L)
+        qrs_gt   = peak_gts["qrs"]        # (B, 1, L)
+        return self._safe_bce(qrs_pred, qrs_gt)
 
     def forward(
         self,
-        ecg_pred:  torch.Tensor,
-        ecg_gt:    torch.Tensor,
-        peak_pred: torch.Tensor | None,
-        peak_gt:   torch.Tensor | None,
+        ecg_pred:   torch.Tensor,
+        ecg_gt:     torch.Tensor,
+        peak_preds: tuple | None,
+        peak_gts:   dict  | None,
+        epoch:      int = 999,            # 保留参数签名兼容性，不再使用
     ) -> dict:
         """
-        Parameters
-        ----------
-        ecg_pred  : Tensor, (B, 1, L) — 模型输出重建 ECG，值域 [0, 1]
-        ecg_gt    : Tensor, (B, 1, L) — GT ECG，值域 [0, 1]
-        peak_pred : Tensor | None, (B, 1, L) — PAM 峰值 Mask 预测（use_pam=False 时为 None）
-        peak_gt   : Tensor | None, (B, 1, L) — GT 高斯软标签（use_pam=False 时传 None）
-
-        Returns
-        -------
-        dict with keys:
-            'total' : L_total（用于 backward）
-            'time'  : L_time（监控）
-            'freq'  : L_freq（监控）
-            'peak'  : L_peak（监控；use_pam=False 时为 0.0）
+        Returns dict:
+            'total' : L_total（backward 用）
+            'recon' : L_recon
+            'time'  : L_time
+            'freq'  : L_freq
+            'peak'  : L_peak
         """
-        L_time = F.l1_loss(ecg_pred, ecg_gt)
-        L_freq = self.stft_loss(ecg_pred, ecg_gt)
-
-        if peak_pred is not None and peak_gt is not None:
-            # nan_to_num 先处理 NaN/Inf（clamp 不会处理 NaN），再 clamp 到安全范围
-            # NaN 来源：SSM 状态在长序列（L=1600）中数值爆炸 → Sigmoid(NaN)=NaN
-            peak_pred_safe = peak_pred.nan_to_num(
-                nan=0.5, posinf=1.0 - 1e-6, neginf=1e-6
-            ).clamp(1e-6, 1 - 1e-6)
-            L_peak  = F.binary_cross_entropy(peak_pred_safe, peak_gt)
-            L_total = L_time + self.alpha * L_freq + self.beta * L_peak
-        else:
-            L_peak  = ecg_pred.new_zeros(())
-            L_total = L_time + self.alpha * L_freq
+        L_time  = F.l1_loss(ecg_pred, ecg_gt)
+        L_freq  = self.stft_loss(ecg_pred, ecg_gt)
+        L_recon = L_time + self.alpha_stft * L_freq
+        L_peak  = self._peak_loss(peak_preds, peak_gts)
+        L_total = L_recon + self.beta_peak * L_peak
 
         return {
             "total": L_total,
+            "recon": L_recon.detach(),
             "time":  L_time.detach(),
             "freq":  L_freq.detach(),
-            "peak":  L_peak.detach(),
+            "peak":  L_peak.detach() if isinstance(L_peak, torch.Tensor)
+                     else torch.tensor(0.0),
         }

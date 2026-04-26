@@ -20,14 +20,16 @@ class Config:
     scenarios:   list = field(default_factory=lambda: ["resting", "valsalva", "apnea"])
 
     # ── 模型 ──────────────────────────────────────────────────────────────
-    C:           int   = 64
-    d_state:     int   = 16
-    use_pam:     bool  = True
-    dropout:     float = 0.1
+    C:             int   = 64
+    d_state:       int   = 16
+    use_pam:       bool  = True
+    use_emd:       bool  = True   # Phase C EMD 对齐层（False = Model A/B）
+    emd_max_delay: int   = 20     # EMD 最大时移（采样点，20 = 100ms @ 200Hz）
+    dropout:       float = 0.1
 
-    # ── Loss 权重 ─────────────────────────────────────────────────────────
-    alpha:       float = 0.05    # L_freq 权重（待消融确定）
-    beta:        float = 1.0     # L_peak 权重（待消融确定）
+    # ── Loss 权重（固定权重，L_recon + beta_peak * L_peak_QRS）──────────
+    alpha_stft: float = 0.05   # STFT loss 在 L_recon 内的权重
+    beta_peak:  float = 1.0    # L_peak（QRS BCE）的权重
 
     # ── 训练 ──────────────────────────────────────────────────────────────
     epochs:       int   = 150
