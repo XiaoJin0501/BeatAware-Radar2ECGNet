@@ -68,7 +68,7 @@ class MMECGConfig:
     # ── 实验输出 ───────────────────────────────────────────────────────────────
     exp_dir       : str  = "experiments_mmecg"
 
-    # ── 模型结构（与 Schellenberger 版本一致） ──────────────────────────────────
+    # ── 模型结构 ───────────────────────────────────────────────────────────────
     C             : int  = 64       # encoder base channels
     d_state       : int  = 16       # Mamba SSM state dim
     emd_max_delay : int  = 20       # EMD FIR 最大延迟（100ms @ 200Hz）
