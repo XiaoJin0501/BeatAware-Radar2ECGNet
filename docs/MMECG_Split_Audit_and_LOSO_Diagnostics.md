@@ -633,3 +633,66 @@ supervision from input-lag pseudo-labels.
 If raw and shifted PCC both drop, the output shift is destabilizing
 and should be moved earlier into feature alignment instead of output alignment.
 ```
+
+## Output Lag-Head Result
+
+Two output scalar lag-head controls were tested:
+
+```text
+mmecg_reg_samplewise_output_align
+  output_lag_max_ms=200
+  no output-lag regularization
+
+mmecg_reg_samplewise_output_align_reg
+  output_lag_max_ms=100
+  lambda_output_lag_l1=0.02
+  zero-initialized lag-head final layer
+```
+
+Findings:
+
+```text
+No regularization:
+  best checkpoint at epoch 5, val_pcc=0.4699
+  predicted lag saturated near +197 ms for almost every segment
+  conclusion: learned a global boundary-shift shortcut, not adaptive alignment
+
+With regularization:
+  best checkpoint at epoch 5, val_pcc=0.4120
+  predicted lag collapsed near -2.7 ms for almost every segment
+  conclusion: regularization prevented saturation but also prevented useful lag learning
+```
+
+Full test result for the regularized control:
+
+```text
+raw PCC mean:     0.2088
+shifted PCC mean: 0.5318
+PCC gain mean:    0.3230
+QMR:              88.4%
+RR error mean:    14.4 ms
+F1@150ms:          0.7100
+```
+
+Comparison with no-align baseline:
+
+```text
+raw PCC:      0.2667 -> 0.2088  (worse)
+shifted PCC:  0.5585 -> 0.5318  (worse)
+QMR:          86.1%  -> 88.4%   (slightly better)
+F1@150ms:     0.760 -> 0.710    (worse)
+```
+
+Conclusion:
+
+An unsupervised output scalar lag head is not sufficient. Without constraints,
+it finds a global boundary shift. With simple L1 regularization, it collapses to
+near-zero shift and does not learn subject/scene/segment-specific alignment.
+
+Next step:
+
+```text
+Use input-lag diagnostic estimates as pseudo-labels for auxiliary lag supervision,
+or move the alignment mechanism earlier to feature-level alignment with explicit
+lag supervision.
+```

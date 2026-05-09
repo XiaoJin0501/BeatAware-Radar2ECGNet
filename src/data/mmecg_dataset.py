@@ -73,6 +73,37 @@ def _decode_physistatus(raw) -> str:
     return str(raw)
 
 
+def _band_energy_per_bin(
+    rcg_group: np.ndarray, fs: float, lo: float, hi: float, order: int = 4,
+) -> np.ndarray:
+    """rcg_group: (M, R, L) → (R,) mean band-energy per range bin.
+
+    Filter each (M, R, L) tensor in the heart band, square, mean over time and
+    over the M windows of one (subject, scene) recording group.
+    """
+    b, a = scipy.signal.butter(order, [lo, hi], btype="band", fs=fs)
+    y = scipy.signal.filtfilt(b, a, rcg_group, axis=-1)
+    return (y ** 2).mean(axis=(0, -1)).astype(np.float32)   # (R,)
+
+
+def _oracle_corr_per_bin(
+    rcg_group: np.ndarray, ecg_group: np.ndarray,
+) -> np.ndarray:
+    """rcg_group:(M, R, L), ecg_group:(M, 1, L) → (R,) mean |Pearson(bin, ECG)|.
+
+    Per-window |corr|, averaged over the M windows of one (subject, scene) group.
+    Uses ECG GT — ONLY use as deployable upper-bound, NOT for LOSO-test inference.
+    """
+    rc = rcg_group - rcg_group.mean(axis=-1, keepdims=True)             # (M, R, L)
+    ec = ecg_group[:, 0, :] - ecg_group[:, 0, :].mean(axis=-1, keepdims=True)  # (M, L)
+    num = (rc * ec[:, None, :]).sum(axis=-1)                            # (M, R)
+    den = np.sqrt(
+        (rc ** 2).sum(axis=-1) * (ec ** 2).sum(axis=-1)[:, None] + 1e-12
+    )
+    corr = np.abs(num / den)                                            # (M, R)
+    return corr.mean(axis=0).astype(np.float32)                          # (R,)
+
+
 # ── 커스텀 collate（vlen peak 인덱스용）──────────────────────────────────────────
 
 def _collate_with_peaks(batch: list[dict]) -> dict:
@@ -122,13 +153,21 @@ class MMECGWindowedH5Dataset(Dataset):
         bp_lo: float = 0.8,
         bp_hi: float = 3.5,
         fs: float = 200.0,
+        topk_bins: int | None = None,
+        target_norm: str = "minmax",
+        topk_method: str = "energy",
     ):
         super().__init__()
         h5_path = Path(h5_path)
         if not h5_path.exists():
             raise FileNotFoundError(f"H5 file not found: {h5_path}")
+        if topk_method not in ("energy", "corr"):
+            raise ValueError(f"Unknown topk_method: {topk_method!r}")
 
         self.include_peak_indices = include_peak_indices
+        self.topk_bins = topk_bins
+        self.target_norm = target_norm
+        self.topk_method = topk_method
 
         with h5py.File(h5_path, "r") as hf:
             N = hf["rcg"].shape[0]
@@ -150,10 +189,44 @@ class MMECGWindowedH5Dataset(Dataset):
                 std = rcg_raw.std( axis=-1, keepdims=True) + 1e-8
                 rcg_raw = ((rcg_raw - mu) / std).astype(np.float32)
 
-            # ── ECG min-max 정규화（모델 입력：sigmoid [0,1]）──────────
-            ecg_norm = np.stack(
-                [_minmax_ecg(ecg_raw[i]) for i in range(N)], axis=0
-            )  # [N, 1, 1600]
+            # ── physistatus → int (used by topk grouping below) ──────
+            state_int = np.array(
+                [PHYSISTATUS_MAP.get(_decode_physistatus(p), 0) for p in phys_b],
+                dtype=np.int32,
+            )
+
+            # ── per-(subject, scene) top-K range-bin selection ──────
+            #   selection criterion: 0.8-3.5 Hz heart-band energy per bin,
+            #   averaged over all windows of each (subject, scene) group.
+            #   stays deployable: uses only input RCG, no ECG GT.
+            self.topk_indices: dict[tuple[int, int], np.ndarray] = {}
+            if topk_bins is not None and topk_bins < rcg_raw.shape[1]:
+                groups = sorted(set(zip(subj.tolist(), state_int.tolist())))
+                rcg_sliced = np.empty((N, topk_bins, rcg_raw.shape[2]), dtype=np.float32)
+                for s_id, st in groups:
+                    mask = (subj == s_id) & (state_int == st)
+                    if topk_method == "energy":
+                        scores = _band_energy_per_bin(
+                            rcg_raw[mask], fs=fs, lo=bp_lo, hi=bp_hi,
+                        )
+                    else:  # "corr"
+                        scores = _oracle_corr_per_bin(
+                            rcg_raw[mask], ecg_raw[mask],
+                        )
+                    top_idx = np.argsort(scores)[-topk_bins:][::-1].astype(np.int32)
+                    self.topk_indices[(int(s_id), int(st))] = top_idx
+                    rcg_sliced[mask] = rcg_raw[mask][:, top_idx, :]
+                rcg_raw = rcg_sliced
+
+            # ── ECG 정규화（target_norm='minmax' → [0,1]; 'zscore' → 그대로）
+            if target_norm == "minmax":
+                ecg_norm = np.stack(
+                    [_minmax_ecg(ecg_raw[i]) for i in range(N)], axis=0
+                )  # [N, 1, 1600]
+            elif target_norm == "zscore":
+                ecg_norm = ecg_raw.astype(np.float32)
+            else:
+                raise ValueError(f"Unknown target_norm: {target_norm}")
 
             # ── R 피크 → Gaussian 마스크 ──────────────────────────────
             rpeak_ds = hf["rpeak_indices"]
@@ -163,11 +236,8 @@ class MMECGWindowedH5Dataset(Dataset):
                 axis=0,
             )  # [N, 1, 1600]
 
-            # ── physistatus → int ─────────────────────────────────────
-            state = np.array(
-                [PHYSISTATUS_MAP.get(_decode_physistatus(p), 0) for p in phys_b],
-                dtype=np.int32,
-            )  # [N]
+            # state already computed above for topk grouping
+            state = state_int
 
             # ── 선택적：peak 인덱스（test set용）─────────────────────
             if include_peak_indices:
@@ -255,6 +325,9 @@ def build_loso_loaders_h5(
     balanced_sampling: bool = True,
     balance_by: str = "subject",
     narrow_bandpass: bool = False,
+    topk_bins: int | None = None,
+    target_norm: str = "minmax",
+    topk_method: str = "energy",
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
     """
     LOSO 프로토콜：fold_XX/{train,val,test}.h5 를 로드하여
@@ -276,7 +349,12 @@ def build_loso_loaders_h5(
     if not fold_dir.exists():
         raise FileNotFoundError(f"Fold directory not found: {fold_dir}")
 
-    ds_kwargs = {"narrow_bandpass": narrow_bandpass}
+    ds_kwargs = {
+        "narrow_bandpass": narrow_bandpass,
+        "topk_bins": topk_bins,
+        "target_norm": target_norm,
+        "topk_method": topk_method,
+    }
     train_ds = MMECGWindowedH5Dataset(fold_dir / "train.h5", include_peak_indices=False, **ds_kwargs)
     val_ds   = MMECGWindowedH5Dataset(fold_dir / "val.h5",   include_peak_indices=False, **ds_kwargs)
     test_ds  = MMECGWindowedH5Dataset(fold_dir / "test.h5",  include_peak_indices=True,  **ds_kwargs)
@@ -313,6 +391,9 @@ def build_samplewise_loaders_h5(
     balanced_sampling: bool = True,
     balance_by: str = "subject",
     narrow_bandpass: bool = False,
+    topk_bins: int | None = None,
+    target_norm: str = "minmax",
+    topk_method: str = "energy",
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
     """
     Samplewise 프로토콜：samplewise/{train,val,test}.h5 를 로드하여
@@ -328,7 +409,12 @@ def build_samplewise_loaders_h5(
     """
     sw_dir = Path(sw_dir)
 
-    ds_kwargs = {"narrow_bandpass": narrow_bandpass}
+    ds_kwargs = {
+        "narrow_bandpass": narrow_bandpass,
+        "topk_bins": topk_bins,
+        "target_norm": target_norm,
+        "topk_method": topk_method,
+    }
     train_ds = MMECGWindowedH5Dataset(sw_dir / "train.h5", include_peak_indices=False, **ds_kwargs)
     val_ds   = MMECGWindowedH5Dataset(sw_dir / "val.h5",   include_peak_indices=False, **ds_kwargs)
     test_ds  = MMECGWindowedH5Dataset(sw_dir / "test.h5",  include_peak_indices=True,  **ds_kwargs)

@@ -14,6 +14,7 @@ train_mmecg.py — MMECG 训练脚本（LOSO / Samplewise）
 
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -107,6 +108,9 @@ def train_one_run(
         diff_n_blocks=cfg.diff_n_blocks,
         use_output_lag_align=cfg.use_output_lag_align,
         output_lag_max_samples=int(round(cfg.output_lag_max_ms / 1000.0 * cfg.fs)),
+        fmcw_selector=cfg.fmcw_selector,
+        fmcw_topk=cfg.fmcw_topk,
+        fmcw_tau=cfg.fmcw_tau_init,
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -162,15 +166,30 @@ def train_one_run(
     # ── 训练循环 ──────────────────────────────────────────────────────────────
     best_val_pcc         = -float("inf")
     best_val_loss        = float("inf")
+    best_val_score       = -float("inf")
     early_stop_cnt       = 0
     early_stop_min_epoch = 30
     global_step          = 0
     history              = []
     val_every            = 10 if cfg.use_diffusion else 5   # 扩散 DDIM 采样慢，降低 val 频率
-    f1_every             = 20 if cfg.use_diffusion else 10
+    f1_every             = val_every
 
     for epoch in range(1, cfg.epochs + 1):
         model.train()
+
+        # Anneal Gumbel tau if using gumbel_topk selector.
+        if cfg.fmcw_selector == "gumbel_topk" and hasattr(model, "fmcw_enc"):
+            t_init, t_final = float(cfg.fmcw_tau_init), float(cfg.fmcw_tau_final)
+            if cfg.fmcw_tau_anneal == "linear":
+                frac = (epoch - 1) / max(1, cfg.epochs - 1)
+                tau = t_init + (t_final - t_init) * frac
+            elif cfg.fmcw_tau_anneal == "exp":
+                frac = (epoch - 1) / max(1, cfg.epochs - 1)
+                tau = t_init * (t_final / t_init) ** frac
+            else:  # "none"
+                tau = t_init
+            model.fmcw_enc.set_tau(tau)
+
         epoch_losses = {"total": 0.0, "recon": 0.0, "time": 0.0,
                         "freq": 0.0, "peak": 0.0,
                         "lag_pcc": 0.0, "lag_l1": 0.0,
@@ -243,14 +262,26 @@ def train_one_run(
             val_metrics = _evaluate(
                 model, val_loader, criterion, device, epoch, f1_every,
             )
-            logger.log_dict(val_metrics, step=epoch, prefix=f"{run_label}/val")
-
             elapsed = time.time() - t0
+            val_f1 = val_metrics.get("rpeak_f1", float("nan"))
+            score_f1 = 0.0 if not math.isfinite(val_f1) else val_f1
+            val_score = (
+                val_metrics.get("pcc", 0.0)
+                - val_metrics.get("rmse", 0.0)
+                + 0.10 * score_f1
+            )
+            val_metrics["composite_score"] = float(val_score)
+            logger.log_dict(val_metrics, step=epoch, prefix=f"{run_label}/val")
             logger.info(
                 f"Epoch {epoch:3d}/{cfg.epochs} | "
                 f"train={avg_train['total']:.4f} | "
                 f"val_mae={val_metrics['mae']:.4f} | "
+                f"val_rmse={val_metrics['rmse']:.4f} | "
                 f"val_pcc={val_metrics['pcc']:.4f} | "
+                f"val_prd={val_metrics.get('prd', float('nan')):.2f} | "
+                f"val_f1={val_f1:.4f} | "
+                f"val_loss={val_metrics.get('loss', float('nan')):.4f} | "
+                f"val_score={val_score:.4f} | "
                 f"lr={scheduler.get_last_lr()[0]:.2e} | "
                 f"{elapsed:.1f}s"
             )
@@ -259,11 +290,18 @@ def train_one_run(
             pcc_improved = val_metrics["pcc"] > best_val_pcc
             if pcc_improved:
                 best_val_pcc = val_metrics["pcc"]
-                torch.save({
+                ckpt_payload = {
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
                     "val_pcc": best_val_pcc,
-                }, ckpt_dir / "best.pt")
+                    "val_rmse": val_metrics.get("rmse"),
+                    "val_mae": val_metrics.get("mae"),
+                    "val_rpeak_f1": val_metrics.get("rpeak_f1"),
+                    "val_loss": val_metrics.get("loss"),
+                    "val_composite_score": val_score,
+                }
+                torch.save(ckpt_payload, ckpt_dir / "best.pt")
+                torch.save(ckpt_payload, ckpt_dir / "best_pcc.pt")
                 logger.info(f"  -> Best ckpt saved (val_pcc={best_val_pcc:.4f})")
 
             # 扩散模式 val_loss 恒为 0（DDIM 无 eps），改用 val_pcc 做 early stopping
@@ -274,6 +312,37 @@ def train_one_run(
                 es_improved = val_loss < best_val_loss
                 if es_improved:
                     best_val_loss = val_loss
+                    torch.save({
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "val_pcc": val_metrics.get("pcc"),
+                        "val_rmse": val_metrics.get("rmse"),
+                        "val_mae": val_metrics.get("mae"),
+                        "val_rpeak_f1": val_metrics.get("rpeak_f1"),
+                        "val_loss": best_val_loss,
+                        "val_composite_score": val_score,
+                    }, ckpt_dir / "best_loss.pt")
+
+            score_improved = val_score > best_val_score
+            if score_improved:
+                best_val_score = val_score
+                torch.save({
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "val_pcc": val_metrics.get("pcc"),
+                    "val_rmse": val_metrics.get("rmse"),
+                    "val_mae": val_metrics.get("mae"),
+                    "val_rpeak_f1": val_metrics.get("rpeak_f1"),
+                    "val_loss": val_metrics.get("loss"),
+                    "val_composite_score": best_val_score,
+                }, ckpt_dir / "best_composite.pt")
+                logger.info(
+                    f"  -> Best composite ckpt saved "
+                    f"(score={best_val_score:.4f}, "
+                    f"pcc={val_metrics.get('pcc', float('nan')):.4f}, "
+                    f"rmse={val_metrics.get('rmse', float('nan')):.4f}, "
+                    f"f1={val_f1:.4f})"
+                )
 
             if epoch >= early_stop_min_epoch:
                 if es_improved:
@@ -295,6 +364,8 @@ def train_one_run(
     with open(result_dir / "train_history.json", "w") as jf:
         json.dump(history, jf, indent=2)
     logger.info(f"Best val PCC: {best_val_pcc:.4f}")
+    logger.info(f"Best val loss: {best_val_loss:.4f}")
+    logger.info(f"Best composite score: {best_val_score:.4f}")
     logger.close()
 
 
@@ -396,6 +467,26 @@ def main():
                         help="Max absolute predicted output lag in milliseconds")
     parser.add_argument("--lambda_output_lag_l1", type=float, default=None,
                         help="L1 regularization weight for normalized output lag")
+    parser.add_argument("--topk_bins", type=int, default=None,
+                        help="Per-(subject,scene) top-K range bins by 0.8-3.5 Hz band energy. 0 or unset = all 50 bins.")
+    parser.add_argument("--target_norm", type=str, default=None,
+                        choices=["minmax", "zscore"],
+                        help="ECG target normalization. minmax = sigmoid [0,1]; zscore = z-score (no sigmoid).")
+    parser.add_argument("--topk_method", type=str, default=None,
+                        choices=["energy", "corr"],
+                        help="Top-K selection criterion: band energy (deployable) or |corr(bin, ECG)| (oracle upper bound).")
+    parser.add_argument("--fmcw_selector", type=str, default=None,
+                        choices=["se", "gumbel_topk"],
+                        help="FMCWRangeEncoder selector mode.")
+    parser.add_argument("--fmcw_topk", type=int, default=None,
+                        help="K for fmcw_selector=gumbel_topk (number of bins kept).")
+    parser.add_argument("--fmcw_tau_init", type=float, default=None,
+                        help="Gumbel softmax starting temperature (annealed per-epoch).")
+    parser.add_argument("--fmcw_tau_final", type=float, default=None,
+                        help="Gumbel softmax final temperature.")
+    parser.add_argument("--fmcw_tau_anneal", type=str, default=None,
+                        choices=["linear", "exp", "none"],
+                        help="Annealing schedule.")
     args = parser.parse_args()
 
     cfg = MMECGConfig()
@@ -419,6 +510,18 @@ def main():
     if args.use_output_lag_align is not None: cfg.use_output_lag_align = args.use_output_lag_align
     if args.output_lag_max_ms is not None: cfg.output_lag_max_ms = args.output_lag_max_ms
     if args.lambda_output_lag_l1 is not None: cfg.lambda_output_lag_l1 = args.lambda_output_lag_l1
+    if args.topk_bins         is not None: cfg.topk_bins         = args.topk_bins
+    if args.target_norm       is not None: cfg.target_norm       = args.target_norm
+    if args.topk_method       is not None: cfg.topk_method       = args.topk_method
+    if args.fmcw_selector     is not None: cfg.fmcw_selector     = args.fmcw_selector
+    if args.fmcw_topk         is not None: cfg.fmcw_topk         = args.fmcw_topk
+    if args.fmcw_tau_init     is not None: cfg.fmcw_tau_init     = args.fmcw_tau_init
+    if args.fmcw_tau_final    is not None: cfg.fmcw_tau_final    = args.fmcw_tau_final
+    if args.fmcw_tau_anneal   is not None: cfg.fmcw_tau_anneal   = args.fmcw_tau_anneal
+
+    # When topk_bins set, FMCW encoder must take K-channel input instead of 50.
+    if cfg.topk_bins and cfg.topk_bins > 0:
+        cfg.n_range_bins = cfg.topk_bins
 
     print(f"MMECG training | exp_tag={args.exp_tag} | protocol={args.protocol}")
     print(f"use_pam={cfg.use_pam} | use_emd={cfg.use_emd} | epochs={cfg.epochs}")
@@ -435,6 +538,9 @@ def main():
         balanced_sampling=cfg.balanced_sampling,
         balance_by=cfg.balance_by,
         narrow_bandpass=cfg.narrow_bandpass,
+        topk_bins=(cfg.topk_bins if cfg.topk_bins and cfg.topk_bins > 0 else None),
+        target_norm=cfg.target_norm,
+        topk_method=cfg.topk_method,
     )
 
     if args.protocol == "samplewise":

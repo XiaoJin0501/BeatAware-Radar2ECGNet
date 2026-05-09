@@ -65,6 +65,18 @@ class MMECGConfig:
     balance_by       : str  = "subject"      # "subject" | "class"
     narrow_bandpass  : bool = True           # RCG 0.8-3.5 Hz 心跳协带
 
+    # ── 输入表示（B2a 实验） ───────────────────────────────────────────────────
+    topk_bins        : int  = 0              # 0 = 用全部 50 bin；>0 = per-(subject,scene) top-K bin selection
+    topk_method      : str  = "energy"       # "energy" 0.8-3.5Hz band energy（可部署）|"corr" |Pearson(bin,ECG)| oracle 上界
+    target_norm      : str  = "minmax"       # "minmax" → [0,1] sigmoid 输出；"zscore" → z-score 直接预测
+
+    # ── B2b 在线 learnable hard top-K（FMCWRangeEncoder 选择器）─────────────
+    fmcw_selector       : str   = "se"         # "se" 软注意力 | "gumbel_topk" 硬选择
+    fmcw_topk           : int   = 10           # selector="gumbel_topk" 时的 K
+    fmcw_tau_init       : float = 1.0          # Gumbel softmax 起始温度
+    fmcw_tau_final      : float = 0.1          # 训练末期温度
+    fmcw_tau_anneal     : str   = "linear"     # "linear" | "exp" | "none"
+
     # ── 实验输出 ───────────────────────────────────────────────────────────────
     exp_dir       : str  = "experiments_mmecg"
 

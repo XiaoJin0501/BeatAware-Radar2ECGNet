@@ -61,7 +61,7 @@ def _load_model(run_dir: Path, cfg: MMECGConfig, device: torch.device):
         )),
     ).to(device)
     ckpt = torch.load(run_dir / "checkpoints" / "best.pt", map_location=device, weights_only=True)
-    model.load_state_dict(ckpt["model_state_dict"])
+    model.load_state_dict(ckpt["model_state_dict"], strict=False)
     model.eval()
     return model, ckpt
 

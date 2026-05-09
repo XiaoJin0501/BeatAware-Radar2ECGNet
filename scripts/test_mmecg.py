@@ -74,7 +74,9 @@ def _load_model(cfg: MMECGConfig, run_dir: Path, device: torch.device):
         for k in ("C", "d_state", "dropout", "use_pam", "use_emd", "emd_max_delay",
                   "n_range_bins", "use_diffusion", "diff_T", "diff_ddim_steps",
                   "diff_hidden", "diff_n_blocks", "narrow_bandpass",
-                  "use_output_lag_align", "output_lag_max_ms", "fs"):
+                  "use_output_lag_align", "output_lag_max_ms", "fs",
+                  "topk_bins", "target_norm", "topk_method",
+                  "fmcw_selector", "fmcw_topk", "fmcw_tau_init", "fmcw_tau_final"):
             if k in saved:
                 setattr(cfg, k, saved[k])
 
@@ -96,10 +98,19 @@ def _load_model(cfg: MMECGConfig, run_dir: Path, device: torch.device):
         output_lag_max_samples=int(round(
             getattr(cfg, "output_lag_max_ms", 200.0) / 1000.0 * getattr(cfg, "fs", 200)
         )),
+        fmcw_selector=getattr(cfg, "fmcw_selector", "se"),
+        fmcw_topk=getattr(cfg, "fmcw_topk", 10),
+        fmcw_tau=getattr(cfg, "fmcw_tau_final", 0.1),  # eval 用退火后温度
     ).to(device)
 
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
-    model.load_state_dict(ckpt["model_state_dict"])
+    # strict=False: 兼容旧 ckpt（含已删除的 ConformerFusionBlock fusion.* 权重）
+    missing, unexpected = model.load_state_dict(ckpt["model_state_dict"], strict=False)
+    if unexpected:
+        print(f"[load_state_dict] dropped {len(unexpected)} unexpected keys "
+              f"(e.g. {unexpected[:3]})")
+    if missing:
+        print(f"[load_state_dict] missing {len(missing)} keys (e.g. {missing[:3]})")
     model.eval()
     print(f"  Loaded checkpoint: epoch={ckpt.get('epoch','?')} "
           f"val_pcc={ckpt.get('val_pcc', float('nan')):.4f}")
@@ -423,22 +434,29 @@ def main():
     # Pass current cfg value (default False) here; test_one_run re-loads
     # the saved config before building the model, but loaders need bandpass too.
     # We read it from the first available saved config.
-    def _get_narrow_bandpass(exp_tag: str, run_label: str) -> bool:
+    def _get_loader_overrides(exp_tag: str, run_label: str) -> dict:
+        """Pull narrow_bandpass / topk_bins / target_norm out of saved config."""
         cfg_path = Path(cfg.exp_dir) / exp_tag / run_label / "config.json"
-        if cfg_path.exists():
-            with open(cfg_path) as jf:
-                saved = json.load(jf)
-            return bool(saved.get("narrow_bandpass", False))
-        return False
+        if not cfg_path.exists():
+            return {"narrow_bandpass": False}
+        with open(cfg_path) as jf:
+            saved = json.load(jf)
+        tk = saved.get("topk_bins", 0)
+        return {
+            "narrow_bandpass": bool(saved.get("narrow_bandpass", False)),
+            "topk_bins": tk if (tk and tk > 0) else None,
+            "target_norm": saved.get("target_norm", "minmax"),
+            "topk_method": saved.get("topk_method", "energy"),
+        }
 
     if args.protocol == "samplewise":
-        nb = _get_narrow_bandpass(args.exp_tag, "samplewise")
+        ovr = _get_loader_overrides(args.exp_tag, "samplewise")
         _, _, test_loader = build_samplewise_loaders_h5(
             sw_dir          = cfg.samplewise_h5_dir,
             batch_size      = cfg.batch_size,
             num_workers     = cfg.num_workers,
             balanced_sampling = False,
-            narrow_bandpass = nb,
+            **ovr,
         )
         test_one_run(cfg, args.exp_tag, run_label="samplewise",
                      test_loader=test_loader)
@@ -448,14 +466,14 @@ def main():
 
         all_seg_dfs = []
         for fold in folds:
-            nb = _get_narrow_bandpass(args.exp_tag, f"fold_{fold:02d}")
+            ovr = _get_loader_overrides(args.exp_tag, f"fold_{fold:02d}")
             _, _, test_loader = build_loso_loaders_h5(
                 fold_idx        = fold,
                 loso_dir        = cfg.loso_h5_dir,
                 batch_size      = cfg.batch_size,
                 num_workers     = cfg.num_workers,
                 balanced_sampling = False,
-                narrow_bandpass = nb,
+                **ovr,
             )
             seg_df = test_one_run(
                 cfg, args.exp_tag,
