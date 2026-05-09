@@ -103,6 +103,93 @@ class MultiResolutionSTFTLoss(nn.Module):
 
 
 # =============================================================================
+# Lag-aware waveform loss：小范围时移鲁棒 PCC/L1
+# =============================================================================
+
+class LagAwareWaveformLoss(nn.Module):
+    """
+    在一个受限 lag 窗口内计算最佳对齐后的 PCC/L1 损失。
+
+    设计用途：
+      - 抵抗雷达机械响应与 ECG 电信号之间几十毫秒的残余错位；
+      - 不改数据集，只在训练目标里给模型一个小范围的时序容忍度；
+      - lag 窗口不应过大，避免模型通过任意平移来“作弊”。
+
+    Positive lag means pred is compared as pred[lag:] vs gt[:-lag].
+    """
+
+    def __init__(self, max_lag_samples: int = 20, softmax_tau: float = 0.05):
+        super().__init__()
+        self.max_lag_samples = int(max_lag_samples)
+        self.softmax_tau = float(softmax_tau)
+        lags = torch.arange(
+            -self.max_lag_samples, self.max_lag_samples + 1,
+            dtype=torch.float32,
+        )
+        lag_cost = lags.abs() / max(float(self.max_lag_samples), 1.0)
+        self.register_buffer("lag_cost", lag_cost)
+
+    @staticmethod
+    def _shifted_views(
+        pred: torch.Tensor,
+        gt: torch.Tensor,
+        lag: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if lag > 0:
+            return pred[..., lag:], gt[..., :-lag]
+        if lag < 0:
+            return pred[..., :lag], gt[..., -lag:]
+        return pred, gt
+
+    @staticmethod
+    def _pcc_per_sample(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+        pred_c = pred - pred.mean(dim=-1, keepdim=True)
+        gt_c = gt - gt.mean(dim=-1, keepdim=True)
+        num = (pred_c * gt_c).sum(dim=-1)
+        den = torch.sqrt(
+            (pred_c.square().sum(dim=-1) * gt_c.square().sum(dim=-1)).clamp_min(1e-12)
+        )
+        pcc = num / den
+        if pcc.ndim > 1:
+            pcc = pcc.mean(dim=1)
+        return pcc
+
+    def forward(self, pred: torch.Tensor, gt: torch.Tensor) -> dict[str, torch.Tensor]:
+        """
+        pred, gt: (B, 1, L)
+
+        Returns:
+          lag_pcc_loss = mean(1 - best shifted PCC)
+          lag_l1_loss  = L1 at the same best-PCC lag
+        """
+        pcc_parts = []
+        l1_parts = []
+        for lag in range(-self.max_lag_samples, self.max_lag_samples + 1):
+            p, g = self._shifted_views(pred, gt, lag)
+            pcc_parts.append(self._pcc_per_sample(p, g))
+            l1_parts.append((p - g).abs().mean(dim=(-2, -1)))
+
+        pcc_stack = torch.stack(pcc_parts, dim=0)  # (n_lags, B)
+        l1_stack = torch.stack(l1_parts, dim=0)    # (n_lags, B)
+        best_pcc, best_idx = pcc_stack.max(dim=0)
+        best_l1 = l1_stack.gather(0, best_idx.unsqueeze(0)).squeeze(0)
+        zero_pcc = pcc_stack[self.max_lag_samples]
+
+        # Differentiable soft lag penalty. If high PCC mass moves away from
+        # zero lag, this term increases and nudges the model back toward
+        # synchronization instead of unconstrained shifted matching.
+        weights = torch.softmax(pcc_stack / max(self.softmax_tau, 1e-6), dim=0)
+        lag_penalty = (weights * self.lag_cost[:, None]).sum(dim=0)
+
+        return {
+            "lag_pcc": (1.0 - best_pcc).mean(),
+            "lag_l1": best_l1.mean(),
+            "zero_pcc": (1.0 - zero_pcc).mean(),
+            "lag_penalty": lag_penalty.mean(),
+        }
+
+
+# =============================================================================
 # TotalLoss（固定权重：L_recon + beta_peak * L_peak_QRS）
 # =============================================================================
 
@@ -124,6 +211,13 @@ class TotalLoss(nn.Module):
         self,
         alpha_stft: float = 0.05,
         beta_peak:  float = 1.0,
+        use_lag_aware: bool = False,
+        lag_max_samples: int = 20,
+        lambda_lag_pcc: float = 0.2,
+        lambda_lag_l1: float = 0.05,
+        lambda_zero_pcc: float = 0.0,
+        lambda_lag_penalty: float = 0.0,
+        lag_softmax_tau: float = 0.05,
         fft_sizes:  list  = [128, 256, 512],
         hop_sizes:  list  = [64,  128, 256],
         win_lengths: list = [16,   32,  64],
@@ -132,6 +226,15 @@ class TotalLoss(nn.Module):
         self.alpha_stft = alpha_stft
         self.beta_peak  = beta_peak
         self.stft_loss  = MultiResolutionSTFTLoss(fft_sizes, hop_sizes, win_lengths)
+        self.use_lag_aware = use_lag_aware
+        self.lambda_lag_pcc = lambda_lag_pcc
+        self.lambda_lag_l1 = lambda_lag_l1
+        self.lambda_zero_pcc = lambda_zero_pcc
+        self.lambda_lag_penalty = lambda_lag_penalty
+        self.lag_loss = (
+            LagAwareWaveformLoss(lag_max_samples, softmax_tau=lag_softmax_tau)
+            if use_lag_aware else None
+        )
 
     @staticmethod
     def _safe_bce(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
@@ -173,7 +276,27 @@ class TotalLoss(nn.Module):
         L_freq  = self.stft_loss(ecg_pred, ecg_gt)
         L_recon = L_time + self.alpha_stft * L_freq
         L_peak  = self._peak_loss(peak_preds, peak_gts)
-        L_total = L_recon + self.beta_peak * L_peak
+
+        zero = torch.tensor(0.0, device=ecg_pred.device)
+        L_lag_pcc = zero
+        L_lag_l1 = zero
+        L_zero_pcc = zero
+        L_lag_penalty = zero
+        if self.lag_loss is not None:
+            lag_parts = self.lag_loss(ecg_pred, ecg_gt)
+            L_lag_pcc = lag_parts["lag_pcc"]
+            L_lag_l1 = lag_parts["lag_l1"]
+            L_zero_pcc = lag_parts["zero_pcc"]
+            L_lag_penalty = lag_parts["lag_penalty"]
+
+        L_total = (
+            L_recon
+            + self.beta_peak * L_peak
+            + self.lambda_lag_pcc * L_lag_pcc
+            + self.lambda_lag_l1 * L_lag_l1
+            + self.lambda_zero_pcc * L_zero_pcc
+            + self.lambda_lag_penalty * L_lag_penalty
+        )
 
         return {
             "total": L_total,
@@ -182,4 +305,70 @@ class TotalLoss(nn.Module):
             "freq":  L_freq.detach(),
             "peak":  L_peak.detach() if isinstance(L_peak, torch.Tensor)
                      else torch.tensor(0.0),
+            "lag_pcc": L_lag_pcc.detach(),
+            "lag_l1":  L_lag_l1.detach(),
+            "zero_pcc": L_zero_pcc.detach(),
+            "lag_penalty": L_lag_penalty.detach(),
+        }
+
+
+# =============================================================================
+# DiffusionLoss（扩散解码器专用：噪声预测 MSE + QRS-only BCE）
+# =============================================================================
+
+class DiffusionLoss(nn.Module):
+    """
+    条件扩散解码器损失函数。
+
+    L_total = MSE(eps_pred, eps_true) + beta_peak * BCE(qrs_pred, qrs_gt)
+
+    STFT 损失由扩散目标隐式覆盖，不再单独计算。
+    返回 dict 键与 TotalLoss 兼容（recon=diff, freq=0, time=diff），
+    以便训练日志不需要修改。
+
+    Parameters
+    ----------
+    beta_peak : float  QRS 峰值 BCE 权重（默认 1.0）
+    """
+
+    def __init__(self, beta_peak: float = 1.0):
+        super().__init__()
+        self.beta_peak = beta_peak
+
+    @staticmethod
+    def _safe_bce(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+        pred_safe = pred.nan_to_num(
+            nan=0.5, posinf=1.0 - 1e-6, neginf=1e-6
+        ).clamp(1e-6, 1.0 - 1e-6)
+        return F.binary_cross_entropy(pred_safe, gt)
+
+    def forward(
+        self,
+        model_out:  tuple,           # (eps_pred (B,1,L), eps_true (B,1,L))
+        ecg_gt:     torch.Tensor,    # unused but kept for API symmetry
+        peak_preds: tuple | None,
+        peak_gts:   dict  | None,
+        epoch:      int = 999,
+    ) -> dict:
+        eps_pred, eps_true = model_out
+        L_diff = F.mse_loss(eps_pred, eps_true)
+
+        L_peak = torch.tensor(0.0, device=eps_pred.device)
+        if peak_preds is not None and peak_gts is not None:
+            qrs_pred = peak_preds[0]
+            qrs_gt   = peak_gts["qrs"]
+            L_peak   = self._safe_bce(qrs_pred, qrs_gt)
+
+        L_total = L_diff + self.beta_peak * L_peak
+        zero    = torch.tensor(0.0, device=eps_pred.device)
+        return {
+            "total": L_total,
+            "recon": L_diff.detach(),
+            "time":  L_diff.detach(),
+            "freq":  zero,
+            "peak":  L_peak.detach() if isinstance(L_peak, torch.Tensor) else zero,
+            "lag_pcc": zero,
+            "lag_l1":  zero,
+            "zero_pcc": zero,
+            "lag_penalty": zero,
         }

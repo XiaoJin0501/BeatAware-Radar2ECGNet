@@ -29,6 +29,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..backbone.group_mamba import GroupMambaBlock
+from ..modules.diffusion_decoder import BeatAwareDiffusionDecoder
 from ..modules.fmcw_encoder import FMCWRangeEncoder
 from ..modules.peak_module import PeakAuxiliaryModule
 from ..modules.tfilm import TFiLMGenerator
@@ -188,39 +189,58 @@ class BeatAwareRadar2ECGNet(nn.Module):
 
     Parameters
     ----------
-    input_type    : str    'raw' | 'phase' | 'spec'
-    C             : int    Backbone 基础通道数（默认64）
-    signal_len    : int    输入信号长度（默认1600）
-    spec_freq_bins: int    radar_spec_input 的频率 bins（默认33）
-    d_state       : int    VSSSBlock1D 的 SSM 状态维度（默认16）
-    dropout       : float  ConformerFusionBlock Dropout（默认0.1）
-    use_pam       : bool   是否使用 PAM + TFiLM（False = Exp A 基线）
-    use_emd       : bool   是否使用 EMD 物理对齐层（Phase C，False = Model A/B）
-    emd_max_delay : int    EMD 最大时移范围（采样点，默认20 = 100ms @ 200Hz）
+    input_type     : str    'raw' | 'phase' | 'spec' | 'fmcw'
+    C              : int    Backbone 基础通道数（默认64）
+    signal_len     : int    输入信号长度（默认1600）
+    spec_freq_bins : int    radar_spec_input 的频率 bins（默认33）
+    d_state        : int    VSSSBlock1D 的 SSM 状态维度（默认16）
+    dropout        : float  ConformerFusionBlock Dropout（默认0.1）
+    use_pam        : bool   是否使用 PAM + TFiLM（False = Exp A 基线）
+    use_emd        : bool   是否使用 EMD 物理对齐层（Phase C，False = Model A/B）
+    emd_max_delay  : int    EMD 最大时移范围（采样点，默认20 = 100ms @ 200Hz）
+    use_diffusion  : bool   True → 条件扩散解码器替换 ConvTranspose 回归解码器
+    diff_T         : int    扩散步数 T（默认100）
+    diff_ddim_steps: int    DDIM 推理步数（默认20）
+    diff_hidden    : int    扩散 ResBlock 隐通道数（默认128）
+    diff_n_blocks  : int    扩散 ResBlock 层数（默认6）
+    use_output_lag_align : bool  True → predict per-segment scalar lag and
+                                differentiably shift the reconstructed ECG
+    output_lag_max_samples : int max absolute output shift in raw samples
     """
 
     def __init__(
         self,
-        input_type:     str   = "phase",
-        C:              int   = 64,
-        signal_len:     int   = 1600,
-        spec_freq_bins: int   = 33,
-        d_state:        int   = 16,
-        dropout:        float = 0.1,
-        use_pam:        bool  = True,
-        use_emd:        bool  = True,
-        emd_max_delay:  int   = 20,
-        n_range_bins:   int   = 50,
+        input_type:      str   = "phase",
+        C:               int   = 64,
+        signal_len:      int   = 1600,
+        spec_freq_bins:  int   = 33,
+        d_state:         int   = 16,
+        dropout:         float = 0.1,
+        use_pam:         bool  = True,
+        use_emd:         bool  = True,
+        emd_max_delay:   int   = 20,
+        n_range_bins:    int   = 50,
+        use_diffusion:   bool  = False,
+        diff_T:          int   = 100,
+        diff_ddim_steps: int   = 20,
+        diff_hidden:     int   = 128,
+        diff_n_blocks:   int   = 6,
+        use_output_lag_align: bool = False,
+        output_lag_max_samples: int = 40,
     ):
         super().__init__()
-        self.input_type = input_type
-        self.C          = C
-        self.signal_len = signal_len
-        self.use_pam    = use_pam
-        self.use_emd    = use_emd
-        L_enc           = signal_len // 4   # 1600 → 400
-        self.L_enc      = L_enc
-        PAM_DIM         = 96   # 3路 × 32
+        self.input_type    = input_type
+        self.C             = C
+        self.signal_len    = signal_len
+        self.use_pam       = use_pam
+        self.use_emd       = use_emd
+        self.use_diffusion = use_diffusion
+        self.use_output_lag_align = use_output_lag_align
+        self.output_lag_max_samples = float(output_lag_max_samples)
+        self.last_output_lag_samples: torch.Tensor | None = None
+        L_enc              = signal_len // 4   # 1600 → 400
+        self.L_enc         = L_enc
+        PAM_DIM            = 96   # 3路 × 32
 
         # ── FMCW 空间聚合前端（仅 input_type='fmcw' 时启用）────────
         # 将 (B, 50, L) 50通道距离-时间信号聚合为 (B, 3, L) 运动学表征，
@@ -266,10 +286,53 @@ class BeatAwareRadar2ECGNet(nn.Module):
         if use_emd:
             self.emd = EMDAlignLayer(4 * C, max_delay=emd_max_delay)
 
-        # ── Decoder（stride=2 上采样 × 2：400 → 800 → 1600）───────
-        self.up1   = nn.ConvTranspose1d(4 * C, 2 * C, kernel_size=4, stride=2, padding=1)
-        self.up2   = nn.ConvTranspose1d(2 * C,     C, kernel_size=4, stride=2, padding=1)
-        self.final = nn.Conv1d(C, 1, kernel_size=1)
+        if use_output_lag_align:
+            self.output_lag_head = nn.Sequential(
+                nn.AdaptiveAvgPool1d(1),
+                nn.Flatten(),
+                nn.Linear(4 * C, 2 * C),
+                nn.SiLU(),
+                nn.Dropout(dropout),
+                nn.Linear(2 * C, 1),
+                nn.Tanh(),
+            )
+            nn.init.zeros_(self.output_lag_head[-2].weight)
+            nn.init.zeros_(self.output_lag_head[-2].bias)
+
+        # ── Decoder ──────────────────────────────────────────────────
+        if use_diffusion:
+            self.diff_decoder = BeatAwareDiffusionDecoder(
+                h_enc_channels=4 * C,
+                hidden=diff_hidden,
+                n_blocks=diff_n_blocks,
+                T=diff_T,
+                ddim_steps=diff_ddim_steps,
+                use_pam=use_pam,
+            )
+        else:
+            # 回归解码器（stride=2 上采样 × 2：400 → 800 → 1600）
+            self.up1   = nn.ConvTranspose1d(4 * C, 2 * C, kernel_size=4, stride=2, padding=1)
+            self.up2   = nn.ConvTranspose1d(2 * C,     C, kernel_size=4, stride=2, padding=1)
+            self.final = nn.Conv1d(C, 1, kernel_size=1)
+
+    @staticmethod
+    def _fractional_shift_1d(x: torch.Tensor, shift: torch.Tensor) -> torch.Tensor:
+        """
+        Differentiable per-sample temporal shift with linear interpolation.
+
+        x:     (B, 1, L)
+        shift: (B,) in samples. Positive shift delays the signal:
+               y[t] = x[t - shift].
+        """
+        B, C, L = x.shape
+        base = torch.arange(L, device=x.device, dtype=x.dtype)[None, :]
+        src = (base - shift[:, None]).clamp(0.0, float(L - 1))
+        left = src.floor().long()
+        right = (left + 1).clamp(max=L - 1)
+        weight = (src - left.to(src.dtype)).unsqueeze(1)
+        left_v = x.gather(-1, left.unsqueeze(1).expand(B, C, L))
+        right_v = x.gather(-1, right.unsqueeze(1).expand(B, C, L))
+        return left_v * (1.0 - weight) + right_v * weight
 
     # ------------------------------------------------------------------
     def _encode_1d(
@@ -310,24 +373,28 @@ class BeatAwareRadar2ECGNet(nn.Module):
         return F.relu(f)
 
     # ------------------------------------------------------------------
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, ecg_gt: torch.Tensor | None = None):
         """
         Parameters
         ----------
-        x : Tensor
-            input_type='raw'/'phase' : (B, 1, L)
-            input_type='spec'        : (B, 1, F, T)
+        x      : Tensor
+            input_type='raw'/'phase'/'fmcw' : (B, n_ch, L)
+            input_type='spec'               : (B, 1, F, T)
+        ecg_gt : Tensor | None
+            (B, 1, L) ground-truth ECG in [0,1].  Required during training
+            when use_diffusion=True; ignored otherwise.
 
         Returns
         -------
-        ecg_pred   : Tensor, (B, 1, L) — 重建 ECG，值域 [0, 1]
-        peak_masks : tuple (qrs_mask, p_mask, t_mask) 各 (B,1,L) | None
-                     use_pam=False 时为 None
+        Regression decoder (use_diffusion=False):
+            ecg_pred   : Tensor, (B, 1, L) in [0,1]
+            peak_masks : tuple (qrs,p,t) each (B,1,L) | None
+
+        Diffusion decoder (use_diffusion=True):
+            training   : (eps_pred, eps_true) both (B,1,L), peak_masks
+            inference  : ecg_pred (B,1,L) in [0,1],         peak_masks
         """
-        # ── 输入预处理（按 input_type 选路径）────────────────────────
-        # fmcw  : (B, 50, L) → FMCWRangeEncoder → (B, 3, L)  [KI 已内含]
-        # raw/phase : (B, 1, L) → KI diff → (B, 3, L)
-        # spec  : (B, 1, F, T) 不变
+        # ── 输入预处理 ─────────────────────────────────────────────
         if self.input_type == "fmcw":
             x_input = self.fmcw_enc(x)                        # (B, 3, L)
         elif self.input_type in ("raw", "phase"):
@@ -337,40 +404,64 @@ class BeatAwareRadar2ECGNet(nn.Module):
         else:
             x_input = x   # spec 路径不变
 
-        # ── PAM + TFiLM（use_pam=False 时跳过，gamma/beta 置零 = 恒等映射）──
+        # ── PAM + TFiLM ────────────────────────────────────────────
         if self.use_pam:
-            # V2: PAM 返回 3 路峰值 Mask 元组 + 节律向量
             peak_masks, rhythm_vec = self.pam(x_input)    # (qrs,p,t), (B,96)
             gamma, beta = self.tfilm_gen(rhythm_vec)       # each (B, 4C)
         else:
-            peak_masks = None
+            peak_masks  = None
+            rhythm_vec  = None
             gamma = x.new_zeros(x.size(0), 4 * self.C)
             beta  = x.new_zeros(x.size(0), 4 * self.C)
 
-        # ── Encoder ──────────────────────────────────────────────
-        # fmcw 输出已是 (B, 3, L)，与 raw/phase 路径一致，走 _encode_1d
+        # ── Encoder ────────────────────────────────────────────────
         if self.input_type in ("raw", "phase", "fmcw"):
             enc = self._encode_1d(x_input, gamma, beta)   # (B, 4C, L_enc)
         else:
             enc = self._encode_spec(x_input, gamma, beta) # (B, 4C, L_enc)
 
-        # ── Bottleneck ────────────────────────────────────────────
+        # ── Bottleneck + Fusion ────────────────────────────────────
         h = self.mamba1(enc)
         h = self.mamba2(h)
-
-        # ── Fusion ────────────────────────────────────────────────
         h = self.fusion(h)
 
-        # ── EMD 物理对齐（use_emd=True 时修正电-机械延迟）─────────
+        # ── EMD 物理对齐 ───────────────────────────────────────────
         if self.use_emd:
             h = self.emd(h)
 
-        # ── Decoder ──────────────────────────────────────────────
-        h = F.relu(self.up1(h))    # (B, 2C, 800)
-        h = F.relu(self.up2(h))    # (B,  C, 1600)
-        ecg_pred = torch.sigmoid(self.final(h))   # (B, 1, 1600)
+        if self.use_output_lag_align:
+            output_lag = self.output_lag_head(h).squeeze(-1) * self.output_lag_max_samples
+        else:
+            output_lag = None
 
-        return ecg_pred, peak_masks
+        # ── Decoder ────────────────────────────────────────────────
+        if self.use_diffusion:
+            # peak_masks: (qrs, p, t) → cat to (B, 3, L)，or None
+            peak_masks_cat = (
+                torch.cat(list(peak_masks), dim=1)  # (B, 3, 1600)
+                if peak_masks is not None else None
+            )
+            if self.training and ecg_gt is not None:
+                out = self.diff_decoder.training_step(
+                    h, rhythm_vec, peak_masks_cat, ecg_gt
+                )
+                return out, peak_masks   # out = (eps_pred, eps_true)
+            else:
+                ecg_pred = self.diff_decoder.ddim_sample(
+                    h, rhythm_vec, peak_masks_cat
+                )
+                if output_lag is not None:
+                    ecg_pred = self._fractional_shift_1d(ecg_pred, output_lag)
+                    self.last_output_lag_samples = output_lag.detach()
+                return ecg_pred, peak_masks
+        else:
+            h = F.relu(self.up1(h))                       # (B, 2C, 800)
+            h = F.relu(self.up2(h))                       # (B,  C, 1600)
+            ecg_pred = torch.sigmoid(self.final(h))       # (B, 1, 1600)
+            if output_lag is not None:
+                ecg_pred = self._fractional_shift_1d(ecg_pred, output_lag)
+                self.last_output_lag_samples = output_lag.detach()
+            return ecg_pred, peak_masks
 
 
 # =============================================================================

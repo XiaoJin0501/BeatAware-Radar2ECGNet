@@ -4,260 +4,221 @@
 
 ---
 
-## 项目目标与双数据集策略
+## 实验状态（2026-05-07）
 
-从非接触式雷达信号重建高保真 ECG 信号，核心创新：
-1. **导数感知编码器（KI）**：将雷达信号与其一阶/二阶差分拼接为3通道输入，显式提供速度/加速度信息
-2. **多头峰值辅助模块（PAM + CP）**：同时检测 QRS/P/T 三类波群，节律特征向量驱动 TFiLM 调制
-3. **EMD 物理对齐层（PA）**：可学习深度卷积 FIR 滤波器，自动补偿雷达-ECG 物理时延
-4. **自适应多任务损失（Kendall & Gal 2018）**：4项任务的同方差不确定性权重，消除手动超参调优
-5. **FMCWRangeEncoder**：针对 77GHz FMCW 50通道 range-time 矩阵的轻量前端编码器（GELU关键）
-
-**双数据集评估策略**（面向期刊论文）：
-- **MMECG**（主）：77GHz FMCW，11受试者，LOSO 11折，当前主要实验
-- **Schellenberger**（次）：24GHz CW，30受试者，5-Fold CV，后续跨数据集验证
-
-**环境**：`conda activate cyberbrain`（PyTorch 1.13.1, CUDA 11.3, RTX 4080 SUPER 16GB）
-
----
-
-## 当前状态（2026-04-26）
-
-| 阶段 | 状态 |
-|------|------|
-| **MMECG 预处理** | ✅ 完成 — `scripts/preprocess_mmecg.py`，dataset_mmecg/ 已生成 |
-| **MMECG 训练（mmecg_G）** | 🔄 进行中 — 11折 LOSO，0.5-40Hz宽带 + GELU修复，~5-6h |
-| **FMCWRangeEncoder 修复** | ✅ 完成 — `F.relu` → `F.gelu`，保留心脏AC信号负半周期 |
-| Phase 1（Schellenberger 预处理）| ✅ 完成 — 30受试者，12,807段，5-Fold CV |
-| Phase 1b：P/T波标注（Step 2b）| ⏳ 待运行 — `step2b_delineate.py` 已实现，需在实际数据上执行 |
-| Phase 2：V2 模型代码 | ✅ 完成 — 所有模块已实现，forward+backward 验证通过 |
-| Phase 3：训练框架 | ✅ 完成 — train.py / test.py / run_ablation.sh / train_mmecg.py / test_mmecg.py |
-| Phase 4：Schellenberger 消融 | ⏳ MMECG 实验完成后执行 Model A/B/C |
-
----
-
-## MMECG 数据集
-
-**来源**：MMECG.h5（77GHz FMCW毫米波雷达）
-**路径**：`/home/qhh2237/Datasets/MMECG/MMECG.h5`
-**预处理输出**：`dataset_mmecg/`
-
-| 项目 | 内容 |
-|------|------|
-| 受试者数量 | 11名（subject_1 ~ subject_11）|
-| 雷达信号 | RCG，50个range bin，shape: (35505, 50)，200Hz |
-| ECG 信号 | shape: (35505, 1)，200Hz |
-| 生理状态 | NB(0)=正常呼吸 / IB(1)=不规则呼吸 / SP(2) / PE(3)=运动后 |
-| 分段窗口 | 1600点（8s），步长800点（50%重叠）|
-| 数据集划分 | LOSO 11折（fold_i 留出 subject_ids[i] 作测试集）|
-
-**预处理关键参数**：
-- RCG：0.5-40Hz 宽带带通 + 逐通道 z-score（保留 QRS 高频形态，使 SE 注意力按质量选bin）
-- ECG：0.5-40Hz 带通 + per-window min-max [0,1]
-
-**输出结构**：
-```
-dataset_mmecg/
-    subject_1/
-        rcg.npy     [N, 50, 1600]  float32
-        ecg.npy     [N,  1, 1600]  float32
-        rpeak.npy   [N,  1, 1600]  float32
-        meta.npy    [N,  2]        int32  (subject_id, state_code)
-    ...
-    subject_11/
-    metadata_mmecg.json
-```
-
----
-
-## Schellenberger 数据集
-
-**来源**：Schellenberger et al., *Scientific Data* 7:291 (2020)
-
-| 项目 | 内容 |
-|------|------|
-| 受试者 | 30名健康成人（GDN0001–GDN0030） |
-| 雷达信号 | `radar_i`, `radar_q`（小写），2000 Hz |
-| ECG 导联 | `tfm_ecg2`（**导联II**，R波最明显），**2000 Hz** |
-| 使用场景 | **Resting（全30人）/ Valsalva（27人）/ Apnea（24人）** |
-| 忽略场景 | TiltUp / TiltDown |
-
-**数据集统计（已完成预处理）**：
-
-| 场景 | 受试者数 | 总分段数 |
-|------|---------|---------|
-| Resting | 30 | 4,714 |
-| Valsalva | 27 | 6,953 |
-| Apnea | 24 | 1,140 |
-| **合计** | 30 | **12,807** |
-
-**5-Fold CV 划分**（每折6人，seed=42）：
-
-| Fold | 测试集受试者 |
-|------|------------|
-| fold_0 | GDN0009, GDN0010, GDN0016, GDN0018, GDN0024, GDN0028 |
-| fold_1 | GDN0001, GDN0005, GDN0013, GDN0017, GDN0025, GDN0029 |
-| fold_2 | GDN0002, GDN0003, GDN0006, GDN0012, GDN0014, GDN0023 |
-| fold_3 | GDN0004, GDN0019, GDN0022, GDN0026, GDN0027, GDN0030 |
-| fold_4 | GDN0007, GDN0008, GDN0011, GDN0015, GDN0020, GDN0021 |
-
----
-
-## FMCWRangeEncoder 设计
-
-**文件**：`src/models/modules/fmcw_encoder.py`
-**接口**：`(B, 50, L) → (B, 3, L)`
-
-```
-(B, 50, L)
-  ↓ DepthwiseConv1d(50, k=61, groups=50) + BN + GELU   ← 关键：GELU非ReLU
-  ↓ SE attention: AdaptiveAvgPool → Linear(50→6) + ReLU → Linear(6→50) + Sigmoid
-  ↓ Conv1d(50→3, k=1) + BN
-(B, 3, L)
-```
-
-**为什么是 GELU**：BatchNorm 输出均值为零，ReLU 截断负值 → 心脏 AC 信号 ~50% 信息丢失。GELU 在负值区间平滑衰减，保留完整心脏波形。这是模型性能的关键修复。
-
----
-
-## 整体架构（V2）
-
-```
-MMECG 路径:  RCG [B,50,L] → FMCWRangeEncoder → [B,3,L] ─┐
-                                                          ▼
-Schellenberger:  [B,1,L] → diff → [B,3,L] ────────────►  [B,3,L]
-                                          │
-                    ┌─────────────────────┼──────────────────────────┐
-                    ▼                     │                           ▼
-              PAM（峰值检测）              │                    主干 Backbone
-              Multi-scale Conv            │              Multi-scale Encoder(×4)
-              + VSSSBlock1D ×2            │                  + TFiLM 节律注入
-              → QRS/P/T mask + rhythm_vec │              GroupMambaBlock ×2
-                    │                     │              ConformerFusionBlock
-                    ▼  L_peak             │              EMD 对齐层
-               BCE Loss                  └──── γ,β ────► Decoder → ECG [B,1,L]
-```
-
-**4项任务自适应加权损失（V2）**：
-```
-L_total = Σ_i [ 0.5·exp(-log_var_i)·L_i + 0.5·log_var_i ]
-任务: [L_recon, L_peak, L_der, L_interval]
-```
-
----
-
-## 评估指标
-
-| 指标 | 说明 | 目标 |
+| 实验 | 状态 | 说明 |
 |------|------|------|
-| **PCC** | Pearson 相关系数 | 越大越好，>0.85 视为良好 |
-| **MAE** | 时域绝对误差 | 越小越好 |
-| **RMSE** | 均方根误差 | 越小越好 |
-| **PRD** | Percent Root-mean-square Difference | 越小越好，<10% 视为良好 |
-| **F1（R峰）** | R峰检测 F1 Score | 越大越好，>0.90 临床可用 |
+| `mmecg_v1` samplewise（回归，旧架构 baseline） | ✅ 已测试 | test PCC=0.211, F1@150ms=0.841, QMR=79.6%；论文 Table 1 baseline |
+| `mmecg_diff_v2` samplewise（扩散） | 🔄 **运行中** | T=1000/hidden=256/n_blocks=8，300 epochs；`screen -r diff_v2` |
+| `mmecg_reg_clean` samplewise（回归对照） | 🔄 **运行中** | balance_by=class + narrow_bandpass=false，验证预处理假设；`screen -r reg_clean` |
+| MMECG LOSO 全 11 折 | ⏳ 待定 | samplewise 验证后启动 |
+| 消融 A/B/C/D（扩散版） | ⏳ 待定 | `scripts/run_ablation_mmecg.sh` 已更新为 v2 配置 |
+| Schellenberger 实验 | ⏳ MMECG 完成后 | Phase 4，cross-dataset 验证（dataset/ 目录待预处理）|
 
-**MMECG 专项**：按状态细分（NB / IB / SP / PE）+ LOSO 11折均值 ± 标准差
+**已删除的失败实验**（信息留作教训）：
+- `mmecg_diff_v1`（T=100）：test PCC=0.0513，R²=−4.19，T 太小完全无法生成有效 ECG
+- `mmecg_reg_improved`（subject + narrow_bandpass）：val PCC=0.1548 远差于 v1 的 0.211，怀疑预处理拖累
+
+**查看当前训练进度**：
+```bash
+tail -f experiments_mmecg/mmecg_diff_v2_sw.log
+tail -f experiments_mmecg/mmecg_reg_clean_sw.log
+# 或进入 screen session：
+screen -r diff_v2     # 扩散主训练
+screen -r reg_clean   # 回归对照
+```
 
 ---
 
-## SSM 训练速度说明
+## 项目目标与核心创新点
 
-`src/models/backbone/ssm.py` 的 SelectiveScan 后端按以下优先级自动选择：
+从非接触式雷达信号重建高保真 ECG 信号。三个核心创新（KI/PA/CP）必须保留，是论文主线：
 
-| 优先级 | 后端 | 速度 | 安装状态 |
-|--------|------|------|---------|
-| 1 | `mamba-ssm` 官方 CUDA kernel | ~14ms/call | **未安装** |
-| 2 | `selective_scan_cuda`（手动编译）| ~14ms/call | 未安装 |
-| 3 | TorchScript JIT（当前使用）| **138ms/call** | 自动回退 |
+| 缩写 | 模块 | 实现位置 | 说明 |
+|------|------|---------|------|
+| **KI** | FMCWRangeEncoder | `src/models/modules/fmcw_encoder.py` | 50 range bin → 3 ch 运动学特征（GELU 关键，不能换 ReLU）|
+| **PA** | EMDAlignLayer | `src/models/BeatAwareNet/radar2ecgnet.py` | 可学习 41-tap depthwise FIR，自动补偿雷达-ECG 物理时延 50-150ms |
+| **CP** | PeakAuxiliaryModule | `src/models/modules/peak_module.py` | 3路 QRS/P/T 检测 + rhythm_vec(B,96) → TFiLM 调制；扩散模式下峰值掩码还作为空间引导 |
 
-**MMECG 训练速度**：~30s/epoch（batch_size=32，11折 × 150 epochs，早停后约 5-6h 完成）
-**Schellenberger 训练速度**：~274s/epoch（含 backward），训练150 epochs约 11.4h/fold
+**论文定位**：
+- Table 1（主线）：BeatAware-Regression vs 对比方法（radarODE-MTL 等）
+- Table 2（进阶）：BeatAware-Diffusion，展示扩散解码器与 KI/PA/CP encoder 的兼容性
 
-**安装 CUDA kernel（可选）**：`bash scripts/install_mamba_cuda.sh`
+---
+
+## 模型架构
+
+### 整体数据流
+
+```
+MMECG:  RCG [B,50,L] ──► FMCWRangeEncoder ──► [B,3,L]
+                                                    │
+                    ┌───────────────────────────────┤
+                    ▼                               ▼
+              PAM（峰值辅助）               Multi-scale Encoder(×4)
+              QRS/P/T masks                    + TFiLM(rhythm_vec)
+              rhythm_vec[B,96]             GroupMambaBlock × 2
+                    │                      ConformerFusionBlock
+                    └──── γ,β ────────►    EMDAlignLayer（PA）
+                                               │
+                          ┌────────────────────┘
+                          ▼
+              [use_diffusion=False]  ConvTranspose × 2 + Sigmoid → ECG [B,1,L]
+              [use_diffusion=True]   BeatAwareDiffusionDecoder（DDIM 20步）→ ECG [B,1,L]
+```
+
+### 关键模型参数
+
+| 参数 | 默认值 | 说明 |
+|------|-------|------|
+| `C=64` | 64 | encoder base channels（4C=256 为主干宽度）|
+| `d_state=16` | 16 | Mamba SSM 状态维度 |
+| `emd_max_delay=20` | 20 | 41-tap FIR，覆盖 ±100ms 延迟 |
+| `use_pam=True` | True | PAM + TFiLM；False = 消融 A/B |
+| `use_emd=True` | True | EMD 对齐；False = 消融 A/C |
+| `use_diffusion=False` | False | True = 扩散解码器（BeatAwareDiffusionDecoder）|
+
+### 扩散解码器（BeatAwareDiffusionDecoder）
+
+- **文件**：`src/models/modules/diffusion_decoder.py`
+- **参数量**：约 1,400,000（替换回归解码器的 164,097）
+- **总模型参数**：3,098,974（vs 原来 1,698,270）
+- 余弦噪声调度，T=100；DDIM 确定性采样 20 步（推理加速 5×）
+- ECG 值域：H5 存储 `[0,1]`，扩散内部需 `x0 = ecg_gt*2-1` → `[-1,1]`，输出再 `(x+1)/2`
+- 条件信号：`h_enc(B,256,400)` + `rhythm_vec(B,96)` + `peak_masks(B,3,1600)`（use_pam=True 时）
+
+### 消融实验定义
+
+| 模型 | `use_pam` | `use_emd` | 意义 |
+|------|:---:|:---:|------|
+| A | False | False | 纯扩散基线（无 KI CP/PA 创新）|
+| B | False | True  | +EMD 物理对齐条件化 |
+| C | True  | False | +PAM 峰值引导扩散 |
+| D | True  | True  | 完整 BeatAware-Diffusion（Full）|
+
+---
+
+## 数据集
+
+### MMECG（主实验）
+
+- **原始路径**：`/home/qhh2237/Datasets/MMECG/MMECG.h5`
+- **预构建 H5**：`/home/qhh2237/Datasets/MMECG/processed/`
+- 11 名受试者，77GHz FMCW，50 range bins，200Hz，8s 窗口（1600点），50% 重叠
+- 生理状态：NB / IB / SP / PE
+
+**重要数据不均衡问题**（根因之一）：
+- Sub 1/2（中老年女性）samplewise 训练集仅 14 个样本（0.85%）
+- 当前训练用 `balance_by=subject`（`subject_weights()` 按 1/count 赋权）解决
+
+**H5 key 说明**：
+
+| Key | Shape | 说明 |
+|-----|-------|------|
+| `rcg` | [N,50,1600] float32 | per-channel z-score（H5 中已 0.5-20Hz 带通）|
+| `ecg` | [N,1,1600] float32 | z-score（loader 内再 min-max → [0,1]）|
+| `rpeak_indices` | vlen int32 | R峰 → loader 转为 Gaussian mask σ=5 |
+| `q/s/tpeak_indices` | vlen int32 | Q/S/T 峰（-1=missing）|
+| `delineation_valid` | uint8 [N] | Level 3/4 评估有效标志 |
+| `subject_id` | int32 [N] | 受试者编号 1~11 |
+| `physistatus` | bytes [N] | b"NB"/b"IB"/b"SP"/b"PE" |
+
+**`narrow_bandpass=True`**：loader 加载时对 RCG 额外做 0.8-3.5 Hz 窄带滤波（心跳频段），再次 z-score 归一化。消除 3.5-20 Hz 主杂波，提高心跳分量 SNR。
+
+### Schellenberger（次实验，Phase 4）
+
+- 30 名受试者，24GHz CW，2000Hz，使用 Resting/Valsalva/Apnea 场景
+- 预处理输出：`dataset/` 目录，NPY 格式
+- 5-Fold CV（每折 6 人，seed=42）
+- 当前暂缓，MMECG 实验完成后执行
+
+---
+
+## 损失函数
+
+| 模式 | 类 | 公式 |
+|------|-----|------|
+| 回归 | `TotalLoss` | L1 + α·MultiResSTFT + β·QRS-BCE |
+| 扩散 | `DiffusionLoss` | MSE(ε_pred, ε) + β·QRS-BCE |
+
+两者均在 `src/losses/losses.py`。训练时通过 `cfg.use_diffusion` 自动选择。
 
 ---
 
 ## 常用命令
 
 ```bash
-# ── MMECG 相关 ─────────────────────────────────────────────────────
-# 预处理（仅需一次，已完成）
-conda run -n cyberbrain python scripts/preprocess_mmecg.py
+# ── 环境激活 ────────────────────────────────────────────────────────
+conda activate cyberbrain   # PyTorch, CUDA, mamba-ssm 等
 
-# 训练单折验证
-conda run -n cyberbrain python scripts/train_mmecg.py \
-    --exp_tag mmecg_test --fold_idx 0 --epochs 5
+# ── 查看当前运行实验 ───────────────────────────────────────────────
+screen -ls
+tail -f experiments_mmecg/mmecg_diff_v2_sw.log
 
-# 训练全部11折（后台）
-nohup conda run -n cyberbrain python scripts/train_mmecg.py \
-    --exp_tag mmecg_G --fold_idx -1 --epochs 150 \
-    > experiments_mmecg/mmecg_G_train.log 2>&1 &
+# ── MMECG 训练（扩散 v2，T=1000）──────────────────────
+# samplewise
+python scripts/train_mmecg.py \
+    --exp_tag mmecg_diff_v2 --protocol samplewise --epochs 300 \
+    --use_diffusion true --balance_by subject --narrow_bandpass true
 
-# 测试（所有折）
-conda run -n cyberbrain python scripts/test_mmecg.py --exp_tag mmecg_G
+# LOSO 全 11 折
+python scripts/train_mmecg.py \
+    --exp_tag mmecg_diff_v2 --protocol loso --fold_idx -1 \
+    --use_diffusion true --balance_by subject --narrow_bandpass true
 
-# 测试（单折）
-conda run -n cyberbrain python scripts/test_mmecg.py --exp_tag mmecg_G --fold_idx 0
+# LOSO 单折调试
+python scripts/train_mmecg.py \
+    --exp_tag mmecg_diff_v2 --protocol loso --fold_idx 1 \
+    --use_diffusion true --balance_by subject --narrow_bandpass true
 
-# ── Schellenberger 相关 ────────────────────────────────────────────
-# 训练单个变体（fold 0 快速验证）
-python scripts/train.py --exp_tag ModelD_full --input_type phase \
-    --use_pam true --use_emd true --fold_idx 0 --epochs 150
+# ── MMECG 测试 ─────────────────────────────────────────────────────
+python scripts/test_mmecg.py --exp_tag mmecg_diff_v2 --fold_idx -1
+python scripts/test_mmecg.py --exp_tag mmecg_diff_v2 --protocol samplewise
 
-# 完整消融实验（全部 folds）
-bash scripts/run_ablation.sh
+# ── 消融实验（已内置 --use_diffusion true，自动用 v2 超参）
+bash scripts/run_ablation_mmecg.sh
 
-# 运行 P/T 波标注（step2b，需先完成 step1-4）
-conda activate cyberbrain
-python data_preprocessing/step2b_delineate.py
+# ── 数据诊断 ───────────────────────────────────────────────────────
+python tests/visualize_mmecg.py --fold 1 --split test --no-plot
+python tests/visualize_mmecg.py --protocol samplewise --split val --n 3
 
-# ── 监控训练 ────────────────────────────────────────────────────────
-# 查看 MMECG 训练日志
-tail -f experiments_mmecg/mmecg_G_train.log
-
-# 查看进程
-nvidia-smi  # GPU占用
-ps aux | grep train_mmecg  # 训练进程
+# ── 单元测试：扩散解码器形状 ────────────────────────────────────────
+python -c "
+import torch
+from src.models.modules.diffusion_decoder import BeatAwareDiffusionDecoder
+dec = BeatAwareDiffusionDecoder()
+h = torch.randn(2, 256, 400)
+rv = torch.randn(2, 96)
+pm = torch.randn(2, 3, 1600)
+ecg = torch.rand(2, 1, 1600)
+dec.train(); ep, et = dec.training_step(h, rv, pm, ecg)
+assert ep.shape == (2, 1, 1600)
+dec.eval(); out = dec.ddim_sample(h, rv, pm)
+assert out.shape == (2, 1, 1600) and out.min() >= 0 and out.max() <= 1
+print('OK')
+"
 ```
 
 ---
 
-## 数据文件结构
+## 评估指标体系（4级协议）
 
+| Level | 指标 | 主要用途 |
+|-------|------|---------|
+| **L1 波形** | PCC, RMSE_norm, MAE_norm, R² | 所有论文通用 |
+| **L2 峰值定时** | R/Q/S/T peak error(ms), RR error, QMR, MDR | 与 radarODE-MTL / AirECG 比较 |
+| **L3 Fiducial F1** | Rpeak/Pon/Toff precision/recall/F1 @150ms | 与 Cao et al. 比较 |
+| **L4 临床间期** | PR, QRS, QT, QTc 误差(ms) | 本文扩展指标 |
+
+**测试输出文件**（per fold）：
 ```
-dataset/                              # Schellenberger 预处理输出
-    GDN0001/
-        resting/
-            radar_raw.npy         # (L_200,)  全段，椭圆校正后相位
-            radar_phase.npy       # (L_200,)  带通滤波相位
-            radar_spec_input.npy  # (1,33,T)  细粒度STFT，模型输入用
-            ecg_clean.npy         # (L_200,)  NeuroKit2清洗后ECG
-            rpeak_indices.npy     # (M,)      R峰全局索引@200Hz
-            pwave_indices.npy     # (M_p,)    P波索引@200Hz（step2b生成）
-            twave_indices.npy     # (M_t,)    T波索引@200Hz（step2b生成）
-            segments/
-                radar_raw.npy         # [N,1,1600]
-                radar_phase.npy       # [N,1,1600]
-                radar_spec_input.npy  # [N,1,33,~193]
-                ecg.npy               # [N,1,1600]  per-segment归一化[0,1]
-                rpeak.npy             # [N,1,1600]  高斯软标签，σ=5
-                pwave.npy             # [N,1,1600]  σ=10（step2b+step4生成）
-                twave.npy             # [N,1,1600]  σ=15
-                pwave_valid.npy       # [N,]  bool
-                twave_valid.npy       # [N,]  bool
-    ...
-    metadata.json
-    qc_report.json
+experiments_mmecg/<exp_tag>/<run_label>/results/
+    segment_metrics.csv    每行 = 1 个 8s window
+    beat_metrics.csv       每行 = 1 个匹配 beat
+    subject_summary.csv    按 (subject_id, scene) 聚合
+    global_summary.json    全局 mean/median/std/IQR
 
-dataset_mmecg/                        # MMECG 预处理输出
-    subject_1/
-        rcg.npy     [N, 50, 1600]
-        ecg.npy     [N,  1, 1600]
-        rpeak.npy   [N,  1, 1600]
-        meta.npy    [N,  2]
-    ...
-    subject_11/
-    metadata_mmecg.json
+experiments_mmecg/<exp_tag>/loso_summary/   ← 仅 --fold_idx -1 时生成
 ```
 
 ---
@@ -266,60 +227,57 @@ dataset_mmecg/                        # MMECG 预处理输出
 
 ```
 BeatAware-Radar2ECGNet/
-├── data_preprocessing/
-│   ├── step1_radar_processing.py    # 椭圆校正 + 相位解调 + STFT
-│   ├── step2_ecg_processing.py      # NeuroKit2 清洗 + R峰检测 + 降采样
-│   ├── step2b_delineate.py          # P/T 波标注（nk.ecg_delineate）← V2 新增
-│   ├── step3_qc.py                  # 质量控制 + QC 报告
-│   ├── step4_segment_save.py        # 对齐 + 分段 + 保存 NPY（含 pwave/twave）
-│   ├── verify_dataset.py            # 数据集完整性校验
-│   ├── PREPROCESSING_LOG.md         # 预处理运行记录
-│   └── utils/
-│       ├── ellipse_correction.py
-│       ├── gaussian_mask.py
-│       └── mat_loader.py
 ├── src/
 │   ├── models/
 │   │   ├── backbone/
-│   │   │   ├── ssm.py               # VSSSBlock1D + SelectiveScan1D
-│   │   │   └── group_mamba.py       # GroupMambaBlock
+│   │   │   ├── ssm.py              # VSSSBlock1D + SelectiveScan1D
+│   │   │   └── group_mamba.py      # GroupMambaBlock
 │   │   ├── modules/
-│   │   │   ├── peak_module.py       # PAM（V2：3路输出 QRS/P/T）
-│   │   │   ├── tfilm.py             # TFiLMGenerator
-│   │   │   └── fmcw_encoder.py      # FMCWRangeEncoder（MMECG专用，GELU关键）
+│   │   │   ├── fmcw_encoder.py     # FMCWRangeEncoder: (B,50,L)→(B,3,L)，GELU 关键
+│   │   │   ├── peak_module.py      # PAM: 3路 QRS/P/T + rhythm_vec(B,96)
+│   │   │   ├── tfilm.py            # TFiLMGenerator
+│   │   │   └── diffusion_decoder.py # BeatAwareDiffusionDecoder（新）
 │   │   └── BeatAwareNet/
-│   │       └── radar2ecgnet.py      # 主模型（含 EMDAlignLayer，支持 fmcw 输入）
+│   │       └── radar2ecgnet.py     # 主模型（支持 use_diffusion 开关）
 │   ├── data/
-│   │   ├── dataset.py               # RadarECGDataset（Schellenberger）
-│   │   └── mmecg_dataset.py         # MMECGDataset + build_loso_loaders
+│   │   ├── mmecg_dataset.py        # H5 loader，subject_weights，narrow_bandpass
+│   │   └── dataset.py              # Schellenberger NPY loader
 │   ├── losses/
-│   │   └── losses.py                # TotalLoss（V2：4任务自适应加权）
+│   │   └── losses.py               # TotalLoss（回归）+ DiffusionLoss（扩散）
 │   └── utils/
-│       ├── logger.py
-│       ├── metrics.py               # compute_all_metrics（含 F1/PRD）
-│       └── seeding.py
+│       ├── metrics.py              # 4级评估协议
+│       └── logger.py / seeding.py
 ├── configs/
-│   ├── config.py                    # Schellenberger 配置
-│   └── mmecg_config.py              # MMECG 配置（input_type='fmcw', n_folds=11）
+│   ├── mmecg_config.py             # MMECG 配置（含 use_diffusion / balance_by 等）
+│   └── config.py                   # Schellenberger 配置
 ├── scripts/
-│   ├── train.py                     # Schellenberger 训练
-│   ├── test.py                      # Schellenberger 测试
-│   ├── train_mmecg.py               # MMECG 训练（LOSO 11折）
-│   ├── test_mmecg.py                # MMECG 测试（per-state 细分）
-│   ├── preprocess_mmecg.py          # MMECG 预处理（H5 → NPY）
-│   ├── run_ablation.sh              # V2 Model A/B/C/D 批量脚本
-│   ├── plot_training_curves.py
-│   ├── plot_subject_metrics.py
-│   ├── summarize_ablation.py
-│   └── install_mamba_cuda.sh
+│   ├── train_mmecg.py              # MMECG 训练（支持 --use_diffusion, --balance_by）
+│   ├── test_mmecg.py               # MMECG 测试（自动从 config.json 恢复扩散超参）
+│   ├── run_ablation_mmecg.sh       # 消融批量脚本（待更新 --use_diffusion true）
+│   └── plot_subject_metrics.py / plot_paper_figures.py / summarize_ablation.py
 ├── tests/
-│   └── visualize_dataset.py
-├── docs/
-│   ├── ARCHITECTURE.md              # 完整架构设计文档（权威来源）
-│   └── RESULTS_GUIDE.md             # 实验结果解读指南
-├── papers/                          # 参考文献 PDF
-├── IMPLEMENTATION_SPEC_V1.md        # V2 优化方案设计规格（历史文档）
-└── CLAUDE.md                        # 本文件
+│   └── visualize_mmecg.py          # H5 数据诊断可视化
+├── experiments_mmecg/              # 实验输出（不提交到 git）
+│   ├── mmecg_v1/                   # 回归 baseline（已完成，PCC=0.211）
+│   ├── mmecg_diff_v2/              # 扩散主训练（T=1000, hidden=256，运行中）
+│   └── mmecg_reg_clean/            # 回归对照（class+全频带，运行中）
+├── docs/                           # ARCHITECTURE.md 等文档
+└── CLAUDE.md                       # 本文件
+```
+
+---
+
+## 环境与性能
+
+- **conda 环境**：`cyberbrain`（PyTorch 1.13.1, CUDA 11.3, RTX 4080 SUPER 16GB）
+- **GPU**：RTX 4080 SUPER 16GB
+- **训练速度（扩散模式）**：约 100s/epoch（samplewise，batch_size=16）
+- **训练速度（回归模式）**：约 30s/epoch
+- val_every=5（回归）；扩散模式建议 val_every=10（DDIM 20步 × val 集约 75 batch，慢约 3-4×）
+
+SSM 后端自动降级为 TorchScript JIT（约 138ms/call）。安装 CUDA kernel：
+```bash
+bash scripts/install_mamba_cuda.sh
 ```
 
 ---
@@ -328,6 +286,16 @@ BeatAware-Radar2ECGNet/
 
 - **不复用已有项目代码**，所有模块从零实现
 - `docs/ARCHITECTURE.md` 是架构权威来源；若本文件与其冲突，以 ARCHITECTURE.md 为准
-- 每个新模块写完后必须用单元测试验证 tensor shape
-- 实验输出统一写入 `experiments/<EXP_TAG>/`（Schellenberger）或 `experiments_mmecg/<EXP_TAG>/`（MMECG），不污染代码目录
-- 设计变更必须同时更新 `docs/ARCHITECTURE.md` 和 `CLAUDE.md`
+- 每个新模块写完后必须用单元测试验证 tensor shape（`python -c "..."` 快速验证）
+- 实验输出统一写入 `experiments_mmecg/<EXP_TAG>/`，不污染代码目录
+- config.json 随每次训练自动保存到 `<run_dir>/config.json`；test 脚本从此文件恢复所有超参
+
+---
+
+## 已知问题 / 注意事项
+
+1. **FMCWRangeEncoder 必须用 GELU**：BatchNorm 输出均值零，ReLU 截断心脏 AC 信号负半周期。已修复。
+2. **ECG 值域变换**：H5 中 `[0,1]`，扩散内部需 `x0 = ecg_gt*2-1`，DDIM 输出 `(x+1)/2` 还原。
+3. **peak_masks 是元组**：`forward()` 中传给扩散解码器前需 `torch.cat(list(peak_masks), dim=1)` → `(B,3,1600)`。
+4. **use_pam=False 时输入通道数不同**：`in_ch = 257`（无峰值掩码）vs `260`，`diffusion_decoder.py` 中 `in_proj` 已按 `use_pam` 动态设置。
+5. **samplewise vs LOSO PCC 差异**：samplewise 也是 record-level 划分（非 segment-level），Sub 10 仅出现在 val/test，本质上也是部分跨受试者评估。

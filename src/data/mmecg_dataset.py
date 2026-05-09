@@ -1,146 +1,357 @@
 """
-mmecg_dataset.py — MMECGDataset
+mmecg_dataset.py — MMECG H5-based Dataset Loader
 
-加载预处理后的 MMECG NPY 数据，支持 LOSO (Leave-One-Subject-Out) 划分。
+直接读取 /home/qhh2237/Datasets/MMECG/processed/ 下的预构建 H5 文件，
+支持 LOSO（11 折）和 Samplewise 两种协议，返回真正的三路 DataLoader。
 
 Usage:
-    from src.data.mmecg_dataset import MMECGDataset, build_loso_loaders
+    from src.data.mmecg_dataset import build_loso_loaders_h5, build_samplewise_loaders_h5
 
-    train_loader, test_loader = build_loso_loaders(
-        dataset_dir="dataset_mmecg",
-        fold_idx=0,          # 0~10，留出第 fold_idx 号受试者作测试
-        batch_size=16,
+    # LOSO（fold_idx 1-based，Fold 1~11）
+    train_loader, val_loader, test_loader = build_loso_loaders_h5(
+        fold_idx=1,
+        loso_dir="/home/qhh2237/Datasets/MMECG/processed/loso",
     )
+
+    # Samplewise
+    train_loader, val_loader, test_loader = build_samplewise_loaders_h5(
+        sw_dir="/home/qhh2237/Datasets/MMECG/processed/samplewise",
+    )
+
+H5 文件每个 split 包含的 dataset keys：
+    rcg               float32 [N, 50, 1600]  per-channel z-score
+    ecg               float32 [N,  1, 1600]  z-score（loader 内再 min-max → [0,1]）
+    rpeak_indices     vlen int32              R 峰位置 → Gaussian mask
+    q_indices         vlen int32  (-1=missing)
+    s_indices         vlen int32
+    tpeak_indices     vlen int32
+    delineation_valid uint8 [N]
+    subject_id        int32 [N]
+    physistatus       bytes [N]   b"NB"/b"IB"/b"SP"/b"PE"
 """
 
-import json
 from pathlib import Path
 
+import h5py
 import numpy as np
+import scipy.signal
 import torch
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
+# ── 상수 ──────────────────────────────────────────────────────────────────────
+PHYSISTATUS_MAP: dict[str, int] = {"NB": 0, "IB": 1, "SP": 2, "PE": 3}
+RPEAK_SIGMA_DEFAULT = 5
 
-class MMECGDataset(Dataset):
+
+# ── 내부 도구 함수 ──────────────────────────────────────────────────────────────
+
+def _gaussian_mask(indices: np.ndarray, length: int, sigma: float = RPEAK_SIGMA_DEFAULT) -> np.ndarray:
+    """vlen rpeak_indices (int32) → Gaussian soft label [length] float32."""
+    mask = np.zeros(length, dtype=np.float32)
+    for idx in indices:
+        idx = int(idx)
+        if idx < 0:
+            continue
+        lo = max(0, idx - 3 * int(sigma))
+        hi = min(length, idx + 3 * int(sigma) + 1)
+        t = np.arange(lo, hi)
+        mask[lo:hi] += np.exp(-0.5 * ((t - idx) / sigma) ** 2)
+    return np.clip(mask, 0.0, 1.0)
+
+
+def _minmax_ecg(ecg_win: np.ndarray) -> np.ndarray:
+    """Per-window min-max normalization → [0, 1]. Handles flat signal."""
+    lo, hi = float(ecg_win.min()), float(ecg_win.max())
+    if hi - lo < 1e-8:
+        return np.zeros_like(ecg_win, dtype=np.float32)
+    return ((ecg_win - lo) / (hi - lo)).astype(np.float32)
+
+
+def _decode_physistatus(raw) -> str:
+    if isinstance(raw, bytes):
+        return raw.decode()
+    return str(raw)
+
+
+# ── 커스텀 collate（vlen peak 인덱스용）──────────────────────────────────────────
+
+def _collate_with_peaks(batch: list[dict]) -> dict:
     """
+    test DataLoader 전용 collate_fn.
+    Tensor 배열은 stack, int 스칼라는 LongTensor, vlen peak 인덱스는 list 유지.
+    """
+    keys_tensor = {"radar", "ecg", "rpeak", "delin_valid"}
+    keys_int    = {"subject", "state"}
+    keys_list   = {"r_idx", "q_idx", "s_idx", "t_idx"}
+
+    result: dict = {}
+    for k in keys_tensor:
+        if k in batch[0]:
+            result[k] = torch.stack([b[k] for b in batch])
+    for k in keys_int:
+        if k in batch[0]:
+            result[k] = torch.tensor([b[k] for b in batch], dtype=torch.long)
+    for k in keys_list:
+        if k in batch[0]:
+            result[k] = [b[k] for b in batch]
+    return result
+
+
+# ── Dataset ──────────────────────────────────────────────────────────────────
+
+class MMECGWindowedH5Dataset(Dataset):
+    """
+    단일 H5 파일에서 윈도우 데이터를 로드하는 Dataset.
+
     Parameters
     ----------
-    dataset_dir : str | Path
-        预处理输出目录（含 subject_*/rcg.npy 等）
-    subject_ids : list[int]
-        参与本 split 的受试者 ID 列表
+    h5_path : str | Path
+        H5 파일 경로（train.h5 / val.h5 / test.h5）
+    include_peak_indices : bool
+        True = q/s/t/r 인덱스 및 delineation_valid 도 포함（test set용）
+    rpeak_sigma : float
+        Gaussian 소프트 레이블의 sigma（samples）
     """
 
-    def __init__(self, dataset_dir: str | Path, subject_ids: list[int]):
+    def __init__(
+        self,
+        h5_path: str | Path,
+        include_peak_indices: bool = False,
+        rpeak_sigma: float = RPEAK_SIGMA_DEFAULT,
+        narrow_bandpass: bool = False,
+        bp_lo: float = 0.8,
+        bp_hi: float = 3.5,
+        fs: float = 200.0,
+    ):
         super().__init__()
-        self.dataset_dir  = Path(dataset_dir)
-        self.subject_ids  = subject_ids
+        h5_path = Path(h5_path)
+        if not h5_path.exists():
+            raise FileNotFoundError(f"H5 file not found: {h5_path}")
 
-        rcg_list, ecg_list, rpeak_list, meta_list = [], [], [], []
+        self.include_peak_indices = include_peak_indices
 
-        for sid in subject_ids:
-            subj_dir = self.dataset_dir / f"subject_{sid}"
-            rcg_arr   = np.load(subj_dir / "rcg.npy")    # (N, 50, 1600)
-            ecg_arr   = np.load(subj_dir / "ecg.npy")    # (N,  1, 1600)
-            rp_arr    = np.load(subj_dir / "rpeak.npy")  # (N,  1, 1600)
-            meta_arr  = np.load(subj_dir / "meta.npy")   # (N,  2)  int32
+        with h5py.File(h5_path, "r") as hf:
+            N = hf["rcg"].shape[0]
 
-            rcg_list.append(rcg_arr)
-            ecg_list.append(ecg_arr)
-            rpeak_list.append(rp_arr)
-            meta_list.append(meta_arr)
+            # ── 고정 크기 배열 ──────────────────────────────────────────
+            rcg_raw = hf["rcg"][:]                          # [N, 50, 1600] float32，z-score 완료
+            ecg_raw = hf["ecg"][:]                          # [N,  1, 1600] float32，z-score 완료
+            subj    = hf["subject_id"][:].astype(np.int32)  # [N]
+            phys_b  = hf["physistatus"][:]                  # [N] bytes
 
-        self.rcg   = np.concatenate(rcg_list,   axis=0)   # (N_total, 50, 1600)
-        self.ecg   = np.concatenate(ecg_list,   axis=0)   # (N_total,  1, 1600)
-        self.rpeak = np.concatenate(rpeak_list, axis=0)   # (N_total,  1, 1600)
-        self.meta  = np.concatenate(meta_list,  axis=0)   # (N_total,  2)
+            # ── 심박 협대역 필터（0.8-3.5 Hz）──────────────────────────
+            if narrow_bandpass:
+                b, a = scipy.signal.butter(4, [bp_lo, bp_hi], btype="band", fs=fs)
+                rcg_raw = np.stack(
+                    [scipy.signal.filtfilt(b, a, rcg_raw[i], axis=-1) for i in range(N)]
+                )
+                # re-normalize channel-wise per window
+                mu  = rcg_raw.mean(axis=-1, keepdims=True)
+                std = rcg_raw.std( axis=-1, keepdims=True) + 1e-8
+                rcg_raw = ((rcg_raw - mu) / std).astype(np.float32)
+
+            # ── ECG min-max 정규화（모델 입력：sigmoid [0,1]）──────────
+            ecg_norm = np.stack(
+                [_minmax_ecg(ecg_raw[i]) for i in range(N)], axis=0
+            )  # [N, 1, 1600]
+
+            # ── R 피크 → Gaussian 마스크 ──────────────────────────────
+            rpeak_ds = hf["rpeak_indices"]
+            rpeak = np.stack(
+                [_gaussian_mask(rpeak_ds[i], 1600, sigma=rpeak_sigma)[np.newaxis, :]
+                 for i in range(N)],
+                axis=0,
+            )  # [N, 1, 1600]
+
+            # ── physistatus → int ─────────────────────────────────────
+            state = np.array(
+                [PHYSISTATUS_MAP.get(_decode_physistatus(p), 0) for p in phys_b],
+                dtype=np.int32,
+            )  # [N]
+
+            # ── 선택적：peak 인덱스（test set용）─────────────────────
+            if include_peak_indices:
+                r_ds = hf["rpeak_indices"]
+                q_ds = hf["q_indices"]
+                s_ds = hf["s_indices"]
+                t_ds = hf["tpeak_indices"]
+                self._r_idx = [r_ds[i].astype(np.int32) for i in range(N)]
+                self._q_idx = [q_ds[i].astype(np.int32) for i in range(N)]
+                self._s_idx = [s_ds[i].astype(np.int32) for i in range(N)]
+                self._t_idx = [t_ds[i].astype(np.int32) for i in range(N)]
+                self._delin = hf["delineation_valid"][:].astype(np.uint8)
+
+        self._rcg   = rcg_raw
+        self._ecg   = ecg_norm
+        self._rpeak = rpeak
+        self._subj  = subj
+        self._state = state
+        self._N     = N
 
     def __len__(self) -> int:
-        return len(self.rcg)
+        return self._N
 
     def __getitem__(self, idx: int) -> dict:
-        return {
-            "radar":   torch.from_numpy(self.rcg[idx]),    # (50, 1600)
-            "ecg":     torch.from_numpy(self.ecg[idx]),    # (1,  1600)
-            "rpeak":   torch.from_numpy(self.rpeak[idx]),  # (1,  1600)
-            "subject": int(self.meta[idx, 0]),
-            "state":   int(self.meta[idx, 1]),
+        item = {
+            "radar":   torch.from_numpy(self._rcg[idx]),    # [50, 1600]
+            "ecg":     torch.from_numpy(self._ecg[idx]),    # [ 1, 1600]
+            "rpeak":   torch.from_numpy(self._rpeak[idx]),  # [ 1, 1600]
+            "subject": int(self._subj[idx]),
+            "state":   int(self._state[idx]),
         }
+        if self.include_peak_indices:
+            item["r_idx"]      = self._r_idx[idx]
+            item["q_idx"]      = self._q_idx[idx]
+            item["s_idx"]      = self._s_idx[idx]
+            item["t_idx"]      = self._t_idx[idx]
+            item["delin_valid"] = torch.tensor(bool(self._delin[idx]))
+        return item
+
+    def class_weights(self) -> torch.Tensor:
+        """
+        physistatus 클래스 역빈도 가중치 → WeightedRandomSampler용.
+        samplewise split에서 클래스 균형을 보장.
+        """
+        unique, counts = np.unique(self._state, return_counts=True)
+        inv = 1.0 / counts.astype(np.float32)
+        cls2w = dict(zip(unique.tolist(), inv.tolist()))
+        weights = np.array([cls2w[s] for s in self._state], dtype=np.float32)
+        return torch.from_numpy(weights)
 
     def subject_weights(self) -> torch.Tensor:
         """
-        计算每个样本的权重，使训练时各受试者贡献均衡
-        （WeightedRandomSampler 用）。
+        수험자 역빈도 가중치 → WeightedRandomSampler용.
+        Sub 1/2처럼 훈련 샘플이 극단적으로 적은 수험자의 학습을 보장.
         """
-        subj_ids = self.meta[:, 0]
-        unique, counts = np.unique(subj_ids, return_counts=True)
-        inv_freq = 1.0 / counts.astype(np.float32)
-        subj2weight = dict(zip(unique.tolist(), inv_freq.tolist()))
-        weights = np.array([subj2weight[s] for s in subj_ids], dtype=np.float32)
+        unique, counts = np.unique(self._subj, return_counts=True)
+        inv = 1.0 / counts.astype(np.float32)
+        sub2w = dict(zip(unique.tolist(), inv.tolist()))
+        weights = np.array([sub2w[s] for s in self._subj], dtype=np.float32)
         return torch.from_numpy(weights)
 
 
-def build_loso_loaders(
-    dataset_dir: str | Path,
+# ── 팩토리 함수 ──────────────────────────────────────────────────────────────
+
+def _make_sampler(
+    ds: MMECGWindowedH5Dataset,
+    balanced_sampling: bool,
+    balance_by: str,
+) -> WeightedRandomSampler | None:
+    """Return a WeightedRandomSampler or None (sequential)."""
+    if not balanced_sampling:
+        return None
+    weights = (
+        ds.subject_weights() if balance_by == "subject" else ds.class_weights()
+    )
+    return WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+
+
+def build_loso_loaders_h5(
     fold_idx: int,
+    loso_dir: str | Path,
     batch_size: int = 16,
     num_workers: int = 4,
     pin_memory: bool = True,
     balanced_sampling: bool = True,
-) -> tuple[DataLoader, DataLoader]:
+    balance_by: str = "subject",
+    narrow_bandpass: bool = False,
+) -> tuple[DataLoader, DataLoader, DataLoader]:
     """
-    构建 LOSO 的训练 / 测试 DataLoader。
+    LOSO 프로토콜：fold_XX/{train,val,test}.h5 를 로드하여
+    (train_loader, val_loader, test_loader) 를 반환.
 
     Parameters
     ----------
     fold_idx : int
-        0-based fold 序号（= LOSO 中留出的受试者在有序列表中的下标）。
+        1-based fold 번호（1~11）. 03B_create_loso_splits.py 와 동일한 번호 체계.
     balanced_sampling : bool
-        True → 用 WeightedRandomSampler 对受试者均衡采样；
-        False → 普通随机 shuffle。
-
-    Returns
-    -------
-    train_loader, test_loader
+        True → WeightedRandomSampler로 균형 학습.
+    balance_by : str
+        "subject" (기본) → 수험자 역빈도 가중치.
+        "class"         → physistatus 역빈도 가중치.
+    narrow_bandpass : bool
+        True → RCG에 0.8-3.5 Hz 심박 협대역 필터 적용.
     """
-    meta_path = Path(dataset_dir) / "metadata_mmecg.json"
-    with open(meta_path) as f:
-        meta = json.load(f)
+    fold_dir = Path(loso_dir) / f"fold_{fold_idx:02d}"
+    if not fold_dir.exists():
+        raise FileNotFoundError(f"Fold directory not found: {fold_dir}")
 
-    fold_info = meta["loso_folds"][str(fold_idx)]
-    test_sid  = [fold_info["test"]]
-    train_sids = fold_info["train"]
+    ds_kwargs = {"narrow_bandpass": narrow_bandpass}
+    train_ds = MMECGWindowedH5Dataset(fold_dir / "train.h5", include_peak_indices=False, **ds_kwargs)
+    val_ds   = MMECGWindowedH5Dataset(fold_dir / "val.h5",   include_peak_indices=False, **ds_kwargs)
+    test_ds  = MMECGWindowedH5Dataset(fold_dir / "test.h5",  include_peak_indices=True,  **ds_kwargs)
 
-    train_ds = MMECGDataset(dataset_dir, train_sids)
-    test_ds  = MMECGDataset(dataset_dir, test_sid)
-
-    if balanced_sampling:
-        weights = train_ds.subject_weights()
-        sampler = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+    sampler = _make_sampler(train_ds, balanced_sampling, balance_by)
+    if sampler is not None:
         train_loader = DataLoader(
-            train_ds,
-            batch_size=batch_size,
-            sampler=sampler,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-            drop_last=True,
+            train_ds, batch_size=batch_size, sampler=sampler,
+            num_workers=num_workers, pin_memory=pin_memory, drop_last=True,
         )
     else:
         train_loader = DataLoader(
-            train_ds,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-            drop_last=True,
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=pin_memory, drop_last=True,
         )
 
-    test_loader = DataLoader(
-        test_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
     )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+        collate_fn=_collate_with_peaks,
+    )
+    return train_loader, val_loader, test_loader
 
-    return train_loader, test_loader
+
+def build_samplewise_loaders_h5(
+    sw_dir: str | Path,
+    batch_size: int = 16,
+    num_workers: int = 4,
+    pin_memory: bool = True,
+    balanced_sampling: bool = True,
+    balance_by: str = "subject",
+    narrow_bandpass: bool = False,
+) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Samplewise 프로토콜：samplewise/{train,val,test}.h5 를 로드하여
+    (train_loader, val_loader, test_loader) 를 반환.
+
+    Parameters
+    ----------
+    balance_by : str
+        "subject" (기본) → 수험자 역빈도 가중치.
+        "class"         → physistatus 역빈도 가중치.
+    narrow_bandpass : bool
+        True → RCG에 0.8-3.5 Hz 심박 협대역 필터 적용.
+    """
+    sw_dir = Path(sw_dir)
+
+    ds_kwargs = {"narrow_bandpass": narrow_bandpass}
+    train_ds = MMECGWindowedH5Dataset(sw_dir / "train.h5", include_peak_indices=False, **ds_kwargs)
+    val_ds   = MMECGWindowedH5Dataset(sw_dir / "val.h5",   include_peak_indices=False, **ds_kwargs)
+    test_ds  = MMECGWindowedH5Dataset(sw_dir / "test.h5",  include_peak_indices=True,  **ds_kwargs)
+
+    sampler = _make_sampler(train_ds, balanced_sampling, balance_by)
+    if sampler is not None:
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, sampler=sampler,
+            num_workers=num_workers, pin_memory=pin_memory, drop_last=True,
+        )
+    else:
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=pin_memory, drop_last=True,
+        )
+
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+        collate_fn=_collate_with_peaks,
+    )
+    return train_loader, val_loader, test_loader

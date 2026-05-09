@@ -11,7 +11,12 @@ from pathlib import Path
 
 
 class MMECGConfig:
-    # ── 数据 ──────────────────────────────────────────────────────────────────
+    # ── 数据（新流程：直接读取预构建 H5）────────────────────────────────────────
+    loso_h5_dir       : str  = "/home/qhh2237/Datasets/MMECG/processed/loso"
+    samplewise_h5_dir : str  = "/home/qhh2237/Datasets/MMECG/processed/samplewise"
+    protocol          : str  = "loso"    # "loso" | "samplewise"
+
+    # ── 数据（旧流程保留，不再使用）──────────────────────────────────────────────
     dataset_dir   : str  = "dataset_mmecg"
     h5_path       : str  = "/home/qhh2237/Datasets/MMECG/MMECG.h5"
     fs            : int  = 200
@@ -39,9 +44,26 @@ class MMECGConfig:
     scheduler     : str  = "cosine"
     early_stop_patience: int = 20
 
+    # ── 时移鲁棒波形损失（诊断/改进实验用，默认关闭）────────────────────────────
+    use_lag_aware_loss: bool = False # True → 在小范围时移内优化 PCC/L1
+    lag_max_ms         : float = 100.0
+    lambda_lag_pcc     : float = 0.2
+    lambda_lag_l1      : float = 0.05
+    lambda_zero_pcc    : float = 0.0
+    lambda_lag_penalty : float = 0.0
+    lag_softmax_tau    : float = 0.05
+
+    # ── 显式输出时延校正（per-segment scalar lag head，默认关闭）──────────────
+    use_output_lag_align: bool = False
+    output_lag_max_ms    : float = 200.0
+    lambda_output_lag_l1 : float = 0.0
+
     # ── 数据加载 ───────────────────────────────────────────────────────────────
-    num_workers   : int  = 4
-    balanced_sampling: bool = True  # WeightedRandomSampler 均衡受试者
+    num_workers      : int  = 4
+    balanced_sampling: bool = True           # WeightedRandomSampler
+    use_class_balanced_sampling: bool = True # 按 physistatus 类别均衡（旧开关，保留兼容性）
+    balance_by       : str  = "subject"      # "subject" | "class"
+    narrow_bandpass  : bool = True           # RCG 0.8-3.5 Hz 心跳协带
 
     # ── 实验输出 ───────────────────────────────────────────────────────────────
     exp_dir       : str  = "experiments_mmecg"
@@ -51,6 +73,13 @@ class MMECGConfig:
     d_state       : int  = 16       # Mamba SSM state dim
     emd_max_delay : int  = 20       # EMD FIR 最大延迟（100ms @ 200Hz）
     dropout       : float= 0.1
+
+    # ── 条件扩散解码器 ─────────────────────────────────────────────────────────
+    use_diffusion  : bool = False   # True → BeatAwareDiffusionDecoder
+    diff_T         : int  = 1000    # 扩散步数 T（v1=100 质量差，v2 改为 1000）
+    diff_ddim_steps: int  = 50      # DDIM 采样步数（T=1000 下 50 步质量/速度平衡）
+    diff_hidden    : int  = 256     # ResBlock 隐通道数（v1=128 容量不足，v2 翻倍）
+    diff_n_blocks  : int  = 8       # ResBlock 层数（v1=6，v2 加深）
 
     def __repr__(self):
         lines = [f"{self.__class__.__name__}:"]

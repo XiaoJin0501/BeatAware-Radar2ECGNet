@@ -415,3 +415,657 @@ def compute_advanced_metrics(
     metrics.update(compute_rr_interval_mae(pred, gt, fs=fs))
     metrics.update(compute_interval_metrics(pred, gt, fs=fs))
     return metrics
+
+
+# =============================================================================
+# ── 以下为按 evaluation_metrics_protocol.md 实现的 4 级评估函数 ─────────────────
+# ── 训练循环继续使用上方的旧函数；以下函数仅在 test_mmecg.py 中调用 ────────────────
+# =============================================================================
+
+# ── 匹配工具（一对一最近邻） ──────────────────────────────────────────────────────
+
+def _match_peaks(
+    pred_peaks: np.ndarray,
+    gt_peaks:   np.ndarray,
+    tolerance:  int,
+) -> list[tuple[int, int]]:
+    """
+    一对一最近邻匹配：在 tolerance samples 范围内将 pred 峰与 GT 峰配对。
+    返回 matched (gt_idx, pred_idx) 对的列表。
+    """
+    if len(pred_peaks) == 0 or len(gt_peaks) == 0:
+        return []
+    matched_gt   = np.zeros(len(gt_peaks),   dtype=bool)
+    matched_pred = np.zeros(len(pred_peaks), dtype=bool)
+    pairs = []
+    # 按距离从小到大贪心匹配
+    dists = np.abs(gt_peaks[:, None].astype(int) - pred_peaks[None, :].astype(int))
+    order = np.argsort(dists.ravel())
+    for flat_idx in order:
+        gi, pi = divmod(int(flat_idx), len(pred_peaks))
+        if matched_gt[gi] or matched_pred[pi]:
+            continue
+        if dists[gi, pi] <= tolerance:
+            pairs.append((gi, pi))
+            matched_gt[gi]   = True
+            matched_pred[pi] = True
+    return pairs
+
+
+def _detect_peaks_on_pred(pred_1d: np.ndarray, fs: int) -> np.ndarray:
+    """在预测 ECG 上检测 R 峰，返回 int64 索引数组。"""
+    return detect_rpeaks(pred_1d, fs)
+
+
+def _delineate_peaks_on_pred(
+    pred_1d: np.ndarray,
+    pred_r:  np.ndarray,
+    fs:      int,
+) -> dict[str, np.ndarray]:
+    """
+    在预测 ECG 上做 DWT delineation，返回 Q/S/T 峰位置数组。
+    -1 代表未检出。
+    """
+    empty = np.array([], dtype=np.int64)
+    if len(pred_r) < 2:
+        return {"q": empty, "s": empty, "t": empty}
+    if not _check_neurokit():
+        return {"q": empty, "s": empty, "t": empty}
+    import neurokit2 as nk
+    import warnings
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _, waves = nk.ecg_delineate(pred_1d, pred_r.astype(int), sampling_rate=fs, method="dwt")
+
+        def _parse(key):
+            vals = waves.get(key, [np.nan] * len(pred_r))
+            return np.array(
+                [int(v) if (v is not None and not (isinstance(v, float) and np.isnan(v))) else -1
+                 for v in vals],
+                dtype=np.int64,
+            )
+
+        return {
+            "q": _parse("ECG_Q_Peaks"),
+            "s": _parse("ECG_S_Peaks"),
+            "t": _parse("ECG_T_Peaks"),
+        }
+    except Exception:
+        return {"q": empty, "s": empty, "t": empty}
+
+
+# ── Level 1 ──────────────────────────────────────────────────────────────────
+
+def compute_waveform_metrics_protocol(
+    pred,   # (B, 1, L) tensor or (B, L) or (L,) ndarray
+    gt,     # same shape as pred
+) -> dict[str, float]:
+    """
+    Level 1 波形指标（协议命名版）：
+      pcc_raw, rmse_norm, mae_norm, r2
+    rmse_mV / mae_mV 暂置 NaN（无 mV 标定数据）。
+    """
+    if isinstance(pred, torch.Tensor):
+        pred_np = pred.detach().cpu().numpy()
+    else:
+        pred_np = np.asarray(pred, dtype=np.float32)
+    if isinstance(gt, torch.Tensor):
+        gt_np = gt.detach().cpu().numpy()
+    else:
+        gt_np = np.asarray(gt, dtype=np.float32)
+    if pred_np.ndim == 3:
+        pred_np = pred_np.squeeze(1)
+    if gt_np.ndim == 3:
+        gt_np = gt_np.squeeze(1)
+    if pred_np.ndim == 1:
+        pred_np = pred_np[np.newaxis, :]
+    if gt_np.ndim == 1:
+        gt_np = gt_np[np.newaxis, :]
+
+    pcc_list, rmse_list, mae_list, r2_list = [], [], [], []
+    for i in range(len(pred_np)):
+        p, g = pred_np[i], gt_np[i]
+        # PCC
+        pc = p - p.mean(); gc = g - g.mean()
+        denom = np.sqrt((pc**2).sum() * (gc**2).sum()) + 1e-8
+        pcc_list.append(float(np.dot(pc, gc) / denom))
+        # RMSE / MAE
+        diff = p - g
+        rmse_list.append(float(np.sqrt(np.mean(diff**2))))
+        mae_list.append(float(np.mean(np.abs(diff))))
+        # R²
+        ss_res = np.sum(diff**2)
+        ss_tot = np.sum(gc**2) + 1e-8
+        r2_list.append(float(1.0 - ss_res / ss_tot))
+
+    return {
+        "pcc_raw":   float(np.nanmean(pcc_list)),
+        "rmse_norm": float(np.nanmean(rmse_list)),
+        "mae_norm":  float(np.nanmean(mae_list)),
+        "r2":        float(np.nanmean(r2_list)),
+        "rmse_mV":   float("nan"),
+        "mae_mV":    float("nan"),
+    }
+
+
+# ── Level 2 ──────────────────────────────────────────────────────────────────
+
+def compute_qrst_peak_timing_errors(
+    pred_1d:  np.ndarray,      # (L,) float，单条预测 ECG
+    gt_r_arr: np.ndarray,      # int32，来自 H5
+    gt_q_arr: np.ndarray,
+    gt_s_arr: np.ndarray,
+    gt_t_arr: np.ndarray,
+    fs: int = 200,
+    tolerance_samples: int = 10,   # ±50ms @ 200Hz
+) -> dict:
+    """
+    Level 2：Q/R/S/T 峰位置误差（ms）。
+    对预测 ECG 检测/delineate 峰，与 H5 存储的 GT 索引配对。
+
+    返回:
+      "segment_summary": {r_peak_error_ms_mean, q_peak_error_ms_mean,
+                          s_peak_error_ms_mean, t_peak_error_ms_mean,
+                          qrst_peak_error_ms_mean, n_matched,
+                          num_r_gt, num_r_pred, num_matched_beats}
+      "beat_rows": list of dicts（每个匹配 beat 的逐峰误差）
+      per-peak lists: r_errors, q_errors, s_errors, t_errors（ms）
+    """
+    ms = 1000.0 / fs
+
+    # ── 预测 ECG 峰检测 ────────────────────────────────────────────────────────
+    pred_r = _detect_peaks_on_pred(pred_1d, fs)
+    pred_delin = _delineate_peaks_on_pred(pred_1d, pred_r, fs)
+    pred_q = pred_delin["q"]
+    pred_s = pred_delin["s"]
+    pred_t = pred_delin["t"]
+
+    # GT 中过滤掉 -1（未检出）
+    def _valid(arr): return arr[arr >= 0]
+    gt_r_v = _valid(gt_r_arr)
+    gt_q_v = _valid(gt_q_arr)
+    gt_s_v = _valid(gt_s_arr)
+    gt_t_v = _valid(gt_t_arr)
+    pred_q_v = _valid(pred_q)
+    pred_s_v = _valid(pred_s)
+    pred_t_v = _valid(pred_t[pred_t >= 0] if len(pred_t) else np.array([], dtype=np.int64))
+
+    # ── R 峰匹配 ───────────────────────────────────────────────────────────────
+    r_pairs   = _match_peaks(pred_r, gt_r_v, tolerance_samples)
+    r_errors  = [abs(int(gt_r_v[gi]) - int(pred_r[pi])) * ms for gi, pi in r_pairs]
+
+    # ── Q/S/T 峰匹配 ──────────────────────────────────────────────────────────
+    q_pairs  = _match_peaks(pred_q_v, gt_q_v, tolerance_samples)
+    s_pairs  = _match_peaks(pred_s_v, gt_s_v, tolerance_samples)
+    t_pairs  = _match_peaks(pred_t_v, gt_t_v, tolerance_samples)
+    q_errors = [abs(int(gt_q_v[gi]) - int(pred_q_v[pi])) * ms for gi, pi in q_pairs]
+    s_errors = [abs(int(gt_s_v[gi]) - int(pred_s_v[pi])) * ms for gi, pi in s_pairs]
+    t_errors = [abs(int(gt_t_v[gi]) - int(pred_t_v[pi])) * ms for gi, pi in t_pairs]
+
+    def _mean(lst): return float(np.mean(lst)) if lst else float("nan")
+
+    all_errors = r_errors + q_errors + s_errors + t_errors
+
+    # ── per-beat rows（R 峰匹配对驱动）──────────────────────────────────────────
+    beat_rows = []
+    for beat_id, (gi, pi) in enumerate(r_pairs):
+        beat_rows.append({
+            "beat_id":         beat_id,
+            "r_peak_error_ms": abs(int(gt_r_v[gi]) - int(pred_r[pi])) * ms,
+        })
+
+    return {
+        "segment_summary": {
+            "r_peak_error_ms_mean":    _mean(r_errors),
+            "q_peak_error_ms_mean":    _mean(q_errors),
+            "s_peak_error_ms_mean":    _mean(s_errors),
+            "t_peak_error_ms_mean":    _mean(t_errors),
+            "qrst_peak_error_ms_mean": _mean(all_errors),
+            "num_r_gt":                int(len(gt_r_v)),
+            "num_r_pred":              int(len(pred_r)),
+            "num_matched_beats":       int(len(r_pairs)),
+        },
+        "beat_rows":  beat_rows,
+        "r_errors":   r_errors,
+        "q_errors":   q_errors,
+        "s_errors":   s_errors,
+        "t_errors":   t_errors,
+        "n_matched":  len(r_pairs),
+        "pred_r":     pred_r,        # for compute_mdr
+        "gt_r_v":     gt_r_v,        # filtered GT R peaks
+    }
+
+
+def compute_relative_peak_timing_errors(
+    peak_errors_ms: dict[str, list[float]],
+    T_seg_samples:  int,
+    fs:             int = 200,
+) -> dict[str, float]:
+    """
+    Level 2：Q/R/S/T 峰位置相对误差（%，归一化到 segment 长度）。
+    peak_errors_ms: {"r": [...], "q": [...], "s": [...], "t": [...]}
+    """
+    T_ms = T_seg_samples / fs * 1000.0
+
+    def _rel(lst):
+        if not lst:
+            return float("nan")
+        return float(np.mean(lst)) / T_ms * 100.0
+
+    r_rel = _rel(peak_errors_ms.get("r", []))
+    q_rel = _rel(peak_errors_ms.get("q", []))
+    s_rel = _rel(peak_errors_ms.get("s", []))
+    t_rel = _rel(peak_errors_ms.get("t", []))
+    all_v = [v for v in [r_rel, q_rel, s_rel, t_rel] if not np.isnan(v)]
+
+    return {
+        "r_peak_error_rel_percent":            r_rel,
+        "q_peak_error_rel_percent":            q_rel,
+        "s_peak_error_rel_percent":            s_rel,
+        "t_peak_error_rel_percent":            t_rel,
+        "qrst_peak_error_rel_percent_mean":    float(np.mean(all_v)) if all_v else float("nan"),
+    }
+
+
+def compute_rr_interval_error(
+    pred_1d:  np.ndarray,   # (L,) float
+    gt_r_arr: np.ndarray,   # int32，来自 H5
+    fs: int = 200,
+    tolerance_samples: int = 10,
+) -> dict:
+    """
+    Level 2：逐 beat RR 间期误差（ms）。
+    仅对配对成功的连续 R 峰计算。
+
+    返回:
+      rr_errors: list[float] ms
+      rr_interval_error_ms_mean / ppi_error_ms_mean（radarODE-MTL 别名）
+    """
+    ms = 1000.0 / fs
+    pred_r = _detect_peaks_on_pred(pred_1d, fs)
+    gt_r_v = gt_r_arr[gt_r_arr >= 0]
+
+    if len(pred_r) < 2 or len(gt_r_v) < 2:
+        return {
+            "rr_errors": [],
+            "rr_interval_error_ms_mean": float("nan"),
+            "ppi_error_ms_mean":         float("nan"),
+        }
+
+    pairs = _match_peaks(pred_r, gt_r_v, tolerance_samples)
+    if len(pairs) < 2:
+        return {
+            "rr_errors": [],
+            "rr_interval_error_ms_mean": float("nan"),
+            "ppi_error_ms_mean":         float("nan"),
+        }
+
+    pairs_sorted = sorted(pairs, key=lambda x: x[0])
+    rr_errors = []
+    for i in range(len(pairs_sorted) - 1):
+        g0, p0 = pairs_sorted[i]
+        g1, p1 = pairs_sorted[i + 1]
+        gt_rr   = (int(gt_r_v[g1])  - int(gt_r_v[g0]))  * ms
+        pred_rr = (int(pred_r[p1])  - int(pred_r[p0]))   * ms
+        rr_errors.append(abs(pred_rr - gt_rr))
+
+    mean_err = float(np.mean(rr_errors)) if rr_errors else float("nan")
+    return {
+        "rr_errors":                 rr_errors,
+        "rr_interval_error_ms_mean": mean_err,
+        "ppi_error_ms_mean":         mean_err,
+    }
+
+
+def compute_t_wave_timing_error(
+    pred_1d:  np.ndarray,   # (L,) float
+    gt_t_arr: np.ndarray,   # int32（-1=missing）
+    fs: int = 200,
+    tolerance_samples: int = 30,   # ±150ms
+) -> dict:
+    """
+    Level 2：T 波峰定位误差（ms）。对应 AirECG 报告的 T-wave timing error。
+    """
+    ms = 1000.0 / fs
+    pred_r = _detect_peaks_on_pred(pred_1d, fs)
+    pred_delin = _delineate_peaks_on_pred(pred_1d, pred_r, fs)
+    pred_t = pred_delin["t"]
+    pred_t_v = pred_t[pred_t >= 0] if len(pred_t) else np.array([], dtype=np.int64)
+    gt_t_v   = gt_t_arr[gt_t_arr >= 0]
+
+    pairs  = _match_peaks(pred_t_v, gt_t_v, tolerance_samples)
+    errors = [abs(int(gt_t_v[gi]) - int(pred_t_v[pi])) * ms for gi, pi in pairs]
+    mean_e = float(np.mean(errors)) if errors else float("nan")
+
+    return {
+        "t_errors":                  errors,
+        "t_wave_timing_error_ms_mean": mean_e,
+    }
+
+
+def compute_qualified_monitoring_rate(segment_flags: list[bool]) -> dict[str, float]:
+    """
+    Level 2：合格监测率（QMR）。
+    segment_flags: 每个 segment 是否合格（GT≥2 R峰 AND pred≥2 R峰 AND ≥1 matched RR）。
+    """
+    if not segment_flags:
+        return {"qualified_monitoring_rate": float("nan")}
+    qmr = float(np.mean(segment_flags)) * 100.0
+    return {"qualified_monitoring_rate": qmr}
+
+
+def compute_mdr(
+    pred_r_peaks:      np.ndarray,
+    gt_r_peaks:        np.ndarray,
+    tolerance_samples: int = 10,
+) -> dict[str, float]:
+    """
+    Level 2：R 峰漏检率（event-level MDR = 1 - Recall）。
+    """
+    if len(gt_r_peaks) == 0:
+        return {"rpeak_mdr_event": float("nan")}
+    pairs = _match_peaks(pred_r_peaks, gt_r_peaks, tolerance_samples)
+    tp = len(pairs)
+    fn = len(gt_r_peaks) - tp
+    mdr = fn / (tp + fn) * 100.0
+    return {"rpeak_mdr_event": float(mdr)}
+
+
+# ── Level 3 ──────────────────────────────────────────────────────────────────
+
+def _fiducial_f1(
+    pred_pts: np.ndarray,
+    gt_pts:   np.ndarray,
+    tol:      int,
+) -> dict[str, float]:
+    """单类 fiducial 在给定 tolerance 下的 precision / recall / F1。"""
+    if len(gt_pts) == 0 and len(pred_pts) == 0:
+        return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
+    if len(gt_pts) == 0:
+        return {"precision": 0.0, "recall": float("nan"), "f1": 0.0}
+    if len(pred_pts) == 0:
+        return {"precision": float("nan"), "recall": 0.0, "f1": 0.0}
+
+    pairs = _match_peaks(pred_pts, gt_pts, tol)
+    tp = len(pairs)
+    fp = len(pred_pts) - tp
+    fn = len(gt_pts)   - tp
+    prec   = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    f1     = 2 * prec * recall / (prec + recall + 1e-8)
+    return {"precision": float(prec), "recall": float(recall), "f1": float(f1)}
+
+
+def compute_fiducial_detection_f1(
+    pred_1d:      np.ndarray,   # (L,) float，预测 ECG
+    gt_1d:        np.ndarray,   # (L,) float，GT ECG（用于 delineation）
+    gt_r_peaks:   np.ndarray,   # int32（来自 H5）
+    fs:           int = 200,
+    tolerances_ms: tuple[int, ...] = (150, 100, 50),
+) -> dict[str, float]:
+    """
+    Level 3：Pon/Qon/Rpeak/Soff/Toff 在多个 tolerance 下的 F1。
+    对 GT ECG 做 DWT delineation 获取 onset/offset；
+    对预测 ECG 同样 delineation 比较。
+
+    命名严格按协议 Section 9：
+      {fiducial}_{metric}_{tol}ms，如 pon_f1_150ms, average_f1_100ms
+    """
+    if not _check_neurokit():
+        result = {}
+        for tol in tolerances_ms:
+            for fid in ["pon", "qon", "rpeak", "soff", "toff"]:
+                for met in ["precision", "recall", "f1"]:
+                    result[f"{fid}_{met}_{tol}ms"] = float("nan")
+            result[f"average_f1_{tol}ms"] = float("nan")
+        return result
+
+    import neurokit2 as nk
+    import warnings
+
+    def _delineate_full(ecg_1d: np.ndarray, r_peaks: np.ndarray) -> dict[str, np.ndarray]:
+        """返回所有 fiducial 点（过滤 NaN/-1）。"""
+        empty = np.array([], dtype=np.int64)
+        if len(r_peaks) < 2:
+            return {k: empty for k in ["pon", "qon", "rpeak", "soff", "toff"]}
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _, waves = nk.ecg_delineate(
+                    ecg_1d, r_peaks.astype(int), sampling_rate=fs, method="dwt"
+                )
+
+            def _get(key):
+                vals = waves.get(key, [np.nan] * len(r_peaks))
+                return np.array(
+                    [int(v) for v in vals
+                     if v is not None and not (isinstance(v, float) and np.isnan(v))],
+                    dtype=np.int64,
+                )
+
+            return {
+                "pon":    _get("ECG_P_Onsets"),
+                "qon":    _get("ECG_R_Onsets"),    # QRS onset ≈ ECG_R_Onsets
+                "rpeak":  r_peaks.astype(np.int64),
+                "soff":   _get("ECG_R_Offsets"),   # QRS offset / J-point
+                "toff":   _get("ECG_T_Offsets"),
+            }
+        except Exception:
+            return {k: empty for k in ["pon", "qon", "rpeak", "soff", "toff"]}
+
+    gt_r_v   = gt_r_peaks[gt_r_peaks >= 0].astype(np.int64)
+    pred_r   = _detect_peaks_on_pred(pred_1d, fs).astype(np.int64)
+
+    gt_fid   = _delineate_full(gt_1d,   gt_r_v)
+    pred_fid = _delineate_full(pred_1d, pred_r)
+
+    result: dict[str, float] = {}
+    for tol_ms in tolerances_ms:
+        tol_samp = int(tol_ms * fs / 1000)
+        f1_vals  = []
+        for fid in ["pon", "qon", "rpeak", "soff", "toff"]:
+            m = _fiducial_f1(pred_fid[fid], gt_fid[fid], tol_samp)
+            result[f"{fid}_precision_{tol_ms}ms"] = m["precision"]
+            result[f"{fid}_recall_{tol_ms}ms"]    = m["recall"]
+            result[f"{fid}_f1_{tol_ms}ms"]        = m["f1"]
+            if not np.isnan(m["f1"]):
+                f1_vals.append(m["f1"])
+        result[f"average_f1_{tol_ms}ms"] = float(np.mean(f1_vals)) if f1_vals else float("nan")
+
+    return result
+
+
+# ── Level 4 ──────────────────────────────────────────────────────────────────
+
+def compute_clinical_interval_errors(
+    pred_1d:    np.ndarray,   # (L,) float，预测 ECG
+    gt_1d:      np.ndarray,   # (L,) float，GT ECG
+    gt_r_peaks: np.ndarray,   # int32（来自 H5）
+    fs:         int = 200,
+) -> dict[str, float]:
+    """
+    Level 4：临床间期误差（ms）。
+      PR  = Qon  - Pon          （房室传导）
+      QRS = Soff - Qon          （心室除极）
+      QT  = Toff - Qon          （心室复极）
+      QTc = QT(ms) / sqrt(RR(s)) [Bazett 校正]
+
+    对 GT ECG 和预测 ECG 各做一次全 delineation，
+    逐 beat 配对计算误差均值。
+    """
+    if not _check_neurokit():
+        return {
+            "pr_interval_error_ms":   float("nan"),
+            "qrs_duration_error_ms":  float("nan"),
+            "qt_interval_error_ms":   float("nan"),
+            "qtc_interval_error_ms":  float("nan"),
+        }
+
+    import neurokit2 as nk
+    import warnings
+
+    gt_r_v  = gt_r_peaks[gt_r_peaks >= 0].astype(np.int64)
+    pred_r  = _detect_peaks_on_pred(pred_1d, fs).astype(np.int64)
+
+    def _full_delineate(ecg_1d, r_peaks):
+        if len(r_peaks) < 2:
+            return None
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _, waves = nk.ecg_delineate(
+                    ecg_1d, r_peaks.astype(int), sampling_rate=fs, method="dwt"
+                )
+
+            def _arr(key):
+                vals = waves.get(key, [np.nan] * len(r_peaks))
+                return np.array(
+                    [float(v) if (v is not None and not (isinstance(v, float) and np.isnan(v)))
+                     else np.nan for v in vals]
+                )
+
+            return {
+                "pon":  _arr("ECG_P_Onsets"),
+                "qon":  _arr("ECG_R_Onsets"),
+                "soff": _arr("ECG_R_Offsets"),
+                "toff": _arr("ECG_T_Offsets"),
+                "r":    r_peaks.astype(float),
+            }
+        except Exception:
+            return None
+
+    gt_w   = _full_delineate(gt_1d,   gt_r_v)
+    pred_w = _full_delineate(pred_1d, pred_r)
+
+    if gt_w is None or pred_w is None:
+        return {
+            "pr_interval_error_ms":  float("nan"),
+            "qrs_duration_error_ms": float("nan"),
+            "qt_interval_error_ms":  float("nan"),
+            "qtc_interval_error_ms": float("nan"),
+        }
+
+    def _interval(w, a_key, b_key):
+        """(b - a) / fs * 1000 ms，过滤 NaN，只保留 b > a 的。"""
+        a, b = w[a_key], w[b_key]
+        n = min(len(a), len(b))
+        vals = []
+        for i in range(n):
+            if not (np.isnan(a[i]) or np.isnan(b[i])) and b[i] > a[i]:
+                vals.append((b[i] - a[i]) / fs * 1000.0)
+        return np.array(vals)
+
+    gt_pr   = _interval(gt_w,   "pon",  "qon")
+    gt_qrs  = _interval(gt_w,   "qon",  "soff")
+    gt_qt   = _interval(gt_w,   "qon",  "toff")
+    pred_pr  = _interval(pred_w, "pon",  "qon")
+    pred_qrs = _interval(pred_w, "qon",  "soff")
+    pred_qt  = _interval(pred_w, "qon",  "toff")
+
+    def _mae(a, b):
+        n = min(len(a), len(b))
+        if n == 0:
+            return float("nan")
+        return float(np.mean(np.abs(a[:n] - b[:n])))
+
+    pr_err  = _mae(gt_pr,  pred_pr)
+    qrs_err = _mae(gt_qrs, pred_qrs)
+    qt_err  = _mae(gt_qt,  pred_qt)
+
+    # QTc = QT(s) / sqrt(RR(s)) [Bazett]
+    def _qtc_arr(qt_ms, r_peaks):
+        if len(r_peaks) < 2 or len(qt_ms) == 0:
+            return np.array([])
+        rr_s = np.diff(r_peaks.astype(float)) / fs
+        n = min(len(qt_ms), len(rr_s))
+        qtc = qt_ms[:n] / 1000.0 / np.sqrt(rr_s[:n] + 1e-8) * 1000.0
+        return qtc
+
+    gt_qtc   = _qtc_arr(gt_qt,   gt_r_v)
+    pred_qtc = _qtc_arr(pred_qt, pred_r)
+    qtc_err  = _mae(gt_qtc, pred_qtc)
+
+    return {
+        "pr_interval_error_ms":  pr_err,
+        "qrs_duration_error_ms": qrs_err,
+        "qt_interval_error_ms":  qt_err,
+        "qtc_interval_error_ms": qtc_err,
+    }
+
+
+# ── 汇总函数 ──────────────────────────────────────────────────────────────────
+
+def summarize_subject_metrics(segment_rows: list[dict]) -> "pd.DataFrame":
+    """
+    按 (subject_id, scene) 分组，计算每组的 mean / median / std / IQR。
+    返回 pd.DataFrame（每行 = 一个 subject × scene 组合）。
+    """
+    import pandas as pd
+
+    df = pd.DataFrame(segment_rows)
+    numeric_cols = df.select_dtypes(include=[float, int]).columns.tolist()
+    for drop in ["segment_id", "fs", "segment_length_sec"]:
+        if drop in numeric_cols:
+            numeric_cols.remove(drop)
+
+    rows = []
+    for (subj, scene), grp in df.groupby(["subject_id", "scene"]):
+        row: dict = {"subject_id": subj, "scene": scene, "n_segments": len(grp)}
+        for col in numeric_cols:
+            vals = grp[col].dropna().values
+            if len(vals) == 0:
+                row[f"{col}_mean"]   = float("nan")
+                row[f"{col}_median"] = float("nan")
+                row[f"{col}_std"]    = float("nan")
+                row[f"{col}_iqr"]    = float("nan")
+            else:
+                row[f"{col}_mean"]   = float(np.mean(vals))
+                row[f"{col}_median"] = float(np.median(vals))
+                row[f"{col}_std"]    = float(np.std(vals))
+                q75, q25 = np.percentile(vals, [75, 25])
+                row[f"{col}_iqr"]    = float(q75 - q25)
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def summarize_global_metrics(segment_rows: list[dict]) -> dict:
+    """
+    全局 mean / median / std / IQR。
+    返回 dict（可直接序列化为 JSON）。
+    """
+    import pandas as pd
+
+    df = pd.DataFrame(segment_rows)
+    numeric_cols = df.select_dtypes(include=[float, int]).columns.tolist()
+    for drop in ["segment_id", "fs", "segment_length_sec", "subject_id"]:
+        if drop in numeric_cols:
+            numeric_cols.remove(drop)
+
+    summary: dict = {
+        "num_segments":       int(len(df)),
+        "num_subjects":       int(df["subject_id"].nunique()) if "subject_id" in df else 0,
+        "num_matched_beats":  int(df["num_matched_beats"].sum()) if "num_matched_beats" in df else 0,
+    }
+    if "qualified_flag" in df:
+        summary["num_valid_segments"] = int(df["qualified_flag"].sum())
+        summary["qualified_monitoring_rate"] = float(df["qualified_flag"].mean() * 100)
+    if "segment_failed_pcc60" in df:
+        summary["segment_failure_rate_pcc60"] = float(df["segment_failed_pcc60"].mean() * 100)
+
+    for col in numeric_cols:
+        vals = df[col].dropna().values
+        if len(vals) == 0:
+            summary[f"{col}_mean"]   = float("nan")
+            summary[f"{col}_median"] = float("nan")
+            summary[f"{col}_std"]    = float("nan")
+            summary[f"{col}_iqr"]    = float("nan")
+        else:
+            summary[f"{col}_mean"]   = float(np.mean(vals))
+            summary[f"{col}_median"] = float(np.median(vals))
+            summary[f"{col}_std"]    = float(np.std(vals))
+            q75, q25 = np.percentile(vals, [75, 25])
+            summary[f"{col}_iqr"]    = float(q75 - q25)
+
+    return summary
