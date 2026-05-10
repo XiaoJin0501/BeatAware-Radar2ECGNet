@@ -33,6 +33,7 @@ class MMECGConfig:
     # ── 模型开关（消融实验用） ───────────────────────────────────────────────────
     use_pam       : bool = True
     use_emd       : bool = True
+    use_mamba     : bool = True   # False → 跳过 GroupMamba × 2，直接进 Conformer
 
     # ── 训练超参 ───────────────────────────────────────────────────────────────
     batch_size    : int  = 16

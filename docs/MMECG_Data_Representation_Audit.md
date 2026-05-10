@@ -140,3 +140,42 @@ This is a cleaner contribution than the previous "lag-aware" framing — and is 
 - `scripts/diagnose_rcg_bin_correlation.py` — D1
 - `scripts/diagnose_se_attention.py` — D2
 - `scripts/diagnose_ecg_amplitude.py` — D3
+
+---
+
+## Section 2 — Phase D 验证结果与路线修正（2026-05-10）
+
+### 实测三连
+
+| exp_tag | 配置 | best val_pcc |
+|---------|------|-------------:|
+| `mmecg_reg_samplewise_subject` (B baseline) | with-Conformer + Mamba + SE K=50 | **0.4421** |
+| `mmecg_reg_samplewise_no_conformer` (D4) | **− Conformer** + Mamba + SE K=50 | **0.1287** |
+| `mmecg_reg_samplewise_no_conformer_corrK10` (E-oracle) | − Conformer + Mamba + SE K=10 (corr 选 bin，用 ECG GT) | **0.0305** |
+
+### Δ 解读
+
+- **Conformer 删除代价** = B − D4 = **−0.3134 PCC**。Conformer 是不可缺组件，承担"多尺度特征融合 + 跨位置注意力"角色，单独 GroupMamba SSM 不足以替代。
+- **Bin selection 收益** = D4 − E-oracle = **−0.0982 PCC**。即使用 ECG GT 算 |Pearson| 选 K=10 best bin，仍比全 K=50 更差。**bin selection 不是性能瓶颈**。
+- 决策树命中（Phase D 预设阈值 < 0.05 即否定）：B2b Gumbel learnable top-K **不跑**。
+
+### 路线修正
+
+1. **回退 Conformer 删除**：从 git commit `118b52f` 找回 ConformerFusionBlock 类、self.fusion 实例化、forward 调用，恢复后参数计数 1,698,270 与 baseline B 完全匹配。
+2. **保留诊断 API**：FMCWRangeEncoder selector="se|gumbel_topk"、loader topk_bins/topk_method/target_norm、test_mmecg.py strict=False —— 都是无害可选扩展。
+3. **新假设**（Phase F）：Conformer 是关键，那 GroupMamba 是否冗余？如果删 Mamba 仍能保持 ~0.44 PCC，论文模型可瘦身。
+
+### Phase F：GroupMamba 必要性验证
+
+加 `use_mamba` 开关（与 use_pam/use_emd 同模式），跑两个对偶实验：
+
+| exp_tag | Conformer | Mamba | 选择器 | 对应 |
+|---------|:---------:|:-----:|:------:|------|
+| `mmecg_reg_samplewise_no_mamba` (N1) | ✅ | ❌ | SE K=50 | 对偶 D4 |
+| `mmecg_reg_samplewise_no_mamba_corrK10` (N2) | ✅ | ❌ | SE+corr K=10 | 对偶 E-oracle |
+
+参数减少：full 1,698,270 → no-mamba 1,239,390（−459K，约 27% 瘦身）。
+
+### 论文 ablation 表（Phase F 终版）
+
+D4 / E-oracle 不丢，作为 negative-ablation 证据写进论文 "Component Necessity" 子章节，证明 Conformer 是 BeatAware 主线不可或缺的组件。N1/N2 完成后决定论文最终模型是否包含 Mamba。

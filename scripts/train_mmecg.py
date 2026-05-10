@@ -86,7 +86,7 @@ def train_one_run(
     logger = ExperimentLogger(log_dir, name=run_label)
     logger.info(f"{'='*60}")
     logger.info(f"MMECG training | run={run_label} | protocol={args.protocol}")
-    logger.info(f"device={device} | use_pam={cfg.use_pam} | use_emd={cfg.use_emd}")
+    logger.info(f"device={device} | use_pam={cfg.use_pam} | use_emd={cfg.use_emd} | use_mamba={cfg.use_mamba}")
     logger.info(f"Train: {len(train_loader.dataset)} samples | "
                 f"Val: {len(val_loader.dataset)} samples")
     logger.info(f"{'='*60}")
@@ -100,6 +100,7 @@ def train_one_run(
         dropout=cfg.dropout,
         use_pam=cfg.use_pam,
         use_emd=cfg.use_emd,
+        use_mamba=cfg.use_mamba,
         emd_max_delay=cfg.emd_max_delay,
         use_diffusion=cfg.use_diffusion,
         diff_T=cfg.diff_T,
@@ -429,6 +430,7 @@ def main():
     parser.add_argument("--epochs",   type=int, default=None)
     parser.add_argument("--use_pam",  type=lambda x: x.lower() != "false", default=None)
     parser.add_argument("--use_emd",  type=lambda x: x.lower() != "false", default=None)
+    parser.add_argument("--use_mamba", type=lambda x: x.lower() != "false", default=None)
     parser.add_argument("--use_diffusion",
                         type=lambda x: x.lower() != "false", default=None)
     parser.add_argument("--balance_by", type=str, default=None,
@@ -493,6 +495,7 @@ def main():
     if args.epochs          is not None: cfg.epochs          = args.epochs
     if args.use_pam         is not None: cfg.use_pam         = args.use_pam
     if args.use_emd         is not None: cfg.use_emd         = args.use_emd
+    if args.use_mamba       is not None: cfg.use_mamba       = args.use_mamba
     if args.use_diffusion   is not None: cfg.use_diffusion   = args.use_diffusion
     if args.balance_by      is not None: cfg.balance_by      = args.balance_by
     if args.narrow_bandpass is not None: cfg.narrow_bandpass = args.narrow_bandpass
@@ -524,7 +527,7 @@ def main():
         cfg.n_range_bins = cfg.topk_bins
 
     print(f"MMECG training | exp_tag={args.exp_tag} | protocol={args.protocol}")
-    print(f"use_pam={cfg.use_pam} | use_emd={cfg.use_emd} | epochs={cfg.epochs}")
+    print(f"use_pam={cfg.use_pam} | use_emd={cfg.use_emd} | use_mamba={cfg.use_mamba} | epochs={cfg.epochs}")
     print(f"use_lag_aware_loss={cfg.use_lag_aware_loss} | lag_max_ms={cfg.lag_max_ms} | "
           f"lambda_zero_pcc={cfg.lambda_zero_pcc} | "
           f"lambda_lag_penalty={cfg.lambda_lag_penalty}")

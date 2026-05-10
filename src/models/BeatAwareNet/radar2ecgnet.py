@@ -1,7 +1,7 @@
 """
 radar2ecgnet.py — BeatAwareRadar2ECGNet 主模型
 
-架构（纯 Mamba backbone，无 Conformer/MHSA fusion）：
+架构（Input Adapter 方案A，按输入表征切换前端，Backbone 统一）：
 
     输入 [B, 1, L] 或 [B, 1, F, T]
            │
@@ -12,7 +12,8 @@ radar2ecgnet.py — BeatAwareRadar2ECGNet 主模型
         rhythm_vec [B, 96]                         │  (TFiLM 调制)
            │                                       │
     TFiLMGenerator                           GroupMambaBlock × 2
-    gamma, beta [B, 4C]                      EMDAlignLayer
+    gamma, beta [B, 4C]                      ConformerFusionBlock
+                                             EMDAlignLayer
                                              Decoder
                                              → ECG [B, 1, L]
 
@@ -37,6 +38,66 @@ from ..modules.tfilm import TFiLMGenerator
 
 
 # =============================================================================
+# ConformerFusionBlock
+# =============================================================================
+
+class ConformerFusionBlock(nn.Module):
+    """
+    ConformerFusionBlock：MHSA + DepthwiseConv1d + FFN 融合模块。
+
+    设计动机：Mamba 做顺序扫描，缺乏对称的跨位置对齐能力；
+    MHSA 专责全局跨位置注意力，与 Mamba 功能互补。
+    （D4 消融实验验证其增益：删除后 val PCC 0.4421 → 0.1287，−0.31）
+
+    Parameters
+    ----------
+    d_model   : int  特征维度（输入/输出一致）
+    num_heads : int  多头注意力头数（默认4）
+    dropout   : float Dropout（默认0.1）
+    """
+
+    def __init__(self, d_model: int, num_heads: int = 4, dropout: float = 0.1):
+        super().__init__()
+        self.norm1  = nn.LayerNorm(d_model)
+        self.mhsa   = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=True)
+
+        self.norm2   = nn.LayerNorm(d_model)
+        self.dw_conv = nn.Sequential(
+            nn.Conv1d(d_model, d_model, kernel_size=31, padding=15, groups=d_model, bias=False),
+            nn.BatchNorm1d(d_model),
+            nn.SiLU(),
+            nn.Conv1d(d_model, d_model, kernel_size=1, bias=False),
+        )
+
+        self.norm3 = nn.LayerNorm(d_model)
+        self.ffn   = nn.Sequential(
+            nn.Linear(d_model, d_model * 4),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model * 4, d_model),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (B, d_model, L)"""
+        # MHSA（需要 [B, L, d_model]）
+        xt = x.transpose(1, 2)                          # (B, L, d_model)
+        normed = self.norm1(xt)
+        attn_out, _ = self.mhsa(normed, normed, normed)
+        xt = xt + attn_out                              # 残差
+
+        # DepthwiseConv1d（需要 [B, d_model, L]）
+        xc = xt.transpose(1, 2)
+        xc = xc + self.dw_conv(self.norm2(xt).transpose(1, 2))
+
+        # FFN
+        xt = xc.transpose(1, 2)
+        xt = xt + self.ffn(self.norm3(xt))
+
+        return xt.transpose(1, 2)   # (B, d_model, L)
+
+
+# =============================================================================
 # EMDAlignLayer — 电-机械延迟物理对齐层（Phase C）
 # =============================================================================
 
@@ -51,7 +112,7 @@ class EMDAlignLayer(nn.Module):
       - 初始化为 Dirac delta（单位冲激）= 零延迟恒等映射
       - 训练中自发学习 ±max_delay 范围内的每通道时移
 
-    插入位置：GroupMamba × 2 之后、Decoder 之前
+    插入位置：ConformerFusionBlock 之后、Decoder 之前
     特征 shape：(B, 4C, L_enc) = (B, 256, 400)
 
     Parameters
@@ -159,6 +220,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
         dropout:         float = 0.1,
         use_pam:         bool  = True,
         use_emd:         bool  = True,
+        use_mamba:       bool  = True,
         emd_max_delay:   int   = 20,
         n_range_bins:    int   = 50,
         use_diffusion:   bool  = False,
@@ -178,6 +240,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
         self.signal_len    = signal_len
         self.use_pam       = use_pam
         self.use_emd       = use_emd
+        self.use_mamba     = use_mamba
         self.use_diffusion = use_diffusion
         self.use_output_lag_align = use_output_lag_align
         self.output_lag_max_samples = float(output_lag_max_samples)
@@ -223,11 +286,16 @@ class BeatAwareRadar2ECGNet(nn.Module):
             self.spec_adapter = SpecAdapter(in_freq=spec_freq_bins, C=C, L_enc=L_enc)
 
         # ── Bottleneck（GroupMamba × 2）───────────────────────────
-        self.mamba1 = GroupMambaBlock(4 * C, num_groups=4, d_state=d_state)
-        self.mamba2 = GroupMambaBlock(4 * C, num_groups=4, d_state=d_state)
+        # use_mamba=False 时跳过整个 SSM bottleneck，直接进 Conformer
+        if use_mamba:
+            self.mamba1 = GroupMambaBlock(4 * C, num_groups=4, d_state=d_state)
+            self.mamba2 = GroupMambaBlock(4 * C, num_groups=4, d_state=d_state)
+
+        # ── Fusion ────────────────────────────────────────────────
+        self.fusion = ConformerFusionBlock(4 * C, num_heads=4, dropout=dropout)
 
         # ── EMD 物理对齐层（Phase C，PA 消融开关）──────────────────
-        # 插入 GroupMamba × 2 之后、Decoder 之前；use_emd=False 时为恒等映射
+        # 插入 Fusion 之后、Decoder 之前；use_emd=False 时为恒等映射
         if use_emd:
             self.emd = EMDAlignLayer(4 * C, max_delay=emd_max_delay)
 
@@ -365,9 +433,13 @@ class BeatAwareRadar2ECGNet(nn.Module):
         else:
             enc = self._encode_spec(x_input, gamma, beta) # (B, 4C, L_enc)
 
-        # ── Bottleneck (GroupMamba × 2) ────────────────────────────
-        h = self.mamba1(enc)
-        h = self.mamba2(h)
+        # ── Bottleneck + Fusion ────────────────────────────────────
+        if self.use_mamba:
+            h = self.mamba1(enc)
+            h = self.mamba2(h)
+        else:
+            h = enc
+        h = self.fusion(h)
 
         # ── EMD 物理对齐 ───────────────────────────────────────────
         if self.use_emd:

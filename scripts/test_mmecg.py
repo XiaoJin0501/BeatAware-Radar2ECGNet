@@ -71,7 +71,7 @@ def _load_model(cfg: MMECGConfig, run_dir: Path, device: torch.device):
     if cfg_path.exists():
         with open(cfg_path) as jf:
             saved = json.load(jf)
-        for k in ("C", "d_state", "dropout", "use_pam", "use_emd", "emd_max_delay",
+        for k in ("C", "d_state", "dropout", "use_pam", "use_emd", "use_mamba", "emd_max_delay",
                   "n_range_bins", "use_diffusion", "diff_T", "diff_ddim_steps",
                   "diff_hidden", "diff_n_blocks", "narrow_bandpass",
                   "use_output_lag_align", "output_lag_max_ms", "fs",
@@ -88,6 +88,7 @@ def _load_model(cfg: MMECGConfig, run_dir: Path, device: torch.device):
         dropout=cfg.dropout,
         use_pam=cfg.use_pam,
         use_emd=cfg.use_emd,
+        use_mamba=cfg.use_mamba,
         emd_max_delay=cfg.emd_max_delay,
         use_diffusion=cfg.use_diffusion,
         diff_T=cfg.diff_T,
