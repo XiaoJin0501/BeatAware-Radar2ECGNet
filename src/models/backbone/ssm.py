@@ -1,8 +1,7 @@
 """
 ssm.py — VSSSBlock1D (1D Visual Selective State Space Block)
 
-独立实现，不依赖外部 mamba-ssm 包。
-提供纯 PyTorch 参考实现，有编译好的 CUDA 核心时自动切换为快速后端。
+独立实现，默认使用纯 PyTorch/TorchScript selective scan。
 
 核心结构：
     in_proj(x, z) → DepthwiseConv1d → SiLU → x_proj(dt, B_ssm, C_ssm)
@@ -66,29 +65,20 @@ def _selective_scan_ref(
 
 
 # =============================================================================
-# 后端选择（有 CUDA 核心时优先使用）
+# 后端选择（有自定义 CUDA 核心时优先使用）
 # =============================================================================
 
 # 后端优先级：
-#   1. mamba-ssm 官方 CUDA kernel（最快，~10x vs JIT）
-#   2. selective_scan_cuda（手动编译的旧接口）
-#   3. TorchScript JIT（纯 PyTorch，138ms/call，约慢 10x）
-#
-# 安装官方 CUDA kernel：bash scripts/install_mamba_cuda.sh
-# 未安装时回退到 JIT，训练结果完全一致，速度约慢 2x（epoch 274s vs 130s）
+#   1. selective_scan_cuda（手动编译的旧接口）
+#   2. TorchScript JIT（纯 PyTorch）
 
-_MAMBA_SSM_AVAILABLE = False
 _CUDA_AVAILABLE = False
 
 try:
-    from mamba_ssm.ops.selective_scan_interface import selective_scan_fn as _mamba_scan_fn
-    _MAMBA_SSM_AVAILABLE = True
+    import selective_scan_cuda as _scan_cuda
+    _CUDA_AVAILABLE = True
 except ImportError:
-    try:
-        import selective_scan_cuda as _scan_cuda
-        _CUDA_AVAILABLE = True
-    except ImportError:
-        pass
+    pass
 
 
 def selective_scan_1d(
@@ -103,16 +93,9 @@ def selective_scan_1d(
 ) -> torch.Tensor:
     """
     统一 Selective Scan 接口，按优先级自动选择后端：
-      1. mamba-ssm 官方 CUDA kernel（最快，需安装）
-      2. selective_scan_cuda（手动编译）
-      3. TorchScript 顺序扫描（回退，~71ms/call with warmup）
+      1. selective_scan_cuda（手动编译）
+      2. TorchScript 顺序扫描（回退）
     """
-    if _MAMBA_SSM_AVAILABLE:
-        return _mamba_scan_fn(
-            u, delta, A, B_ssm, C_ssm, D,
-            delta_bias=delta_bias,
-            delta_softplus=delta_softplus,
-        )
     if _CUDA_AVAILABLE:
         try:
             out, *_ = _scan_cuda.fwd(u, delta, A, B_ssm, C_ssm, D, None, delta_bias, delta_softplus)
@@ -182,7 +165,7 @@ class VSSSBlock1D(nn.Module):
         )
         self.dt_proj = nn.Linear(self.dt_rank, self.d_inner, bias=True)
 
-        # Mamba 论文推荐：dt_proj.bias 初始化到稳定的初始 delta 范围 [dt_min, dt_max]
+        # 将 dt_proj.bias 初始化到稳定的初始 delta 范围 [dt_min, dt_max]
         # 避免默认均匀初始化导致 delta 在训练中漂移到极端值 → SSM 状态在 L=1600 步后爆炸 → NaN
         dt_min, dt_max = 0.001, 0.1
         dt_init = torch.exp(

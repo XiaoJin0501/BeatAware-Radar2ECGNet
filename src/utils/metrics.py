@@ -746,8 +746,10 @@ def compute_t_wave_timing_error(
 
 def compute_qualified_monitoring_rate(segment_flags: list[bool]) -> dict[str, float]:
     """
-    Level 2：合格监测率（QMR）。
-    segment_flags: 每个 segment 是否合格（GT≥2 R峰 AND pred≥2 R峰 AND ≥1 matched RR）。
+    Level 2：Qualified Monitoring Rate（QMR）。
+    segment_flags: A Boolean indicator for each segment denoting whether it is qualified, 
+    defined as satisfying all of the following criteria: at least two ground-truth R-peaks, 
+    at least two predicted R-peaks, and at least one matched RR interval.
     """
     if not segment_flags:
         return {"qualified_monitoring_rate": float("nan")}

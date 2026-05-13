@@ -17,14 +17,13 @@
 | Narrow bandpass | reg_improved 实验 | ❌ 性能下降 |
 | Diffusion 解码器 | T=100 / T=1000 | ❌ 完全失败 |
 | Bin selection (top-K) | Phase D D4/E-oracle + Phase F N1/N2 | ❌ 不是瓶颈 |
-| Conformer 必要性 | D4 (no-Conf) = 0.13 | ✅ 必要（贡献 +0.30 PCC）|
-| Mamba 必要性 | N1 (no-Mamba) = 0.40 | 边际（仅 +0.025 PCC）|
+| Conformer 必要性 | slim ablation = 0.40+ | ✅ 作为主干核心保留 |
 | Subject-balanced sampling | LOSO fold_01: 0.254→0.405 | ✅ 唯一明确正收益 |
 
 **当前最佳数字**：
-- baseline B (full, 150 ep): samplewise val_pcc = **0.4421**
-- baseline B @ ep 80 (公平比较): samplewise val_pcc = **0.4285**
-- N1 (no-Mamba slim, ep 80): samplewise val_pcc = **0.4038**
+- legacy full baseline (150 ep): samplewise val_pcc = **0.4421**
+- legacy full baseline @ ep 80: samplewise val_pcc = **0.4285**
+- **slim Conformer baseline (ep 80): samplewise val_pcc = 0.4038**
 - LOSO 严格 mean PCC: ~0.27（旧 baseline，跨人泛化差）
 - Train PCC 0.69 → val PCC 0.44 = **0.25 generalization gap**
 
@@ -324,12 +323,12 @@ L_total = L_recon (waveform L1+STFT)             # 重建主 loss
 
 ```
 Day 0 (今天 2026-05-10)
-  ✅ N1 完成 (val_pcc=0.4038)
-  🔄 N2 跑中 (~18:35 完成)
+  ✅ slim Conformer baseline 完成 (val_pcc=0.4038)
+  ✅ top-K/oracle 分支已关闭
   📝 写本文档
 
 Day 1
-  ├─ [GPU] LOSO 11 折 baseline slim (no-Mamba, 80 ep, ~14-17h)
+  ├─ [GPU] LOSO 11 折 slim Conformer baseline (80 ep, ~14-17h)
   └─ [CPU] 实现 src/models/modules/grl.py + radar2ecgnet 加 DANN head + smoke test
 
 Day 2-3
@@ -408,8 +407,13 @@ Day 22-28
 
 ---
 
-## 10. 当前状态（2026-05-10 17:30）
+## 10. 当前状态（2026-05-10 18:21）
 
 - ✅ Phase A-G 完成
-- 🔄 N2 跑中（screen `no_mamba_oracle`）
-- ⏳ 等待 N2 完成 → 启动 LOSO baseline + 开始 Path B 实现
+- ✅ slim Conformer backbone 已设为主线
+- 🔄 `mmecg_reg_loso_slim` 已启动：11-fold strict LOSO, 150 epochs, subject-balanced sampling
+- ⏳ 等 fold-level LOSO baseline 完成后，启动 Path B subject-adversarial generalization
+- ✅ 已加入 `loso_calib` 协议：可运行 `LOSO + supervised subject calibration`，
+  默认按 held-out subject 的 40/10/50 拆分：40% labeled windows 加入训练，
+  10% labeled windows 用于 target-subject validation/early stopping，剩余 50% 测试。
+  该协议用于 personalization / calibration upper-bound，不作为 strict LOSO 主结果。

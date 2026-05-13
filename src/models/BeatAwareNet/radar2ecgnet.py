@@ -11,9 +11,8 @@ radar2ecgnet.py — BeatAwareRadar2ECGNet 主模型
         peak_mask [B,1,L]                   → [B, 4C, L//4]
         rhythm_vec [B, 96]                         │  (TFiLM 调制)
            │                                       │
-    TFiLMGenerator                           GroupMambaBlock × 2
-    gamma, beta [B, 4C]                      ConformerFusionBlock
-                                             EMDAlignLayer
+    TFiLMGenerator                           ConformerFusionBlock
+    gamma, beta [B, 4C]                      EMDAlignLayer
                                              Decoder
                                              → ECG [B, 1, L]
 
@@ -30,7 +29,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..backbone.group_mamba import GroupMambaBlock
 from ..modules.diffusion_decoder import BeatAwareDiffusionDecoder
 from ..modules.fmcw_encoder import FMCWRangeEncoder
 from ..modules.peak_module import PeakAuxiliaryModule
@@ -45,9 +43,8 @@ class ConformerFusionBlock(nn.Module):
     """
     ConformerFusionBlock：MHSA + DepthwiseConv1d + FFN 融合模块。
 
-    设计动机：Mamba 做顺序扫描，缺乏对称的跨位置对齐能力；
-    MHSA 专责全局跨位置注意力，与 Mamba 功能互补。
-    （D4 消融实验验证其增益：删除后 val PCC 0.4421 → 0.1287，−0.31）
+    设计动机：在短窗 ECG 重建中直接建模全局节律上下文，并用
+    depthwise temporal convolution 保留局部 QRS 形态。
 
     Parameters
     ----------
@@ -195,7 +192,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
     C              : int    Backbone 基础通道数（默认64）
     signal_len     : int    输入信号长度（默认1600）
     spec_freq_bins : int    radar_spec_input 的频率 bins（默认33）
-    d_state        : int    VSSSBlock1D 的 SSM 状态维度（默认16）
+    d_state        : int    PAM 内部 VSSSBlock1D 的 SSM 状态维度（默认16）
     dropout        : float  Dropout（默认0.1）
     use_pam        : bool   是否使用 PAM + TFiLM（False = Exp A 基线）
     use_emd        : bool   是否使用 EMD 物理对齐层（Phase C，False = Model A/B）
@@ -220,7 +217,6 @@ class BeatAwareRadar2ECGNet(nn.Module):
         dropout:         float = 0.1,
         use_pam:         bool  = True,
         use_emd:         bool  = True,
-        use_mamba:       bool  = True,
         emd_max_delay:   int   = 20,
         n_range_bins:    int   = 50,
         use_diffusion:   bool  = False,
@@ -240,7 +236,6 @@ class BeatAwareRadar2ECGNet(nn.Module):
         self.signal_len    = signal_len
         self.use_pam       = use_pam
         self.use_emd       = use_emd
-        self.use_mamba     = use_mamba
         self.use_diffusion = use_diffusion
         self.use_output_lag_align = use_output_lag_align
         self.output_lag_max_samples = float(output_lag_max_samples)
@@ -284,12 +279,6 @@ class BeatAwareRadar2ECGNet(nn.Module):
             self.enc_bns = nn.ModuleList([nn.BatchNorm1d(C) for _ in range(4)])
         else:
             self.spec_adapter = SpecAdapter(in_freq=spec_freq_bins, C=C, L_enc=L_enc)
-
-        # ── Bottleneck（GroupMamba × 2）───────────────────────────
-        # use_mamba=False 时跳过整个 SSM bottleneck，直接进 Conformer
-        if use_mamba:
-            self.mamba1 = GroupMambaBlock(4 * C, num_groups=4, d_state=d_state)
-            self.mamba2 = GroupMambaBlock(4 * C, num_groups=4, d_state=d_state)
 
         # ── Fusion ────────────────────────────────────────────────
         self.fusion = ConformerFusionBlock(4 * C, num_heads=4, dropout=dropout)
@@ -433,13 +422,8 @@ class BeatAwareRadar2ECGNet(nn.Module):
         else:
             enc = self._encode_spec(x_input, gamma, beta) # (B, 4C, L_enc)
 
-        # ── Bottleneck + Fusion ────────────────────────────────────
-        if self.use_mamba:
-            h = self.mamba1(enc)
-            h = self.mamba2(h)
-        else:
-            h = enc
-        h = self.fusion(h)
+        # ── Temporal fusion ────────────────────────────────────────
+        h = self.fusion(enc)
 
         # ── EMD 物理对齐 ───────────────────────────────────────────
         if self.use_emd:

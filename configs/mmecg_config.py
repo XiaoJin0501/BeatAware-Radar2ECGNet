@@ -33,7 +33,6 @@ class MMECGConfig:
     # ── 模型开关（消融实验用） ───────────────────────────────────────────────────
     use_pam       : bool = True
     use_emd       : bool = True
-    use_mamba     : bool = True   # False → 跳过 GroupMamba × 2，直接进 Conformer
 
     # ── 训练超参 ───────────────────────────────────────────────────────────────
     batch_size    : int  = 16
@@ -43,7 +42,7 @@ class MMECGConfig:
     grad_clip     : float= 1.0
     warmup_epochs : int  = 5        # 前 5 epoch 只训练 L_recon
     scheduler     : str  = "cosine"
-    early_stop_patience: int = 20
+    early_stop_patience: int = 20  # epochs without validation improvement
 
     # ── 时移鲁棒波形损失（诊断/改进实验用，默认关闭）────────────────────────────
     use_lag_aware_loss: bool = False # True → 在小范围时移内优化 PCC/L1
@@ -83,7 +82,7 @@ class MMECGConfig:
 
     # ── 模型结构 ───────────────────────────────────────────────────────────────
     C             : int  = 64       # encoder base channels
-    d_state       : int  = 16       # Mamba SSM state dim
+    d_state       : int  = 16       # PAM internal SSM state dim
     emd_max_delay : int  = 20       # EMD FIR 最大延迟（100ms @ 200Hz）
     dropout       : float= 0.1
 

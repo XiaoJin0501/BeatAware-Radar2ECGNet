@@ -25,7 +25,11 @@ import torch.nn as nn
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from configs.mmecg_config import MMECGConfig
-from src.data.mmecg_dataset import build_loso_loaders_h5, build_samplewise_loaders_h5
+from src.data.mmecg_dataset import (
+    build_loso_calibration_loaders_h5,
+    build_loso_loaders_h5,
+    build_samplewise_loaders_h5,
+)
 from src.losses.losses import DiffusionLoss, TotalLoss
 from src.models.BeatAwareNet.radar2ecgnet import BeatAwareRadar2ECGNet
 from src.utils.logger import ExperimentLogger
@@ -100,7 +104,6 @@ def train_one_run(
         dropout=cfg.dropout,
         use_pam=cfg.use_pam,
         use_emd=cfg.use_emd,
-        use_mamba=cfg.use_mamba,
         emd_max_delay=cfg.emd_max_delay,
         use_diffusion=cfg.use_diffusion,
         diff_T=cfg.diff_T,
@@ -161,6 +164,11 @@ def train_one_run(
     cfg_dict["exp_tag"]  = exp_tag
     cfg_dict["run_label"] = run_label
     cfg_dict["protocol"] = args.protocol
+    cfg_dict["calib_ratio"] = getattr(args, "calib_ratio", 0.4)
+    cfg_dict["calib_val_ratio"] = getattr(args, "calib_val_ratio", 0.1)
+    cfg_dict["calib_n_train"] = getattr(args, "calib_n_train", None)
+    cfg_dict["calib_n_val"] = getattr(args, "calib_n_val", None)
+    cfg_dict["calib_seed"] = getattr(args, "calib_seed", 42)
     with open(run_dir / "config.json", "w") as jf:
         json.dump(cfg_dict, jf, indent=2, default=str)
 
@@ -168,7 +176,7 @@ def train_one_run(
     best_val_pcc         = -float("inf")
     best_val_loss        = float("inf")
     best_val_score       = -float("inf")
-    early_stop_cnt       = 0
+    early_stop_cnt       = 0  # counted in epochs, not validation checks
     early_stop_min_epoch = 30
     global_step          = 0
     history              = []
@@ -349,13 +357,13 @@ def train_one_run(
                 if es_improved:
                     early_stop_cnt = 0
                 else:
-                    early_stop_cnt += 1
+                    early_stop_cnt += val_every
                     if early_stop_cnt >= cfg.early_stop_patience:
                         metric_name = "val_pcc" if cfg.use_diffusion else "val_loss"
                         logger.info(
                             f"  -> Early stop at epoch {epoch} "
                             f"({metric_name} no improvement for "
-                            f"{cfg.early_stop_patience} checks)"
+                            f"{cfg.early_stop_patience} epochs)"
                         )
                         history.append(hist_row)
                         break
@@ -426,10 +434,22 @@ def main():
     parser.add_argument("--fold_idx", type=int, default=-1,
                         help="LOSO: 1-based fold (1~11); -1 = all folds")
     parser.add_argument("--protocol", type=str, default="loso",
-                        choices=["loso", "samplewise"])
+                        choices=["loso", "loso_calib", "samplewise"])
+    parser.add_argument("--calib_ratio", type=float, default=0.4,
+                        help="For protocol=loso_calib: fraction of held-out subject windows used as labeled calibration training.")
+    parser.add_argument("--calib_val_ratio", type=float, default=0.1,
+                        help="For protocol=loso_calib: fraction of held-out subject windows used as calibration validation.")
+    parser.add_argument("--calib_n_train", type=int, default=None,
+                        help="For protocol=loso_calib: fixed number of held-out subject windows used as labeled calibration training. Overrides calib_ratio when set.")
+    parser.add_argument("--calib_n_val", type=int, default=None,
+                        help="For protocol=loso_calib: fixed number of held-out subject windows used as calibration validation. Overrides calib_val_ratio when set.")
+    parser.add_argument("--calib_seed", type=int, default=42,
+                        help="For protocol=loso_calib: seed for calibration/eval split.")
     parser.add_argument("--epochs",   type=int, default=None)
-    parser.add_argument("--use_pam",  type=lambda x: x.lower() != "false", default=None)
-    parser.add_argument("--use_emd",  type=lambda x: x.lower() != "false", default=None)
+    parser.add_argument("--early_stop_patience", type=int, default=None,
+                        help="Epochs without validation improvement before early stopping. Set large value to run fixed epochs.")
+    parser.add_argument("--use_pam",   type=lambda x: x.lower() != "false", default=None)
+    parser.add_argument("--use_emd",   type=lambda x: x.lower() != "false", default=None)
     parser.add_argument("--use_mamba", type=lambda x: x.lower() != "false", default=None)
     parser.add_argument("--use_diffusion",
                         type=lambda x: x.lower() != "false", default=None)
@@ -493,6 +513,8 @@ def main():
 
     cfg = MMECGConfig()
     if args.epochs          is not None: cfg.epochs          = args.epochs
+    if args.early_stop_patience is not None:
+        cfg.early_stop_patience = args.early_stop_patience
     if args.use_pam         is not None: cfg.use_pam         = args.use_pam
     if args.use_emd         is not None: cfg.use_emd         = args.use_emd
     if args.use_mamba       is not None: cfg.use_mamba       = args.use_mamba
@@ -556,14 +578,39 @@ def main():
         # LOSO: fold_idx is 1-based (1~11)
         folds = list(range(1, cfg.n_folds + 1)) if args.fold_idx == -1 else [args.fold_idx]
         print(f"LOSO folds: {folds}")
+        if args.protocol == "loso_calib":
+            if args.calib_n_train is not None or args.calib_n_val is not None:
+                print(
+                    f"Subject calibration enabled: calib_n_train={args.calib_n_train}, "
+                    f"calib_n_val={args.calib_n_val}, calib_seed={args.calib_seed}"
+                )
+            else:
+                print(
+                    f"Subject calibration enabled: calib_ratio={args.calib_ratio:.3f}, "
+                    f"calib_val_ratio={args.calib_val_ratio:.3f}, "
+                    f"test_ratio={1.0 - args.calib_ratio - args.calib_val_ratio:.3f}, "
+                    f"calib_seed={args.calib_seed}"
+                )
 
         for fold in folds:
             set_seed(42 + fold)
-            train_loader, val_loader, _ = build_loso_loaders_h5(
-                fold_idx=fold,
-                loso_dir=cfg.loso_h5_dir,
-                **loader_kwargs,
-            )
+            if args.protocol == "loso_calib":
+                train_loader, val_loader, _ = build_loso_calibration_loaders_h5(
+                    fold_idx=fold,
+                    loso_dir=cfg.loso_h5_dir,
+                    calib_ratio=args.calib_ratio,
+                    calib_val_ratio=args.calib_val_ratio,
+                    calib_n_train=args.calib_n_train,
+                    calib_n_val=args.calib_n_val,
+                    calib_seed=args.calib_seed,
+                    **loader_kwargs,
+                )
+            else:
+                train_loader, val_loader, _ = build_loso_loaders_h5(
+                    fold_idx=fold,
+                    loso_dir=cfg.loso_h5_dir,
+                    **loader_kwargs,
+                )
             train_one_run(cfg, args.exp_tag, train_loader, val_loader,
                           run_label=f"fold_{fold:02d}", args=args)
 

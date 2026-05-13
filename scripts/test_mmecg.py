@@ -37,7 +37,11 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from configs.mmecg_config import MMECGConfig
-from src.data.mmecg_dataset import build_loso_loaders_h5, build_samplewise_loaders_h5
+from src.data.mmecg_dataset import (
+    build_loso_calibration_loaders_h5,
+    build_loso_loaders_h5,
+    build_samplewise_loaders_h5,
+)
 from src.models.BeatAwareNet.radar2ecgnet import BeatAwareRadar2ECGNet
 from src.utils.metrics import (
     compute_waveform_metrics_protocol,
@@ -71,7 +75,7 @@ def _load_model(cfg: MMECGConfig, run_dir: Path, device: torch.device):
     if cfg_path.exists():
         with open(cfg_path) as jf:
             saved = json.load(jf)
-        for k in ("C", "d_state", "dropout", "use_pam", "use_emd", "use_mamba", "emd_max_delay",
+        for k in ("C", "d_state", "dropout", "use_pam", "use_emd", "emd_max_delay",
                   "n_range_bins", "use_diffusion", "diff_T", "diff_ddim_steps",
                   "diff_hidden", "diff_n_blocks", "narrow_bandpass",
                   "use_output_lag_align", "output_lag_max_ms", "fs",
@@ -88,7 +92,6 @@ def _load_model(cfg: MMECGConfig, run_dir: Path, device: torch.device):
         dropout=cfg.dropout,
         use_pam=cfg.use_pam,
         use_emd=cfg.use_emd,
-        use_mamba=cfg.use_mamba,
         emd_max_delay=cfg.emd_max_delay,
         use_diffusion=cfg.use_diffusion,
         diff_T=cfg.diff_T,
@@ -421,8 +424,18 @@ def main():
     parser.add_argument("--fold_idx", type=int, default=-1,
                         help="LOSO: 1-based (1~11); -1 = all folds")
     parser.add_argument("--protocol", type=str, default="loso",
-                        choices=["loso", "samplewise"])
+                        choices=["loso", "loso_calib", "samplewise"])
     parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--calib_ratio", type=float, default=0.4,
+                        help="For protocol=loso_calib: fraction of held-out subject windows used as labeled calibration training.")
+    parser.add_argument("--calib_val_ratio", type=float, default=0.1,
+                        help="For protocol=loso_calib: fraction of held-out subject windows used as calibration validation.")
+    parser.add_argument("--calib_n_train", type=int, default=None,
+                        help="For protocol=loso_calib: fixed number of held-out subject windows used as labeled calibration training. Overrides calib_ratio when set.")
+    parser.add_argument("--calib_n_val", type=int, default=None,
+                        help="For protocol=loso_calib: fixed number of held-out subject windows used as calibration validation. Overrides calib_val_ratio when set.")
+    parser.add_argument("--calib_seed", type=int, default=42,
+                        help="For protocol=loso_calib: seed for calibration/eval split.")
     args = parser.parse_args()
 
     cfg = MMECGConfig()
@@ -468,14 +481,29 @@ def main():
         all_seg_dfs = []
         for fold in folds:
             ovr = _get_loader_overrides(args.exp_tag, f"fold_{fold:02d}")
-            _, _, test_loader = build_loso_loaders_h5(
-                fold_idx        = fold,
-                loso_dir        = cfg.loso_h5_dir,
-                batch_size      = cfg.batch_size,
-                num_workers     = cfg.num_workers,
-                balanced_sampling = False,
-                **ovr,
-            )
+            if args.protocol == "loso_calib":
+                _, _, test_loader = build_loso_calibration_loaders_h5(
+                    fold_idx        = fold,
+                    loso_dir        = cfg.loso_h5_dir,
+                    calib_ratio     = args.calib_ratio,
+                    calib_val_ratio = args.calib_val_ratio,
+                    calib_n_train   = args.calib_n_train,
+                    calib_n_val     = args.calib_n_val,
+                    calib_seed      = args.calib_seed,
+                    batch_size      = cfg.batch_size,
+                    num_workers     = cfg.num_workers,
+                    balanced_sampling = False,
+                    **ovr,
+                )
+            else:
+                _, _, test_loader = build_loso_loaders_h5(
+                    fold_idx        = fold,
+                    loso_dir        = cfg.loso_h5_dir,
+                    batch_size      = cfg.batch_size,
+                    num_workers     = cfg.num_workers,
+                    balanced_sampling = False,
+                    **ovr,
+                )
             seg_df = test_one_run(
                 cfg, args.exp_tag,
                 run_label  = f"fold_{fold:02d}",

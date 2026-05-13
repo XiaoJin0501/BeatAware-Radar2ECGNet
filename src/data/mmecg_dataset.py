@@ -36,7 +36,7 @@ import h5py
 import numpy as np
 import scipy.signal
 import torch
-from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset, WeightedRandomSampler
 
 # ── 상수 ──────────────────────────────────────────────────────────────────────
 PHYSISTATUS_MAP: dict[str, int] = {"NB": 0, "IB": 1, "SP": 2, "PE": 3}
@@ -302,18 +302,165 @@ class MMECGWindowedH5Dataset(Dataset):
 
 # ── 팩토리 함수 ──────────────────────────────────────────────────────────────
 
+def _subset_values(ds: Dataset, attr: str) -> np.ndarray:
+    """Return dataset metadata values, supporting Subset/ConcatDataset wrappers."""
+    if isinstance(ds, MMECGWindowedH5Dataset):
+        return getattr(ds, attr)
+    if isinstance(ds, Subset):
+        base = _subset_values(ds.dataset, attr)
+        return base[np.asarray(ds.indices, dtype=np.int64)]
+    if isinstance(ds, ConcatDataset):
+        parts = [_subset_values(child, attr) for child in ds.datasets]
+        return np.concatenate(parts, axis=0)
+    raise TypeError(f"Unsupported dataset type for sampler metadata: {type(ds)!r}")
+
+
+def _weights_from_values(values: np.ndarray) -> torch.Tensor:
+    unique, counts = np.unique(values, return_counts=True)
+    inv = 1.0 / counts.astype(np.float32)
+    val2w = dict(zip(unique.tolist(), inv.tolist()))
+    return torch.from_numpy(np.array([val2w[v] for v in values], dtype=np.float32))
+
+
 def _make_sampler(
-    ds: MMECGWindowedH5Dataset,
+    ds: Dataset,
     balanced_sampling: bool,
     balance_by: str,
 ) -> WeightedRandomSampler | None:
     """Return a WeightedRandomSampler or None (sequential)."""
     if not balanced_sampling:
         return None
-    weights = (
-        ds.subject_weights() if balance_by == "subject" else ds.class_weights()
-    )
+    attr = "_subj" if balance_by == "subject" else "_state"
+    weights = _weights_from_values(_subset_values(ds, attr))
     return WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+
+
+def _split_calibration_indices(
+    states: np.ndarray,
+    calib_ratio: float,
+    calib_val_ratio: float,
+    seed: int,
+    calib_n_train: int | None = None,
+    calib_n_val: int | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Stratified train/val/test split over physistatus for calibration.
+
+    By default, calib_ratio controls labeled target-subject windows added to
+    training, and calib_val_ratio controls labeled target-subject windows used
+    for early stopping/model selection.
+
+    If calib_n_train and/or calib_n_val are provided, fixed segment counts take
+    precedence over ratios. Counts are allocated approximately stratified by
+    physistatus. The remaining windows are held out for testing.
+    """
+    rng = np.random.default_rng(seed)
+    calib_idx: list[int] = []
+    calib_val_idx: list[int] = []
+    eval_idx: list[int] = []
+
+    unique_states = sorted(np.unique(states).tolist())
+    state_indices: dict[int, np.ndarray] = {}
+    for st in unique_states:
+        idx = np.flatnonzero(states == st)
+        rng.shuffle(idx)
+        state_indices[int(st)] = idx
+
+    total_n = int(len(states))
+    fixed_count_mode = calib_n_train is not None or calib_n_val is not None
+
+    if fixed_count_mode:
+        if calib_n_train is None:
+            calib_n_train = int(round(total_n * calib_ratio))
+        if calib_n_val is None:
+            calib_n_val = int(round(total_n * calib_val_ratio))
+        calib_n_train = int(calib_n_train)
+        calib_n_val = int(calib_n_val)
+        if calib_n_train <= 0:
+            raise ValueError(f"calib_n_train must be > 0, got {calib_n_train}")
+        if calib_n_val < 0:
+            raise ValueError(f"calib_n_val must be >= 0, got {calib_n_val}")
+        if calib_n_train + calib_n_val >= total_n:
+            raise ValueError(
+                "calib_n_train + calib_n_val must leave at least one eval segment, "
+                f"got {calib_n_train}+{calib_n_val} for {total_n} segments"
+            )
+
+        # Global stratified sampling in two stages: train, then validation from
+        # the remaining pool. This preserves approximate scene proportions and
+        # works for folds with a single scene as well.
+        all_idx = np.arange(total_n)
+        train_pick: list[int] = []
+        val_pick: list[int] = []
+        remaining_by_state: dict[int, np.ndarray] = {}
+
+        for st, idx in state_indices.items():
+            n_st_train = int(np.floor(len(idx) / total_n * calib_n_train))
+            train_pick.extend(idx[:n_st_train].tolist())
+            remaining_by_state[st] = idx[n_st_train:]
+        short = calib_n_train - len(train_pick)
+        if short > 0:
+            leftovers = np.concatenate(list(remaining_by_state.values()))
+            rng.shuffle(leftovers)
+            extra = leftovers[:short]
+            train_pick.extend(extra.tolist())
+            train_set = set(train_pick)
+            for st, rem in remaining_by_state.items():
+                remaining_by_state[st] = np.asarray(
+                    [i for i in rem.tolist() if int(i) not in train_set],
+                    dtype=np.int64,
+                )
+
+        remaining_total = total_n - len(train_pick)
+        for st, rem in remaining_by_state.items():
+            n_st_val = int(np.floor(len(rem) / max(remaining_total, 1) * calib_n_val))
+            val_pick.extend(rem[:n_st_val].tolist())
+            remaining_by_state[st] = rem[n_st_val:]
+        short = calib_n_val - len(val_pick)
+        if short > 0:
+            leftovers = np.concatenate(list(remaining_by_state.values()))
+            rng.shuffle(leftovers)
+            val_pick.extend(leftovers[:short].tolist())
+
+        used = set(train_pick) | set(val_pick)
+        eval_pick = [int(i) for i in all_idx.tolist() if int(i) not in used]
+        calib_idx.extend(train_pick)
+        calib_val_idx.extend(val_pick)
+        eval_idx.extend(eval_pick)
+    else:
+        if not 0.0 < calib_ratio < 1.0:
+            raise ValueError(f"calib_ratio must be in (0, 1), got {calib_ratio}")
+        if not 0.0 <= calib_val_ratio < 1.0:
+            raise ValueError(f"calib_val_ratio must be in [0, 1), got {calib_val_ratio}")
+        if calib_ratio + calib_val_ratio >= 1.0:
+            raise ValueError(
+                "calib_ratio + calib_val_ratio must be < 1.0, "
+                f"got {calib_ratio + calib_val_ratio}"
+            )
+        for st in unique_states:
+            idx = state_indices[int(st)]
+            n_calib = int(round(len(idx) * calib_ratio))
+            n_calib_val = int(round(len(idx) * calib_val_ratio))
+            if calib_val_ratio > 0.0 and len(idx) >= 3:
+                n_calib = max(n_calib, 1)
+                n_calib_val = max(n_calib_val, 1)
+                if n_calib + n_calib_val >= len(idx):
+                    n_calib_val = max(1, len(idx) - n_calib - 1)
+                if n_calib + n_calib_val >= len(idx):
+                    n_calib = max(1, len(idx) - n_calib_val - 1)
+            elif len(idx) > 1:
+                n_calib = min(max(n_calib, 1), len(idx) - 1)
+                n_calib_val = 0
+            else:
+                n_calib = 0
+                n_calib_val = 0
+            calib_idx.extend(idx[:n_calib].tolist())
+            calib_val_idx.extend(idx[n_calib:n_calib + n_calib_val].tolist())
+            eval_idx.extend(idx[n_calib + n_calib_val:].tolist())
+    return (
+        np.asarray(sorted(calib_idx), dtype=np.int64),
+        np.asarray(sorted(calib_val_idx), dtype=np.int64),
+        np.asarray(sorted(eval_idx), dtype=np.int64),
+    )
 
 
 def build_loso_loaders_h5(
@@ -358,6 +505,89 @@ def build_loso_loaders_h5(
     train_ds = MMECGWindowedH5Dataset(fold_dir / "train.h5", include_peak_indices=False, **ds_kwargs)
     val_ds   = MMECGWindowedH5Dataset(fold_dir / "val.h5",   include_peak_indices=False, **ds_kwargs)
     test_ds  = MMECGWindowedH5Dataset(fold_dir / "test.h5",  include_peak_indices=True,  **ds_kwargs)
+
+    sampler = _make_sampler(train_ds, balanced_sampling, balance_by)
+    if sampler is not None:
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, sampler=sampler,
+            num_workers=num_workers, pin_memory=pin_memory, drop_last=True,
+        )
+    else:
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=pin_memory, drop_last=True,
+        )
+
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+        collate_fn=_collate_with_peaks,
+    )
+    return train_loader, val_loader, test_loader
+
+
+def build_loso_calibration_loaders_h5(
+    fold_idx: int,
+    loso_dir: str | Path,
+    calib_ratio: float = 0.4,
+    calib_val_ratio: float = 0.1,
+    calib_n_train: int | None = None,
+    calib_n_val: int | None = None,
+    calib_seed: int = 42,
+    batch_size: int = 16,
+    num_workers: int = 4,
+    pin_memory: bool = True,
+    balanced_sampling: bool = True,
+    balance_by: str = "subject",
+    narrow_bandpass: bool = False,
+    topk_bins: int | None = None,
+    target_norm: str = "minmax",
+    topk_method: str = "energy",
+) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """LOSO with supervised subject calibration.
+
+    A stratified fraction of the held-out subject's test windows is added to
+    training as labeled calibration data, another fraction is used as
+    target-subject validation for early stopping, and the remaining windows are
+    held out for testing. Report this protocol as "LOSO + subject calibration",
+    not as strict LOSO.
+    """
+    fold_dir = Path(loso_dir) / f"fold_{fold_idx:02d}"
+    if not fold_dir.exists():
+        raise FileNotFoundError(f"Fold directory not found: {fold_dir}")
+
+    ds_kwargs = {
+        "narrow_bandpass": narrow_bandpass,
+        "topk_bins": topk_bins,
+        "target_norm": target_norm,
+        "topk_method": topk_method,
+    }
+    train_base = MMECGWindowedH5Dataset(fold_dir / "train.h5", include_peak_indices=False, **ds_kwargs)
+    test_plain = MMECGWindowedH5Dataset(fold_dir / "test.h5", include_peak_indices=False, **ds_kwargs)
+    test_full = MMECGWindowedH5Dataset(fold_dir / "test.h5", include_peak_indices=True, **ds_kwargs)
+
+    calib_idx, calib_val_idx, eval_idx = _split_calibration_indices(
+        test_plain._state,
+        calib_ratio=calib_ratio,
+        calib_val_ratio=calib_val_ratio,
+        calib_n_train=calib_n_train,
+        calib_n_val=calib_n_val,
+        seed=calib_seed + fold_idx,
+    )
+    if len(calib_idx) == 0 or len(calib_val_idx) == 0 or len(eval_idx) == 0:
+        raise RuntimeError(
+            f"Invalid calibration split for fold {fold_idx}: "
+            f"calib_train={len(calib_idx)} calib_val={len(calib_val_idx)} "
+            f"eval={len(eval_idx)}"
+        )
+
+    train_ds = ConcatDataset([train_base, Subset(test_plain, calib_idx.tolist())])
+    val_ds = Subset(test_plain, calib_val_idx.tolist())
+    test_ds = Subset(test_full, eval_idx.tolist())
 
     sampler = _make_sampler(train_ds, balanced_sampling, balance_by)
     if sampler is not None:
