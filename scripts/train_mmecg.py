@@ -21,6 +21,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -28,10 +29,11 @@ from configs.mmecg_config import MMECGConfig
 from src.data.mmecg_dataset import (
     build_loso_calibration_loaders_h5,
     build_loso_loaders_h5,
+    build_loso_wsst_loaders_h5,
     build_samplewise_loaders_h5,
 )
 from src.losses.losses import DiffusionLoss, TotalLoss
-from src.models.BeatAwareNet.radar2ecgnet import BeatAwareRadar2ECGNet
+from src.models.model_factory import build_mmecg_model
 from src.utils.logger import ExperimentLogger
 from src.utils.metrics import compute_all_metrics
 from src.utils.seeding import set_seed
@@ -63,6 +65,103 @@ def _exp_dir(cfg: MMECGConfig, exp_tag: str, fold_label: str) -> Path:
     return Path(cfg.exp_dir) / exp_tag / fold_label
 
 
+def _uses_wsst_loader(model_arch: str) -> bool:
+    return model_arch.lower() in {
+        "stft_tcn", "wsst_tcn", "rem_event", "remalign_event",
+        "rem_align", "remalign", "remalign_net",
+        "rem_align_mtl", "remalign_mtl", "remalign_net_mtl",
+        "rem_align_mtl_refine", "remalign_mtl_refine", "remalign_net_mtl_refine",
+    }
+
+
+def _pcc_loss_1d(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
+    pred_c = pred - pred.mean(dim=-1, keepdim=True)
+    gt_c = gt - gt.mean(dim=-1, keepdim=True)
+    num = (pred_c * gt_c).sum(dim=-1)
+    den = torch.sqrt(
+        (pred_c.square().sum(dim=-1) * gt_c.square().sum(dim=-1)).clamp_min(1e-12)
+    )
+    return (1.0 - num / den).mean()
+
+
+def _shape200_aux_loss(
+    pred: torch.Tensor,
+    gt: torch.Tensor,
+    cycle_bounds: torch.Tensor,
+    pcc_weight: float = 0.2,
+) -> torch.Tensor:
+    """Crop each sample's center cardiac cycle and compare in 200-point space."""
+    parts = []
+    for i in range(pred.shape[0]):
+        a = int(cycle_bounds[i, 0].item())
+        b = int(cycle_bounds[i, 1].item())
+        if b <= a + 10:
+            a, b = 700, 900
+        pred_i = pred[i : i + 1, :, a:b]
+        gt_i = gt[i : i + 1, :, a:b]
+        pred_shape = F.interpolate(pred_i, size=200, mode="linear", align_corners=False)
+        gt_shape = F.interpolate(gt_i, size=200, mode="linear", align_corners=False)
+        l1 = F.l1_loss(pred_shape, gt_shape)
+        pcc = _pcc_loss_1d(pred_shape.squeeze(1), gt_shape.squeeze(1))
+        parts.append(l1 + float(pcc_weight) * pcc)
+    return torch.stack(parts).mean() if parts else pred.new_tensor(0.0)
+
+
+def _shape200_targets(
+    gt: torch.Tensor,
+    cycle_bounds: torch.Tensor,
+) -> torch.Tensor:
+    """Build per-cycle normalized 200-point morphology targets."""
+    parts = []
+    for i in range(gt.shape[0]):
+        a = int(cycle_bounds[i, 0].item())
+        b = int(cycle_bounds[i, 1].item())
+        if b <= a + 10:
+            a, b = 700, 900
+        gt_i = gt[i : i + 1, :, a:b]
+        gt_i = F.interpolate(gt_i, size=200, mode="linear", align_corners=False)
+        gt_min = gt_i.amin(dim=-1, keepdim=True)
+        gt_max = gt_i.amax(dim=-1, keepdim=True)
+        gt_i = (gt_i - gt_min) / (gt_max - gt_min).clamp_min(1e-8)
+        parts.append(gt_i)
+    return torch.cat(parts, dim=0) if parts else gt.new_zeros((0, 1, 200))
+
+
+def _shape200_head_loss(
+    shape_pred: torch.Tensor,
+    gt: torch.Tensor,
+    cycle_bounds: torch.Tensor,
+    pcc_weight: float = 0.2,
+) -> torch.Tensor:
+    """Supervise an explicit 200-point morphology head."""
+    target = _shape200_targets(gt, cycle_bounds).to(shape_pred.device)
+    l1 = F.l1_loss(shape_pred, target)
+    pcc = _pcc_loss_1d(shape_pred.squeeze(1), target.squeeze(1))
+    return l1 + float(pcc_weight) * pcc
+
+
+def _shape200_head_metrics(
+    shape_pred: torch.Tensor,
+    gt: torch.Tensor,
+    cycle_bounds: torch.Tensor,
+) -> dict[str, float]:
+    target = _shape200_targets(gt, cycle_bounds).to(shape_pred.device)
+    pred = shape_pred.detach()
+    pred_c = pred - pred.mean(dim=-1, keepdim=True)
+    tgt_c = target - target.mean(dim=-1, keepdim=True)
+    den = torch.sqrt(
+        (pred_c.square().sum(dim=-1) * tgt_c.square().sum(dim=-1)).clamp_min(1e-12)
+    )
+    pcc = ((pred_c * tgt_c).sum(dim=-1) / den).mean()
+    rmse = torch.sqrt((pred - target).square().mean())
+    mae = (pred - target).abs().mean()
+    return {
+        "shape200_head_pcc": float(pcc.item()),
+        "shape200_head_rmse": float(rmse.item()),
+        "shape200_head_mae": float(mae.item()),
+    }
+
+
 # =============================================================================
 # 单次训练（LOSO 单折 or Samplewise 一次）
 # =============================================================================
@@ -90,32 +189,16 @@ def train_one_run(
     logger = ExperimentLogger(log_dir, name=run_label)
     logger.info(f"{'='*60}")
     logger.info(f"MMECG training | run={run_label} | protocol={args.protocol}")
-    logger.info(f"device={device} | use_pam={cfg.use_pam} | use_emd={cfg.use_emd} | use_mamba={cfg.use_mamba}")
+    logger.info(
+        f"device={device} | model_arch={cfg.model_arch} | "
+        f"use_pam={cfg.use_pam} | use_emd={cfg.use_emd}"
+    )
     logger.info(f"Train: {len(train_loader.dataset)} samples | "
                 f"Val: {len(val_loader.dataset)} samples")
     logger.info(f"{'='*60}")
 
     # ── 模型 ──────────────────────────────────────────────────────────────────
-    model = BeatAwareRadar2ECGNet(
-        input_type="fmcw",
-        n_range_bins=cfg.n_range_bins,
-        C=cfg.C,
-        d_state=cfg.d_state,
-        dropout=cfg.dropout,
-        use_pam=cfg.use_pam,
-        use_emd=cfg.use_emd,
-        emd_max_delay=cfg.emd_max_delay,
-        use_diffusion=cfg.use_diffusion,
-        diff_T=cfg.diff_T,
-        diff_ddim_steps=cfg.diff_ddim_steps,
-        diff_hidden=cfg.diff_hidden,
-        diff_n_blocks=cfg.diff_n_blocks,
-        use_output_lag_align=cfg.use_output_lag_align,
-        output_lag_max_samples=int(round(cfg.output_lag_max_ms / 1000.0 * cfg.fs)),
-        fmcw_selector=cfg.fmcw_selector,
-        fmcw_topk=cfg.fmcw_topk,
-        fmcw_tau=cfg.fmcw_tau_init,
-    ).to(device)
+    model = build_mmecg_model(cfg).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Model params: {n_params:,}")
@@ -134,12 +217,12 @@ def train_one_run(
 
     # ── Loss / Optimizer / Scheduler ─────────────────────────────────────────
     if cfg.use_diffusion:
-        criterion = DiffusionLoss(beta_peak=1.0).to(device)
+        criterion = DiffusionLoss(beta_peak=cfg.beta_peak).to(device)
     else:
         lag_max_samples = int(round(cfg.lag_max_ms / 1000.0 * cfg.fs))
         criterion = TotalLoss(
             alpha_stft=0.1,
-            beta_peak=1.0,
+            beta_peak=cfg.beta_peak,
             use_lag_aware=cfg.use_lag_aware_loss,
             lag_max_samples=lag_max_samples,
             lambda_lag_pcc=cfg.lambda_lag_pcc,
@@ -174,6 +257,7 @@ def train_one_run(
 
     # ── 训练循环 ──────────────────────────────────────────────────────────────
     best_val_pcc         = -float("inf")
+    best_shape200_pcc    = -float("inf")
     best_val_loss        = float("inf")
     best_val_score       = -float("inf")
     early_stop_cnt       = 0  # counted in epochs, not validation checks
@@ -203,7 +287,7 @@ def train_one_run(
                         "freq": 0.0, "peak": 0.0,
                         "lag_pcc": 0.0, "lag_l1": 0.0,
                         "zero_pcc": 0.0, "lag_penalty": 0.0,
-                        "output_lag_l1": 0.0}
+                        "output_lag_l1": 0.0, "shape200": 0.0}
         t0 = time.time()
 
         for batch in train_loader:
@@ -230,6 +314,24 @@ def train_one_run(
                 continue
 
             losses = criterion(model_out, ecg_gt, peak_preds, peak_gts, epoch=epoch)
+            shape200_penalty = torch.tensor(0.0, device=device)
+            if cfg.use_shape200_loss and (not cfg.use_diffusion) and "cycle_bounds" in batch:
+                if hasattr(model_out, "shape200_pred"):
+                    shape200_penalty = _shape200_head_loss(
+                        model_out.shape200_pred,
+                        ecg_gt,
+                        batch["cycle_bounds"].to(device),
+                        pcc_weight=cfg.shape200_pcc_weight,
+                    )
+                else:
+                    shape200_penalty = _shape200_aux_loss(
+                        model_out,
+                        ecg_gt,
+                        batch["cycle_bounds"].to(device),
+                        pcc_weight=cfg.shape200_pcc_weight,
+                    )
+                losses["total"] = losses["total"] + cfg.lambda_shape200 * shape200_penalty
+            losses["shape200"] = shape200_penalty.detach()
             output_lag_penalty = torch.tensor(0.0, device=device)
             if (
                 cfg.use_output_lag_align
@@ -289,6 +391,7 @@ def train_one_run(
                 f"val_pcc={val_metrics['pcc']:.4f} | "
                 f"val_prd={val_metrics.get('prd', float('nan')):.2f} | "
                 f"val_f1={val_f1:.4f} | "
+                f"val_shape_pcc={val_metrics.get('shape200_head_pcc', float('nan')):.4f} | "
                 f"val_loss={val_metrics.get('loss', float('nan')):.4f} | "
                 f"val_score={val_score:.4f} | "
                 f"lr={scheduler.get_last_lr()[0]:.2e} | "
@@ -312,6 +415,24 @@ def train_one_run(
                 torch.save(ckpt_payload, ckpt_dir / "best.pt")
                 torch.save(ckpt_payload, ckpt_dir / "best_pcc.pt")
                 logger.info(f"  -> Best ckpt saved (val_pcc={best_val_pcc:.4f})")
+
+            shape_pcc = val_metrics.get("shape200_head_pcc", float("nan"))
+            if math.isfinite(shape_pcc) and shape_pcc > best_shape200_pcc:
+                best_shape200_pcc = shape_pcc
+                torch.save({
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "val_pcc": val_metrics.get("pcc"),
+                    "val_rmse": val_metrics.get("rmse"),
+                    "val_mae": val_metrics.get("mae"),
+                    "val_rpeak_f1": val_metrics.get("rpeak_f1"),
+                    "val_loss": val_metrics.get("loss"),
+                    "val_composite_score": val_score,
+                    "val_shape200_head_pcc": shape_pcc,
+                    "val_shape200_head_rmse": val_metrics.get("shape200_head_rmse"),
+                    "val_shape200_head_mae": val_metrics.get("shape200_head_mae"),
+                }, ckpt_dir / "best_shape200.pt")
+                logger.info(f"  -> Best shape ckpt saved (val_shape_pcc={best_shape200_pcc:.4f})")
 
             # 扩散模式 val_loss 恒为 0（DDIM 无 eps），改用 val_pcc 做 early stopping
             if cfg.use_diffusion:
@@ -373,6 +494,7 @@ def train_one_run(
     with open(result_dir / "train_history.json", "w") as jf:
         json.dump(history, jf, indent=2)
     logger.info(f"Best val PCC: {best_val_pcc:.4f}")
+    logger.info(f"Best val shape200-head PCC: {best_shape200_pcc:.4f}")
     logger.info(f"Best val loss: {best_val_loss:.4f}")
     logger.info(f"Best composite score: {best_val_score:.4f}")
     logger.close()
@@ -386,6 +508,7 @@ def _evaluate(model, loader, criterion, device, epoch, f1_every):
     model.eval()
     total_loss = 0.0
     all_pred, all_gt = [], []
+    shape_head_parts: list[dict[str, float]] = []
     compute_f1 = (epoch % f1_every == 0)
     use_diff = getattr(model, "use_diffusion", False)
 
@@ -400,6 +523,15 @@ def _evaluate(model, loader, criterion, device, epoch, f1_every):
             ecg_pred, peak_preds = model(radar)
             if not torch.isfinite(ecg_pred).all():
                 continue
+
+            if hasattr(ecg_pred, "shape200_pred") and "cycle_bounds" in batch:
+                shape_head_parts.append(
+                    _shape200_head_metrics(
+                        ecg_pred.shape200_pred,
+                        ecg_gt,
+                        batch["cycle_bounds"].to(device),
+                    )
+                )
 
             # For val loss use a dummy model_out compatible with both losses
             if use_diff:
@@ -421,6 +553,9 @@ def _evaluate(model, loader, criterion, device, epoch, f1_every):
     all_gt   = torch.cat(all_gt,   dim=0)
     metrics  = compute_all_metrics(all_pred, all_gt, compute_f1=compute_f1)
     metrics["loss"] = total_loss / max(len(loader), 1)
+    if shape_head_parts:
+        for key in shape_head_parts[0]:
+            metrics[key] = sum(part[key] for part in shape_head_parts) / len(shape_head_parts)
     return metrics
 
 
@@ -433,6 +568,10 @@ def main():
     parser.add_argument("--exp_tag",  type=str, default="mmecg_v1")
     parser.add_argument("--fold_idx", type=int, default=-1,
                         help="LOSO: 1-based fold (1~11); -1 = all folds")
+    parser.add_argument("--loso_h5_dir", type=str, default=None,
+                        help="Override LOSO H5 root directory. Useful for external datasets with MMECG-compatible H5 layout.")
+    parser.add_argument("--n_range_bins", type=int, default=None,
+                        help="Override number of radar/input channels.")
     parser.add_argument("--protocol", type=str, default="loso",
                         choices=["loso", "loso_calib", "samplewise"])
     parser.add_argument("--calib_ratio", type=float, default=0.4,
@@ -448,9 +587,23 @@ def main():
     parser.add_argument("--epochs",   type=int, default=None)
     parser.add_argument("--early_stop_patience", type=int, default=None,
                         help="Epochs without validation improvement before early stopping. Set large value to run fixed epochs.")
+    parser.add_argument("--model_arch", type=str, default=None,
+                        choices=["beataware", "tcn",
+                                 "ki3_tcn", "ki8_tcn", "ki16_tcn",
+                                 "stft_tcn", "wsst_tcn",
+                                 "rem_event", "remalign_event", "rem_align",
+                                 "remalign", "remalign_net", "rem_align_mtl",
+                                 "remalign_mtl", "remalign_net_mtl",
+                                 "rem_align_mtl_refine", "remalign_mtl_refine",
+                                 "remalign_net_mtl_refine"],
+                        help="Runnable model architecture. Frozen legacy baseline outputs remain in experiments_mmecg but are not current training entry points.")
+    parser.add_argument("--baseline_hidden", type=int, default=None,
+                        help="Hidden channels for simple baseline models.")
+    parser.add_argument("--backbone_type", type=str, default=None,
+                        choices=["conformer", "tcn"],
+                        help="Temporal backbone for model_arch=beataware.")
     parser.add_argument("--use_pam",   type=lambda x: x.lower() != "false", default=None)
     parser.add_argument("--use_emd",   type=lambda x: x.lower() != "false", default=None)
-    parser.add_argument("--use_mamba", type=lambda x: x.lower() != "false", default=None)
     parser.add_argument("--use_diffusion",
                         type=lambda x: x.lower() != "false", default=None)
     parser.add_argument("--balance_by", type=str, default=None,
@@ -497,11 +650,24 @@ def main():
     parser.add_argument("--topk_method", type=str, default=None,
                         choices=["energy", "corr"],
                         help="Top-K selection criterion: band energy (deployable) or |corr(bin, ECG)| (oracle upper bound).")
+    parser.add_argument("--wsst_suffix", type=str, default=None,
+                        help="Companion WSST H5 suffix for stft_tcn/wsst_tcn, e.g. _wsst.h5 or _wsst4s.h5.")
+    parser.add_argument("--beta_peak", type=float, default=None,
+                        help="Weight for R/event BCE loss.")
+    parser.add_argument("--use_shape200_loss",
+                        type=lambda x: x.lower() != "false", default=None,
+                        help="Add center-cycle shape-200 auxiliary morphology loss.")
+    parser.add_argument("--lambda_shape200", type=float, default=None,
+                        help="Weight for shape-200 auxiliary loss.")
+    parser.add_argument("--shape200_pcc_weight", type=float, default=None,
+                        help="PCC component weight inside shape-200 auxiliary loss.")
     parser.add_argument("--fmcw_selector", type=str, default=None,
                         choices=["se", "gumbel_topk"],
                         help="FMCWRangeEncoder selector mode.")
     parser.add_argument("--fmcw_topk", type=int, default=None,
                         help="K for fmcw_selector=gumbel_topk (number of bins kept).")
+    parser.add_argument("--fmcw_out_channels", type=int, default=None,
+                        help="Output channels of FMCWRangeEncoder/KI front-end.")
     parser.add_argument("--fmcw_tau_init", type=float, default=None,
                         help="Gumbel softmax starting temperature (annealed per-epoch).")
     parser.add_argument("--fmcw_tau_final", type=float, default=None,
@@ -512,12 +678,16 @@ def main():
     args = parser.parse_args()
 
     cfg = MMECGConfig()
+    if args.loso_h5_dir    is not None: cfg.loso_h5_dir    = args.loso_h5_dir
+    if args.n_range_bins   is not None: cfg.n_range_bins   = args.n_range_bins
     if args.epochs          is not None: cfg.epochs          = args.epochs
     if args.early_stop_patience is not None:
         cfg.early_stop_patience = args.early_stop_patience
+    if args.model_arch      is not None: cfg.model_arch      = args.model_arch
+    if args.baseline_hidden is not None: cfg.baseline_hidden = args.baseline_hidden
+    if args.backbone_type   is not None: cfg.backbone_type   = args.backbone_type
     if args.use_pam         is not None: cfg.use_pam         = args.use_pam
     if args.use_emd         is not None: cfg.use_emd         = args.use_emd
-    if args.use_mamba       is not None: cfg.use_mamba       = args.use_mamba
     if args.use_diffusion   is not None: cfg.use_diffusion   = args.use_diffusion
     if args.balance_by      is not None: cfg.balance_by      = args.balance_by
     if args.narrow_bandpass is not None: cfg.narrow_bandpass = args.narrow_bandpass
@@ -538,24 +708,40 @@ def main():
     if args.topk_bins         is not None: cfg.topk_bins         = args.topk_bins
     if args.target_norm       is not None: cfg.target_norm       = args.target_norm
     if args.topk_method       is not None: cfg.topk_method       = args.topk_method
+    if args.wsst_suffix       is not None: cfg.wsst_suffix       = args.wsst_suffix
+    if args.beta_peak         is not None: cfg.beta_peak         = args.beta_peak
+    if args.use_shape200_loss is not None: cfg.use_shape200_loss = args.use_shape200_loss
+    if args.lambda_shape200   is not None: cfg.lambda_shape200   = args.lambda_shape200
+    if args.shape200_pcc_weight is not None: cfg.shape200_pcc_weight = args.shape200_pcc_weight
     if args.fmcw_selector     is not None: cfg.fmcw_selector     = args.fmcw_selector
     if args.fmcw_topk         is not None: cfg.fmcw_topk         = args.fmcw_topk
+    if args.fmcw_out_channels is not None: cfg.fmcw_out_channels = args.fmcw_out_channels
     if args.fmcw_tau_init     is not None: cfg.fmcw_tau_init     = args.fmcw_tau_init
     if args.fmcw_tau_final    is not None: cfg.fmcw_tau_final    = args.fmcw_tau_final
     if args.fmcw_tau_anneal   is not None: cfg.fmcw_tau_anneal   = args.fmcw_tau_anneal
+
+    if cfg.model_arch != "beataware":
+        # Simple baselines deliberately exclude BeatAware-specific branches.
+        cfg.use_pam = False
+        cfg.use_emd = False
+        cfg.use_diffusion = False
+        cfg.use_output_lag_align = False
 
     # When topk_bins set, FMCW encoder must take K-channel input instead of 50.
     if cfg.topk_bins and cfg.topk_bins > 0:
         cfg.n_range_bins = cfg.topk_bins
 
     print(f"MMECG training | exp_tag={args.exp_tag} | protocol={args.protocol}")
-    print(f"use_pam={cfg.use_pam} | use_emd={cfg.use_emd} | use_mamba={cfg.use_mamba} | epochs={cfg.epochs}")
+    print(f"model_arch={cfg.model_arch} | use_pam={cfg.use_pam} | use_emd={cfg.use_emd} | epochs={cfg.epochs}")
     print(f"use_lag_aware_loss={cfg.use_lag_aware_loss} | lag_max_ms={cfg.lag_max_ms} | "
           f"lambda_zero_pcc={cfg.lambda_zero_pcc} | "
           f"lambda_lag_penalty={cfg.lambda_lag_penalty}")
     print(f"use_output_lag_align={cfg.use_output_lag_align} | "
           f"output_lag_max_ms={cfg.output_lag_max_ms} | "
           f"lambda_output_lag_l1={cfg.lambda_output_lag_l1}")
+    print(f"beta_peak={cfg.beta_peak} | use_shape200_loss={cfg.use_shape200_loss} | "
+          f"lambda_shape200={cfg.lambda_shape200} | "
+          f"shape200_pcc_weight={cfg.shape200_pcc_weight}")
 
     loader_kwargs = dict(
         batch_size=cfg.batch_size,
@@ -567,8 +753,18 @@ def main():
         target_norm=cfg.target_norm,
         topk_method=cfg.topk_method,
     )
+    wsst_loader_kwargs = dict(
+        batch_size=cfg.batch_size,
+        num_workers=cfg.num_workers,
+        balanced_sampling=cfg.balanced_sampling,
+        balance_by=cfg.balance_by,
+        target_norm=cfg.target_norm,
+        wsst_suffix=cfg.wsst_suffix,
+    )
 
     if args.protocol == "samplewise":
+        if _uses_wsst_loader(cfg.model_arch):
+            raise NotImplementedError("WSST loaders are currently implemented for strict LOSO only.")
         train_loader, val_loader, _ = build_samplewise_loaders_h5(
             sw_dir=cfg.samplewise_h5_dir, **loader_kwargs,
         )
@@ -595,6 +791,8 @@ def main():
         for fold in folds:
             set_seed(42 + fold)
             if args.protocol == "loso_calib":
+                if _uses_wsst_loader(cfg.model_arch):
+                    raise NotImplementedError("WSST loaders are currently implemented for strict LOSO only.")
                 train_loader, val_loader, _ = build_loso_calibration_loaders_h5(
                     fold_idx=fold,
                     loso_dir=cfg.loso_h5_dir,
@@ -606,11 +804,18 @@ def main():
                     **loader_kwargs,
                 )
             else:
-                train_loader, val_loader, _ = build_loso_loaders_h5(
-                    fold_idx=fold,
-                    loso_dir=cfg.loso_h5_dir,
-                    **loader_kwargs,
-                )
+                if _uses_wsst_loader(cfg.model_arch):
+                    train_loader, val_loader, _ = build_loso_wsst_loaders_h5(
+                        fold_idx=fold,
+                        loso_dir=cfg.loso_h5_dir,
+                        **wsst_loader_kwargs,
+                    )
+                else:
+                    train_loader, val_loader, _ = build_loso_loaders_h5(
+                        fold_idx=fold,
+                        loso_dir=cfg.loso_h5_dir,
+                        **loader_kwargs,
+                    )
             train_one_run(cfg, args.exp_tag, train_loader, val_loader,
                           run_label=f"fold_{fold:02d}", args=args)
 

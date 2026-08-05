@@ -10,15 +10,16 @@ It follows the original radarODE-MTL training structure more closely:
   - multitask weighting: LibMTL EGA
   - optimizer defaults: SGD, lr=5e-3, momentum=0.937, wd=5e-4
 
-The MMECG split protocol is kept compatible with the project's few-shot
-calibration protocol: target subject 40 calibration segments, 10 validation
-segments, and the remaining target segments for test.
+The ICONIP2026 run uses strict LOSO by default: the target subject is held out
+for testing, validation comes from the source-subject split, and no target-subject
+calibration segments are used.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy.signal import resample
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
+from tqdm import tqdm
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +57,93 @@ from Projects.radarODE_plus.utils.utils import (  # noqa: E402
     shapeLoss,
     shapeMetric,
 )
+
+
+class RadarODEEGATrainer(Trainer):
+    """LibMTL trainer variant with validation-only monitoring during training."""
+
+    def train(self, train_dataloaders, test_dataloaders, epochs, return_weight=False, val_dataloaders=None):
+        print(os.path.join(self.save_path, f"best_{self.modelName}.pt"))
+        train_loader, train_batch = self._prepare_dataloaders(train_dataloaders)
+        train_batch = max(train_batch) if self.multi_input else train_batch
+
+        self.batch_weight = np.zeros([self.task_num, epochs, train_batch])
+        self.model.train_loss_buffer = np.zeros([self.task_num, epochs])
+        self.model.val_loss_buffer = np.zeros([self.task_num, epochs])
+        self.model.test_loss_buffer = np.zeros([self.task_num, epochs])
+        self.model.metrics_buffer = np.zeros([self.task_num, len(self.task_dict), epochs])
+        self.model.epochs = epochs
+
+        for epoch in range(epochs):
+            self.model.epoch = epoch
+            self.model.train()
+            self.meter.record_time("begin")
+            w = None
+            for batch_index in tqdm(range(train_batch)):
+                if not self.multi_input:
+                    train_inputs, train_gts = self._process_data(train_loader)
+                    train_preds = self.model(train_inputs)
+                    train_preds = self.process_preds(train_preds)
+                    train_losses = self._compute_loss(train_preds, train_gts)
+                    self.meter.update(train_preds, train_gts)
+                else:
+                    train_losses = torch.zeros(self.task_num).to(self.device)
+                    for tn, task in enumerate(self.task_name):
+                        train_input, train_gt = self._process_data(train_loader[task])
+                        train_pred = self.model(train_input, task)[task]
+                        train_pred = self.process_preds(train_pred, task)
+                        train_losses[tn] = self._compute_loss(train_pred, train_gt, task)
+                        self.meter.update(train_pred, train_gt, task)
+
+                self.optimizer.zero_grad(set_to_none=False)
+                w = self.model.backward(train_losses, **self.kwargs["weight_args"])
+                if w is not None:
+                    self.batch_weight[:, epoch, batch_index] = w
+                self.optimizer.step()
+
+            print(w, "\t")
+            self.meter.record_time("end")
+            self.meter.get_score()
+            self.model.train_loss_buffer[:, epoch] = self.meter.loss_item
+            np.save(os.path.join(self.save_path, f"best_{self.modelName}_train.npy"), self.model.train_loss_buffer)
+            self.meter.display(epoch=epoch, mode="train")
+            self.meter.reinit()
+
+            if val_dataloaders is not None:
+                self.meter.has_val = True
+                val_improvement = self.test(
+                    val_dataloaders,
+                    self.model.val_loss_buffer,
+                    epoch=epoch,
+                    mode="val",
+                    return_improvement=True,
+                )
+            else:
+                val_improvement = None
+
+            if self.scheduler is not None:
+                if self.scheduler_param["scheduler"] == "reduce" and val_improvement is not None:
+                    self.scheduler.step(val_improvement)
+                else:
+                    self.scheduler.step()
+
+            if self.save_path is not None and self.meter.best_result["epoch"] == epoch:
+                torch.save(self.model.state_dict(), os.path.join(self.save_path, f"best_{self.modelName}.pt"))
+                print("\033[31mBest Model\033[0m {} to {}".format(epoch, os.path.join(self.save_path, f"best_{self.modelName}.pt")))
+                np.save(os.path.join(self.save_path, f"best_{self.modelName}_best_result.npy"), self.meter.best_result)
+            else:
+                torch.save(self.model.state_dict(), os.path.join(self.save_path, f"cur_{self.modelName}.pt"))
+
+        self.meter.display_best_result()
+
+        best_path = os.path.join(self.save_path, f"best_{self.modelName}.pt")
+        if os.path.exists(best_path):
+            self.model.load_state_dict(torch.load(best_path, map_location=self.device))
+        best_epoch = int(self.meter.best_result["epoch"])
+        self.test(test_dataloaders, self.model.test_loss_buffer, epoch=best_epoch, mode="test")
+
+        if return_weight:
+            return self.batch_weight
 
 
 def set_seed(seed: int) -> None:
@@ -259,7 +348,7 @@ def fold_paths(fold_idx: int) -> SplitPaths:
     return SplitPaths(fold_dir / "train.h5", fold_dir / "val.h5", fold_dir / "test.h5")
 
 
-def build_loaders(args: argparse.Namespace) -> tuple[dict[str, DataLoader], dict[str, DataLoader], dict[str, DataLoader], dict[str, Any]]:
+def build_loaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader, DataLoader, dict[str, Any]]:
     paths = fold_paths(args.fold_idx)
     source_train = PaperFaithfulMMECGDataset(paths.train, paths.train_wsst)
     target_test_full = PaperFaithfulMMECGDataset(paths.test, paths.test_wsst)
@@ -305,7 +394,7 @@ def build_loaders(args: argparse.Namespace) -> tuple[dict[str, DataLoader], dict
         "input_shape": "(50,71,120)",
         "outputs": {"ECG_shape": "(1,200)", "PPI": "(1,260)", "Anchor": "(1,800)"},
     }
-    return {"train": train_loader}, {"val": val_loader}, {"test": test_loader}, meta
+    return train_loader, val_loader, test_loader, meta
 
 
 def make_trainer(args: argparse.Namespace) -> Trainer:
@@ -321,7 +410,7 @@ def make_trainer(args: argparse.Namespace) -> Trainer:
             "Anchor": anchor_decoder(),
         }
     )
-    return Trainer(
+    return RadarODEEGATrainer(
         task_dict=task_dict,
         weighting="EGA",
         architecture="HPS",
@@ -341,8 +430,8 @@ def make_trainer(args: argparse.Namespace) -> Trainer:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--exp_tag", default="mmecg_radarode_mtl_ega_fewshot40v10")
-    parser.add_argument("--protocol", choices=["loso_calib", "strict_loso"], default="loso_calib")
+    parser.add_argument("--exp_tag", default="mmecg_radarode_mtl_ega_strict_loso")
+    parser.add_argument("--protocol", choices=["loso_calib", "strict_loso"], default="strict_loso")
     parser.add_argument("--fold_idx", type=int, required=True)
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--batch_size", type=int, default=22)
@@ -383,7 +472,7 @@ def main() -> None:
         json.dump(meta, f, indent=2)
 
     trainer = make_trainer(args)
-    trainer.train(train_loaders, val_loaders, test_loaders, epochs=args.epochs)
+    trainer.train(train_loaders, test_loaders, args.epochs, val_dataloaders=val_loaders)
 
 
 if __name__ == "__main__":

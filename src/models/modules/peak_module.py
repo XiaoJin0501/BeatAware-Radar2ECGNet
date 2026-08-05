@@ -13,7 +13,7 @@ V2 改动（Phase B）：
     [B, 3, L]  （V2：原始 + 速度 + 加速度）
     → Multi-scale Conv1d (k=7, 15, 31, 各 pam_channels=32 通道) + BN + ReLU
     → Concat → [B, 96, L]
-    → VSSSBlock1D × 2
+    → Lightweight TCN block × 2
     → LayerNorm
        ├── Head_QRS: Conv1d(96→1) + Sigmoid → qrs_mask [B, 1, L]
        ├── Head_P:   Conv1d(96→1) + Sigmoid → p_mask   [B, 1, L]
@@ -24,14 +24,38 @@ Spec 输入路径（input_type='spec'）：
     [B, 1, F_spec, T_spec]（spec 路径不做 diff，保持原始 1 通道输入）
     → Conv2d(1, 96, (F_spec, 1)) → squeeze(2) → [B, 96, T]
     → interpolate(size=L) → [B, 96, L]
-    → VSSSBlock1D × 2 → LayerNorm → Head_QRS/P/T / Head2（同上）
+    → Lightweight TCN block × 2 → LayerNorm → Head_QRS/P/T / Head2（同上）
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..backbone.ssm import VSSSBlock1D
+
+class _PeakTCNBlock(nn.Module):
+    """Small residual temporal block for PAM/CP peak features."""
+
+    def __init__(self, channels: int, dilation: int, dropout: float = 0.05):
+        super().__init__()
+        padding = dilation
+        self.block = nn.Sequential(
+            nn.BatchNorm1d(channels),
+            nn.Conv1d(
+                channels,
+                channels,
+                kernel_size=3,
+                padding=padding,
+                dilation=dilation,
+                groups=channels,
+                bias=False,
+            ),
+            nn.Conv1d(channels, channels, kernel_size=1, bias=True),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.block(x)
 
 
 class PeakAuxiliaryModule(nn.Module):
@@ -44,7 +68,7 @@ class PeakAuxiliaryModule(nn.Module):
     pam_channels  : int  每路多尺度分支通道数（默认32，3路共96）
     signal_len    : int  目标信号长度；spec 输入时插值到此维度（默认1600）
     spec_freq_bins: int  spec 输入的频率 bins 数（默认33，对应 nperseg=64）
-    d_state       : int  VSSSBlock1D 的 SSM 状态维度（默认16）
+    d_state       : int  保留用于旧配置兼容；当前轻量 TCN 版本不使用
     """
 
     def __init__(
@@ -54,6 +78,7 @@ class PeakAuxiliaryModule(nn.Module):
         signal_len:     int = 1600,
         spec_freq_bins: int = 33,
         d_state:        int = 16,
+        in_channels:    int = 3,
     ):
         super().__init__()
         self.input_type = input_type
@@ -69,16 +94,16 @@ class PeakAuxiliaryModule(nn.Module):
             # V2: in_channels=3（原始 + 速度 + 加速度三通道导数输入）
             kernels = [7, 15, 31]
             self.ms_convs = nn.ModuleList([
-                nn.Conv1d(3, pam_channels, kernel_size=k, padding=k // 2, bias=True)
+                nn.Conv1d(in_channels, pam_channels, kernel_size=k, padding=k // 2, bias=True)
                 for k in kernels
             ])
             self.ms_bns = nn.ModuleList([
                 nn.BatchNorm1d(pam_channels) for _ in kernels
             ])
 
-        # SSM 序列建模（×2）
-        self.ssm1 = VSSSBlock1D(pam_total, d_state=d_state)
-        self.ssm2 = VSSSBlock1D(pam_total, d_state=d_state)
+        # 轻量 TCN 序列建模（×2），替代旧 SSM/Mamba 路径。
+        self.tcn1 = _PeakTCNBlock(pam_total, dilation=1)
+        self.tcn2 = _PeakTCNBlock(pam_total, dilation=2)
         self.norm = nn.LayerNorm(pam_total)
 
         # V2 三路峰值 Mask 检测头
@@ -120,9 +145,9 @@ class PeakAuxiliaryModule(nn.Module):
             outs = [F.relu(bn(conv(x))) for conv, bn in zip(self.ms_convs, self.ms_bns)]
             feat = torch.cat(outs, dim=1)    # (B, 96, L)
 
-        # VSSSBlock1D × 2
-        feat = self.ssm1(feat)
-        feat = self.ssm2(feat)
+        # Lightweight TCN × 2
+        feat = self.tcn1(feat)
+        feat = self.tcn2(feat)
 
         # LayerNorm（沿通道维）
         feat = self.norm(feat.transpose(1, 2)).transpose(1, 2)   # (B, 96, L)

@@ -28,7 +28,7 @@ import torch.nn.functional as F
 
 class FMCWRangeEncoder(nn.Module):
     """
-    FMCW n-channel → 3-channel cardiac signal aggregation.
+    FMCW n-channel → learned low-dimensional cardiac signal aggregation.
 
     Parameters
     ----------
@@ -38,6 +38,7 @@ class FMCWRangeEncoder(nn.Module):
     selector  : str   "se" | "gumbel_topk"
     topk      : int   selector="gumbel_topk" 时的 K 值（默认 10）
     tau       : float Gumbel softmax 温度（训练循环里按 epoch 衰减；初始默认 1.0）
+    out_channels : int  输出运动通道数（默认 3，保持原 KI 行为）
     """
 
     def __init__(
@@ -48,6 +49,7 @@ class FMCWRangeEncoder(nn.Module):
         selector: str = "se",
         topk: int = 10,
         tau: float = 1.0,
+        out_channels: int = 3,
     ):
         super().__init__()
         if selector not in ("se", "gumbel_topk"):
@@ -58,6 +60,7 @@ class FMCWRangeEncoder(nn.Module):
             )
 
         self.n_range = n_range
+        self.out_channels = out_channels
         self.selector = selector
         self.topk = topk
         # tau 是 buffer 而不是 Parameter，训练循环可直接赋值
@@ -84,9 +87,9 @@ class FMCWRangeEncoder(nn.Module):
             self.logit_fc1 = nn.Linear(n_range, se_mid)
             self.logit_fc2 = nn.Linear(se_mid, n_range)
 
-        # ── 投影 n_range → 3（学习 3 种互补的 range bin 加权组合）─────────
-        self.proj    = nn.Conv1d(n_range, 3, kernel_size=1, bias=False)
-        self.proj_bn = nn.BatchNorm1d(3)
+        # ── 投影 n_range → out_channels（学习互补的 range-bin 加权组合）────
+        self.proj    = nn.Conv1d(n_range, out_channels, kernel_size=1, bias=False)
+        self.proj_bn = nn.BatchNorm1d(out_channels)
 
         self._init_weights()
 
@@ -140,7 +143,7 @@ class FMCWRangeEncoder(nn.Module):
 
         Returns
         -------
-        out : (B, 3, L)  — 3 通道心脏信号聚合
+        out : (B, out_channels, L)  — 低维心脏运动信号聚合
         """
         B, R, L = x.shape
         assert R == self.n_range, f"Expected {self.n_range} range bins, got {R}"
@@ -159,7 +162,7 @@ class FMCWRangeEncoder(nn.Module):
             mask = self._gumbel_topk_mask(logits)        # (B, n_range)
         x_att = x_filt * mask.unsqueeze(-1)              # (B, n_range, L)
 
-        # ── Step 3: 投影 n_range → 3 ────────────────────────────────────
-        out = self.proj_bn(self.proj(x_att))             # (B, 3, L)  无激活函数
+        # ── Step 3: 投影 n_range → out_channels ───────────────────────
+        out = self.proj_bn(self.proj(x_att))             # (B, C_ki, L)  无激活函数
 
         return out

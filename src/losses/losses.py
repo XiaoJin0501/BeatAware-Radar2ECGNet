@@ -248,10 +248,11 @@ class TotalLoss(nn.Module):
         self,
         peak_preds: tuple | None,
         peak_gts:   dict  | None,
+        device: torch.device | None = None,
     ) -> torch.Tensor:
         """QRS-only BCE 峰值损失。"""
         if peak_preds is None or peak_gts is None:
-            return torch.tensor(0.0)
+            return torch.tensor(0.0, device=device)
         qrs_pred = peak_preds[0]          # (B, 1, L)
         qrs_gt   = peak_gts["qrs"]        # (B, 1, L)
         return self._safe_bce(qrs_pred, qrs_gt)
@@ -275,7 +276,7 @@ class TotalLoss(nn.Module):
         L_time  = F.l1_loss(ecg_pred, ecg_gt)
         L_freq  = self.stft_loss(ecg_pred, ecg_gt)
         L_recon = L_time + self.alpha_stft * L_freq
-        L_peak  = self._peak_loss(peak_preds, peak_gts)
+        L_peak  = self._peak_loss(peak_preds, peak_gts, device=ecg_pred.device)
 
         zero = torch.tensor(0.0, device=ecg_pred.device)
         L_lag_pcc = zero

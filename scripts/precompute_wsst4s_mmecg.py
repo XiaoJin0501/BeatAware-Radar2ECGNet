@@ -15,6 +15,7 @@ It keeps the original split files untouched.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Iterable
@@ -94,7 +95,7 @@ def _precompute_file(path: Path, overwrite: bool, batch_size: int, fs: int, nv: 
         if src["rcg"].shape[-1] < 1200:
             raise ValueError(f"{path} rcg length is too short for center 4s crop")
 
-        tmp_path = out_path.with_suffix(".tmp.h5")
+        tmp_path = out_path.with_name(f"{out_path.stem}.{os.getpid()}.tmp.h5")
         with h5py.File(tmp_path, "w") as dst:
             dst.create_dataset("wsst", shape=(n, 50, 71, 120), dtype=np.float16, compression="lzf")
             dst.attrs["source_h5"] = str(path)
