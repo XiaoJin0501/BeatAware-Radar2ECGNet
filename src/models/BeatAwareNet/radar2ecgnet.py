@@ -94,6 +94,41 @@ class ConformerFusionBlock(nn.Module):
         return xt.transpose(1, 2)   # (B, d_model, L)
 
 
+class TemporalConvFusionBlock(nn.Module):
+    """
+    Dilated TCN fusion block used as a strong temporal backbone.
+
+    It keeps the same feature contract as ConformerFusionBlock:
+    input/output are both (B, d_model, L_enc), so KI, CP/TFiLM, PA, and the
+    decoder can remain unchanged.
+    """
+
+    def __init__(self, d_model: int, dropout: float = 0.1):
+        super().__init__()
+        self.blocks = nn.ModuleList([
+            self._make_block(d_model, dilation=d, dropout=dropout)
+            for d in (1, 2, 4, 8, 16)
+        ])
+
+    @staticmethod
+    def _make_block(channels: int, dilation: int, dropout: float) -> nn.Module:
+        padding = dilation * 3
+        return nn.Sequential(
+            nn.Conv1d(channels, channels, kernel_size=7, padding=padding, dilation=dilation, bias=False),
+            nn.BatchNorm1d(channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Conv1d(channels, channels, kernel_size=7, padding=padding, dilation=dilation, bias=False),
+            nn.BatchNorm1d(channels),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for block in self.blocks:
+            x = x + block(x)
+        return x
+
+
 # =============================================================================
 # EMDAlignLayer — 电-机械延迟物理对齐层（Phase C）
 # =============================================================================
@@ -192,7 +227,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
     C              : int    Backbone 基础通道数（默认64）
     signal_len     : int    输入信号长度（默认1600）
     spec_freq_bins : int    radar_spec_input 的频率 bins（默认33）
-    d_state        : int    PAM 内部 VSSSBlock1D 的 SSM 状态维度（默认16）
+    d_state        : int    Legacy PAM argument kept for config/checkpoint compatibility
     dropout        : float  Dropout（默认0.1）
     use_pam        : bool   是否使用 PAM + TFiLM（False = Exp A 基线）
     use_emd        : bool   是否使用 EMD 物理对齐层（Phase C，False = Model A/B）
@@ -205,6 +240,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
     use_output_lag_align : bool  True → predict per-segment scalar lag and
                                 differentiably shift the reconstructed ECG
     output_lag_max_samples : int max absolute output shift in raw samples
+    backbone_type  : str    'tcn' for the ICONIP2026 main model; 'conformer' kept for compatibility
     """
 
     def __init__(
@@ -228,7 +264,9 @@ class BeatAwareRadar2ECGNet(nn.Module):
         output_lag_max_samples: int = 40,
         fmcw_selector:   str   = "se",
         fmcw_topk:       int   = 10,
+        fmcw_out_channels: int = 16,
         fmcw_tau:        float = 1.0,
+        backbone_type:   str   = "tcn",
     ):
         super().__init__()
         self.input_type    = input_type
@@ -238,6 +276,8 @@ class BeatAwareRadar2ECGNet(nn.Module):
         self.use_emd       = use_emd
         self.use_diffusion = use_diffusion
         self.use_output_lag_align = use_output_lag_align
+        self.backbone_type = backbone_type.lower()
+        self.motion_channels = int(fmcw_out_channels) if input_type == "fmcw" else 3
         self.output_lag_max_samples = float(output_lag_max_samples)
         self.last_output_lag_samples: torch.Tensor | None = None
         L_enc              = signal_len // 4   # 1600 → 400
@@ -254,6 +294,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
                 selector=fmcw_selector,
                 topk=fmcw_topk,
                 tau=fmcw_tau,
+                out_channels=self.motion_channels,
             )
 
         # ── PAM + TFiLM（Exp A 基线时禁用，use_pam=False）────────
@@ -264,6 +305,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
                 signal_len=signal_len,
                 spec_freq_bins=spec_freq_bins,
                 d_state=d_state,
+                in_channels=self.motion_channels,
             )
             self.tfilm_gen = TFiLMGenerator(input_dim=PAM_DIM, output_channels=4 * C)
 
@@ -273,7 +315,7 @@ class BeatAwareRadar2ECGNet(nn.Module):
             # V2: in_channels=3（原始 + 速度 + 加速度）
             # 1600 → 400（padding=k//2 保证各核输出等长）
             self.enc_convs = nn.ModuleList([
-                nn.Conv1d(3, C, kernel_size=k, padding=k // 2, stride=4, bias=False)
+                nn.Conv1d(self.motion_channels, C, kernel_size=k, padding=k // 2, stride=4, bias=False)
                 for k in [3, 5, 7, 9]
             ])
             self.enc_bns = nn.ModuleList([nn.BatchNorm1d(C) for _ in range(4)])
@@ -281,7 +323,12 @@ class BeatAwareRadar2ECGNet(nn.Module):
             self.spec_adapter = SpecAdapter(in_freq=spec_freq_bins, C=C, L_enc=L_enc)
 
         # ── Fusion ────────────────────────────────────────────────
-        self.fusion = ConformerFusionBlock(4 * C, num_heads=4, dropout=dropout)
+        if self.backbone_type == "conformer":
+            self.fusion = ConformerFusionBlock(4 * C, num_heads=4, dropout=dropout)
+        elif self.backbone_type == "tcn":
+            self.fusion = TemporalConvFusionBlock(4 * C, dropout=dropout)
+        else:
+            raise ValueError(f"Unknown backbone_type: {backbone_type!r}")
 
         # ── EMD 物理对齐层（Phase C，PA 消融开关）──────────────────
         # 插入 Fusion 之后、Decoder 之前；use_emd=False 时为恒等映射

@@ -887,7 +887,7 @@ def compute_clinical_interval_errors(
     fs:         int = 200,
 ) -> dict[str, float]:
     """
-    Level 4：临床间期误差（ms）。
+    Level 4：临床间期误差（ms）及相对误差（%）。
       PR  = Qon  - Pon          （房室传导）
       QRS = Soff - Qon          （心室除极）
       QT  = Toff - Qon          （心室复极）
@@ -902,6 +902,10 @@ def compute_clinical_interval_errors(
             "qrs_duration_error_ms":  float("nan"),
             "qt_interval_error_ms":   float("nan"),
             "qtc_interval_error_ms":  float("nan"),
+            "pr_interval_error_rel_percent":   float("nan"),
+            "qrs_duration_error_rel_percent":  float("nan"),
+            "qt_interval_error_rel_percent":   float("nan"),
+            "qtc_interval_error_rel_percent":  float("nan"),
         }
 
     import neurokit2 as nk
@@ -946,6 +950,10 @@ def compute_clinical_interval_errors(
             "qrs_duration_error_ms": float("nan"),
             "qt_interval_error_ms":  float("nan"),
             "qtc_interval_error_ms": float("nan"),
+            "pr_interval_error_rel_percent":  float("nan"),
+            "qrs_duration_error_rel_percent": float("nan"),
+            "qt_interval_error_rel_percent":  float("nan"),
+            "qtc_interval_error_rel_percent": float("nan"),
         }
 
     def _interval(w, a_key, b_key):
@@ -971,9 +979,19 @@ def compute_clinical_interval_errors(
             return float("nan")
         return float(np.mean(np.abs(a[:n] - b[:n])))
 
+    def _mape(a, b):
+        n = min(len(a), len(b))
+        if n == 0:
+            return float("nan")
+        denom = np.maximum(np.abs(a[:n]), 1e-8)
+        return float(np.mean(np.abs(a[:n] - b[:n]) / denom) * 100.0)
+
     pr_err  = _mae(gt_pr,  pred_pr)
     qrs_err = _mae(gt_qrs, pred_qrs)
     qt_err  = _mae(gt_qt,  pred_qt)
+    pr_rel  = _mape(gt_pr,  pred_pr)
+    qrs_rel = _mape(gt_qrs, pred_qrs)
+    qt_rel  = _mape(gt_qt,  pred_qt)
 
     # QTc = QT(s) / sqrt(RR(s)) [Bazett]
     def _qtc_arr(qt_ms, r_peaks):
@@ -987,12 +1005,17 @@ def compute_clinical_interval_errors(
     gt_qtc   = _qtc_arr(gt_qt,   gt_r_v)
     pred_qtc = _qtc_arr(pred_qt, pred_r)
     qtc_err  = _mae(gt_qtc, pred_qtc)
+    qtc_rel  = _mape(gt_qtc, pred_qtc)
 
     return {
         "pr_interval_error_ms":  pr_err,
         "qrs_duration_error_ms": qrs_err,
         "qt_interval_error_ms":  qt_err,
         "qtc_interval_error_ms": qtc_err,
+        "pr_interval_error_rel_percent":  pr_rel,
+        "qrs_duration_error_rel_percent": qrs_rel,
+        "qt_interval_error_rel_percent":  qt_rel,
+        "qtc_interval_error_rel_percent": qtc_rel,
     }
 
 

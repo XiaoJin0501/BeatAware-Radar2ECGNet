@@ -4,7 +4,12 @@ dataset_mmecg/
 /home/qhh2237/Datasets/
 
 # ── 实验输出 ──────────────────────────────────────────────────
-experiments_mmecg/
+experiments_mmecg/*
+!experiments_mmecg/README.md
+!experiments_mmecg/EXPERIMENT_REGISTRY.csv
+
+# ── 本地文献 PDF（保留 README/BibTeX，PDF 不进 GitHub）──────────
+reference_papers/*.pdf
 
 # ── Python ────────────────────────────────────────────────────
 __pycache__/

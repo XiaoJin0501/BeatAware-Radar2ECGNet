@@ -73,6 +73,24 @@ def _decode_physistatus(raw) -> str:
     return str(raw)
 
 
+def _center_cycle_bounds_from_rpeaks(indices: np.ndarray, length: int = 1600) -> np.ndarray:
+    """Return [start, end] bounds for the cardiac cycle closest to window center."""
+    rpeaks = np.sort(np.unique(np.asarray(indices, dtype=np.int64)))
+    rpeaks = rpeaks[(rpeaks >= 0) & (rpeaks < length)]
+    if rpeaks.size >= 2:
+        center = length // 2
+        pairs = [(int(a), int(b)) for a, b in zip(rpeaks[:-1], rpeaks[1:]) if int(b) > int(a) + 10]
+        if pairs:
+            containing = [(a, b) for a, b in pairs if a <= center <= b]
+            if containing:
+                return np.asarray(containing[0], dtype=np.int64)
+            return np.asarray(
+                min(pairs, key=lambda p: abs(((p[0] + p[1]) / 2.0) - center)),
+                dtype=np.int64,
+            )
+    return np.asarray([700, 900], dtype=np.int64)
+
+
 def _band_energy_per_bin(
     rcg_group: np.ndarray, fs: float, lo: float, hi: float, order: int = 4,
 ) -> np.ndarray:
@@ -111,7 +129,7 @@ def _collate_with_peaks(batch: list[dict]) -> dict:
     test DataLoader 전용 collate_fn.
     Tensor 배열은 stack, int 스칼라는 LongTensor, vlen peak 인덱스는 list 유지.
     """
-    keys_tensor = {"radar", "ecg", "rpeak", "delin_valid"}
+    keys_tensor = {"radar", "ecg", "rpeak", "delin_valid", "cycle_bounds"}
     keys_int    = {"subject", "state"}
     keys_list   = {"r_idx", "q_idx", "s_idx", "t_idx"}
 
@@ -235,6 +253,10 @@ class MMECGWindowedH5Dataset(Dataset):
                  for i in range(N)],
                 axis=0,
             )  # [N, 1, 1600]
+            cycle_bounds = np.stack(
+                [_center_cycle_bounds_from_rpeaks(rpeak_ds[i], 1600) for i in range(N)],
+                axis=0,
+            )
 
             # state already computed above for topk grouping
             state = state_int
@@ -254,6 +276,7 @@ class MMECGWindowedH5Dataset(Dataset):
         self._rcg   = rcg_raw
         self._ecg   = ecg_norm
         self._rpeak = rpeak
+        self._cycle_bounds = cycle_bounds
         self._subj  = subj
         self._state = state
         self._N     = N
@@ -266,6 +289,7 @@ class MMECGWindowedH5Dataset(Dataset):
             "radar":   torch.from_numpy(self._rcg[idx]),    # [50, 1600]
             "ecg":     torch.from_numpy(self._ecg[idx]),    # [ 1, 1600]
             "rpeak":   torch.from_numpy(self._rpeak[idx]),  # [ 1, 1600]
+            "cycle_bounds": torch.from_numpy(self._cycle_bounds[idx]),  # [2]
             "subject": int(self._subj[idx]),
             "state":   int(self._state[idx]),
         }
@@ -300,11 +324,120 @@ class MMECGWindowedH5Dataset(Dataset):
         return torch.from_numpy(weights)
 
 
+class MMECGWindowedWSSTH5Dataset(Dataset):
+    """MMECG paired loader for cached time-frequency representations.
+
+    The radar tensor is loaded from a companion H5 file containing a `wsst`
+    dataset with shape `[N, 50, 71, 120]`. ECG targets and metadata are loaded
+    from the original split H5 file, preserving the same LOSO protocol and
+    evaluation metadata as `MMECGWindowedH5Dataset`.
+    """
+
+    def __init__(
+        self,
+        h5_path: str | Path,
+        wsst_path: str | Path,
+        include_peak_indices: bool = False,
+        rpeak_sigma: float = RPEAK_SIGMA_DEFAULT,
+        target_norm: str = "minmax",
+    ):
+        super().__init__()
+        h5_path = Path(h5_path)
+        wsst_path = Path(wsst_path)
+        if not h5_path.exists():
+            raise FileNotFoundError(f"H5 file not found: {h5_path}")
+        if not wsst_path.exists():
+            raise FileNotFoundError(f"WSST H5 file not found: {wsst_path}")
+
+        self.h5_path = h5_path
+        self.wsst_path = wsst_path
+        self.include_peak_indices = include_peak_indices
+
+        with h5py.File(h5_path, "r") as hf, h5py.File(wsst_path, "r") as wh5:
+            if "wsst" not in wh5:
+                raise KeyError(f"{wsst_path} does not contain dataset 'wsst'")
+            N = int(hf["ecg"].shape[0])
+            if int(wh5["wsst"].shape[0]) != N:
+                raise ValueError(
+                    f"WSST sample count mismatch: {wsst_path} has "
+                    f"{wh5['wsst'].shape[0]}, {h5_path} has {N}"
+                )
+            self.wsst_shape = tuple(int(x) for x in wh5["wsst"].shape[1:])
+
+            ecg_raw = hf["ecg"][:]
+            subj = hf["subject_id"][:].astype(np.int32)
+            phys_b = hf["physistatus"][:]
+            state = np.array(
+                [PHYSISTATUS_MAP.get(_decode_physistatus(p), 0) for p in phys_b],
+                dtype=np.int32,
+            )
+
+            if target_norm == "minmax":
+                ecg_norm = np.stack(
+                    [_minmax_ecg(ecg_raw[i]) for i in range(N)], axis=0
+                )
+            elif target_norm == "zscore":
+                ecg_norm = ecg_raw.astype(np.float32)
+            else:
+                raise ValueError(f"Unknown target_norm: {target_norm}")
+
+            rpeak_ds = hf["rpeak_indices"]
+            rpeak = np.stack(
+                [_gaussian_mask(rpeak_ds[i], 1600, sigma=rpeak_sigma)[np.newaxis, :]
+                 for i in range(N)],
+                axis=0,
+            )
+            cycle_bounds = np.stack(
+                [_center_cycle_bounds_from_rpeaks(rpeak_ds[i], 1600) for i in range(N)],
+                axis=0,
+            )
+
+            if include_peak_indices:
+                r_ds = hf["rpeak_indices"]
+                q_ds = hf["q_indices"]
+                s_ds = hf["s_indices"]
+                t_ds = hf["tpeak_indices"]
+                self._r_idx = [r_ds[i].astype(np.int32) for i in range(N)]
+                self._q_idx = [q_ds[i].astype(np.int32) for i in range(N)]
+                self._s_idx = [s_ds[i].astype(np.int32) for i in range(N)]
+                self._t_idx = [t_ds[i].astype(np.int32) for i in range(N)]
+                self._delin = hf["delineation_valid"][:].astype(np.uint8)
+
+        self._ecg = ecg_norm
+        self._rpeak = rpeak
+        self._cycle_bounds = cycle_bounds
+        self._subj = subj
+        self._state = state
+        self._N = int(len(subj))
+
+    def __len__(self) -> int:
+        return self._N
+
+    def __getitem__(self, idx: int) -> dict:
+        with h5py.File(self.wsst_path, "r") as wh5:
+            radar = np.asarray(wh5["wsst"][idx], dtype=np.float32)
+        item = {
+            "radar": torch.from_numpy(radar),            # [50, 71, 120]
+            "ecg": torch.from_numpy(self._ecg[idx]),     # [ 1, 1600]
+            "rpeak": torch.from_numpy(self._rpeak[idx]), # [ 1, 1600]
+            "cycle_bounds": torch.from_numpy(self._cycle_bounds[idx]), # [2]
+            "subject": int(self._subj[idx]),
+            "state": int(self._state[idx]),
+        }
+        if self.include_peak_indices:
+            item["r_idx"] = self._r_idx[idx]
+            item["q_idx"] = self._q_idx[idx]
+            item["s_idx"] = self._s_idx[idx]
+            item["t_idx"] = self._t_idx[idx]
+            item["delin_valid"] = torch.tensor(bool(self._delin[idx]))
+        return item
+
+
 # ── 팩토리 함수 ──────────────────────────────────────────────────────────────
 
 def _subset_values(ds: Dataset, attr: str) -> np.ndarray:
     """Return dataset metadata values, supporting Subset/ConcatDataset wrappers."""
-    if isinstance(ds, MMECGWindowedH5Dataset):
+    if isinstance(ds, (MMECGWindowedH5Dataset, MMECGWindowedWSSTH5Dataset)):
         return getattr(ds, attr)
     if isinstance(ds, Subset):
         base = _subset_values(ds.dataset, attr)
@@ -505,6 +638,74 @@ def build_loso_loaders_h5(
     train_ds = MMECGWindowedH5Dataset(fold_dir / "train.h5", include_peak_indices=False, **ds_kwargs)
     val_ds   = MMECGWindowedH5Dataset(fold_dir / "val.h5",   include_peak_indices=False, **ds_kwargs)
     test_ds  = MMECGWindowedH5Dataset(fold_dir / "test.h5",  include_peak_indices=True,  **ds_kwargs)
+
+    sampler = _make_sampler(train_ds, balanced_sampling, balance_by)
+    if sampler is not None:
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, sampler=sampler,
+            num_workers=num_workers, pin_memory=pin_memory, drop_last=True,
+        )
+    else:
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=pin_memory, drop_last=True,
+        )
+
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+        collate_fn=_collate_with_peaks,
+    )
+    return train_loader, val_loader, test_loader
+
+
+def build_loso_wsst_loaders_h5(
+    fold_idx: int,
+    loso_dir: str | Path,
+    batch_size: int = 16,
+    num_workers: int = 4,
+    pin_memory: bool = True,
+    balanced_sampling: bool = True,
+    balance_by: str = "subject",
+    target_norm: str = "minmax",
+    wsst_suffix: str = "_wsst.h5",
+) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """LOSO loaders using cached WSST/time-frequency tensors.
+
+    Expected files under each fold directory:
+
+    ```text
+    train.h5 -> train_wsst.h5
+    val.h5   -> val_wsst.h5
+    test.h5  -> test_wsst.h5
+    ```
+
+    Set `wsst_suffix="_wsst4s.h5"` only for experiments that intentionally use
+    the radarODE-style center-4s representation.
+    """
+    fold_dir = Path(loso_dir) / f"fold_{fold_idx:02d}"
+    if not fold_dir.exists():
+        raise FileNotFoundError(f"Fold directory not found: {fold_dir}")
+
+    def wsst_for(split: str) -> Path:
+        return fold_dir / f"{split}{wsst_suffix}"
+
+    train_ds = MMECGWindowedWSSTH5Dataset(
+        fold_dir / "train.h5", wsst_for("train"),
+        include_peak_indices=False, target_norm=target_norm,
+    )
+    val_ds = MMECGWindowedWSSTH5Dataset(
+        fold_dir / "val.h5", wsst_for("val"),
+        include_peak_indices=False, target_norm=target_norm,
+    )
+    test_ds = MMECGWindowedWSSTH5Dataset(
+        fold_dir / "test.h5", wsst_for("test"),
+        include_peak_indices=True, target_norm=target_norm,
+    )
 
     sampler = _make_sampler(train_ds, balanced_sampling, balance_by)
     if sampler is not None:

@@ -40,9 +40,10 @@ from configs.mmecg_config import MMECGConfig
 from src.data.mmecg_dataset import (
     build_loso_calibration_loaders_h5,
     build_loso_loaders_h5,
+    build_loso_wsst_loaders_h5,
     build_samplewise_loaders_h5,
 )
-from src.models.BeatAwareNet.radar2ecgnet import BeatAwareRadar2ECGNet
+from src.models.model_factory import build_mmecg_model
 from src.utils.metrics import (
     compute_waveform_metrics_protocol,
     compute_qrst_peak_timing_errors,
@@ -61,6 +62,15 @@ FS = 200
 WIN_LEN = 1600
 
 
+def _uses_wsst_loader(model_arch: str) -> bool:
+    return model_arch.lower() in {
+        "stft_tcn", "wsst_tcn", "rem_event", "remalign_event",
+        "rem_align", "remalign", "remalign_net",
+        "rem_align_mtl", "remalign_mtl", "remalign_net_mtl",
+        "rem_align_mtl_refine", "remalign_mtl_refine", "remalign_net_mtl_refine",
+    }
+
+
 # =============================================================================
 # 模型加载
 # =============================================================================
@@ -75,37 +85,20 @@ def _load_model(cfg: MMECGConfig, run_dir: Path, device: torch.device):
     if cfg_path.exists():
         with open(cfg_path) as jf:
             saved = json.load(jf)
-        for k in ("C", "d_state", "dropout", "use_pam", "use_emd", "emd_max_delay",
+        for k in ("model_arch", "baseline_hidden", "backbone_type",
+                  "C", "d_state", "dropout", "use_pam", "use_emd", "emd_max_delay",
                   "n_range_bins", "use_diffusion", "diff_T", "diff_ddim_steps",
                   "diff_hidden", "diff_n_blocks", "narrow_bandpass",
                   "use_output_lag_align", "output_lag_max_ms", "fs",
                   "topk_bins", "target_norm", "topk_method",
-                  "fmcw_selector", "fmcw_topk", "fmcw_tau_init", "fmcw_tau_final"):
+                  "fmcw_selector", "fmcw_topk", "fmcw_out_channels",
+                  "fmcw_tau_init", "fmcw_tau_final"):
             if k in saved:
                 setattr(cfg, k, saved[k])
+        if hasattr(cfg, "fmcw_tau_final"):
+            cfg.fmcw_tau_init = cfg.fmcw_tau_final
 
-    model = BeatAwareRadar2ECGNet(
-        input_type="fmcw",
-        n_range_bins=cfg.n_range_bins,
-        C=cfg.C,
-        d_state=cfg.d_state,
-        dropout=cfg.dropout,
-        use_pam=cfg.use_pam,
-        use_emd=cfg.use_emd,
-        emd_max_delay=cfg.emd_max_delay,
-        use_diffusion=cfg.use_diffusion,
-        diff_T=cfg.diff_T,
-        diff_ddim_steps=cfg.diff_ddim_steps,
-        diff_hidden=cfg.diff_hidden,
-        diff_n_blocks=cfg.diff_n_blocks,
-        use_output_lag_align=getattr(cfg, "use_output_lag_align", False),
-        output_lag_max_samples=int(round(
-            getattr(cfg, "output_lag_max_ms", 200.0) / 1000.0 * getattr(cfg, "fs", 200)
-        )),
-        fmcw_selector=getattr(cfg, "fmcw_selector", "se"),
-        fmcw_topk=getattr(cfg, "fmcw_topk", 10),
-        fmcw_tau=getattr(cfg, "fmcw_tau_final", 0.1),  # eval 用退火后温度
-    ).to(device)
+    model = build_mmecg_model(cfg).to(device)
 
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
     # strict=False: 兼容旧 ckpt（含已删除的 ConformerFusionBlock fusion.* 权重）
@@ -449,7 +442,7 @@ def main():
     # the saved config before building the model, but loaders need bandpass too.
     # We read it from the first available saved config.
     def _get_loader_overrides(exp_tag: str, run_label: str) -> dict:
-        """Pull narrow_bandpass / topk_bins / target_norm out of saved config."""
+        """Pull data-related loader options out of saved config."""
         cfg_path = Path(cfg.exp_dir) / exp_tag / run_label / "config.json"
         if not cfg_path.exists():
             return {"narrow_bandpass": False}
@@ -457,14 +450,24 @@ def main():
             saved = json.load(jf)
         tk = saved.get("topk_bins", 0)
         return {
+            "model_arch": saved.get("model_arch", "beataware"),
+            "loso_h5_dir": saved.get("loso_h5_dir", cfg.loso_h5_dir),
             "narrow_bandpass": bool(saved.get("narrow_bandpass", False)),
             "topk_bins": tk if (tk and tk > 0) else None,
             "target_norm": saved.get("target_norm", "minmax"),
             "topk_method": saved.get("topk_method", "energy"),
+            "wsst_suffix": saved.get("wsst_suffix", "_wsst.h5"),
+            "calib_n_train": saved.get("calib_n_train", None),
+            "calib_n_val": saved.get("calib_n_val", None),
+            "calib_seed": saved.get("calib_seed", 42),
         }
 
     if args.protocol == "samplewise":
         ovr = _get_loader_overrides(args.exp_tag, "samplewise")
+        if _uses_wsst_loader(ovr.get("model_arch", "beataware")):
+            raise NotImplementedError("WSST loaders are currently implemented for LOSO only.")
+        for k in ("calib_n_train", "calib_n_val", "calib_seed", "model_arch", "wsst_suffix", "loso_h5_dir"):
+            ovr.pop(k, None)
         _, _, test_loader = build_samplewise_loaders_h5(
             sw_dir          = cfg.samplewise_h5_dir,
             batch_size      = cfg.batch_size,
@@ -482,28 +485,55 @@ def main():
         for fold in folds:
             ovr = _get_loader_overrides(args.exp_tag, f"fold_{fold:02d}")
             if args.protocol == "loso_calib":
+                if _uses_wsst_loader(ovr.get("model_arch", "beataware")):
+                    raise NotImplementedError("WSST loaders are currently implemented for strict LOSO only.")
+                saved_calib_n_train = ovr.pop("calib_n_train", None)
+                saved_calib_n_val = ovr.pop("calib_n_val", None)
+                saved_calib_seed = ovr.pop("calib_seed", 42)
+                loso_h5_dir = ovr.pop("loso_h5_dir", cfg.loso_h5_dir)
+                ovr.pop("model_arch", None)
+                ovr.pop("wsst_suffix", None)
+                calib_n_train = args.calib_n_train if args.calib_n_train is not None else saved_calib_n_train
+                calib_n_val = args.calib_n_val if args.calib_n_val is not None else saved_calib_n_val
+                calib_seed = args.calib_seed if args.calib_seed is not None else saved_calib_seed
                 _, _, test_loader = build_loso_calibration_loaders_h5(
                     fold_idx        = fold,
-                    loso_dir        = cfg.loso_h5_dir,
+                    loso_dir        = loso_h5_dir,
                     calib_ratio     = args.calib_ratio,
                     calib_val_ratio = args.calib_val_ratio,
-                    calib_n_train   = args.calib_n_train,
-                    calib_n_val     = args.calib_n_val,
-                    calib_seed      = args.calib_seed,
+                    calib_n_train   = calib_n_train,
+                    calib_n_val     = calib_n_val,
+                    calib_seed      = calib_seed,
                     batch_size      = cfg.batch_size,
                     num_workers     = cfg.num_workers,
                     balanced_sampling = False,
                     **ovr,
                 )
             else:
-                _, _, test_loader = build_loso_loaders_h5(
-                    fold_idx        = fold,
-                    loso_dir        = cfg.loso_h5_dir,
-                    batch_size      = cfg.batch_size,
-                    num_workers     = cfg.num_workers,
-                    balanced_sampling = False,
-                    **ovr,
-                )
+                model_arch = ovr.pop("model_arch", "beataware")
+                loso_h5_dir = ovr.pop("loso_h5_dir", cfg.loso_h5_dir)
+                wsst_suffix = ovr.pop("wsst_suffix", "_wsst.h5")
+                for k in ("calib_n_train", "calib_n_val", "calib_seed"):
+                    ovr.pop(k, None)
+                if _uses_wsst_loader(model_arch):
+                    _, _, test_loader = build_loso_wsst_loaders_h5(
+                        fold_idx        = fold,
+                        loso_dir        = loso_h5_dir,
+                        batch_size      = cfg.batch_size,
+                        num_workers     = cfg.num_workers,
+                        balanced_sampling = False,
+                        target_norm     = ovr.get("target_norm", "minmax"),
+                        wsst_suffix     = wsst_suffix,
+                    )
+                else:
+                    _, _, test_loader = build_loso_loaders_h5(
+                        fold_idx        = fold,
+                        loso_dir        = loso_h5_dir,
+                        batch_size      = cfg.batch_size,
+                        num_workers     = cfg.num_workers,
+                        balanced_sampling = False,
+                        **ovr,
+                    )
             seg_df = test_one_run(
                 cfg, args.exp_tag,
                 run_label  = f"fold_{fold:02d}",
