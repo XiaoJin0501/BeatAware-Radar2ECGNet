@@ -38,6 +38,10 @@ This suggests the REM morphology representation is strong, but the current conti
 - `experiments_mmecg/q1_mmecg_long_assembly_fold01_pilot/long_assembly_waveform_fold01_examples.png`
 - Per-method `results_long/global_summary_long.json` files under the corresponding fold directories.
 
+The intermediate `predictions_long.npz` files were deleted after figure/table
+generation because they are reproducible from the saved checkpoints and H5
+metadata. Lightweight CSV/JSON/PNG evidence was retained for reporting.
+
 ## Next Agent Task
 
 Audit the predicted Anchor/PPI placement against the original radarODE paper implementation details. Then either refine the non-oracle assembly or explicitly scope radarODE comparison to ECG_shape morphology before running all 11 MMECG folds.

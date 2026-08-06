@@ -7,7 +7,11 @@
   "tier": "pilot",
   "publishable": false,
   "branch": "q1/radarode-long-ecg-evaluator",
-  "commit_id": "7def42a",
+  "commit_id": "7def42a + 47fac1e",
+  "implementation_commits": [
+    "7def42a",
+    "47fac1e"
+  ],
   "baseline": "Adapted radarODE-MTL/EGA strict LOSO checkpoint under radarode_shape_oracle_cycle_ola",
   "changed_variable": "Assembly/evaluation protocol, not model architecture or training.",
   "controlled_variables": [
