@@ -15,9 +15,9 @@ network. The current defensible direction is:
 > event-structured, and morphology-guided reconstruction problem.
 
 The current strongest evidence is in the beat-normalized Shape-200 morphology
-space. The final Q1 claim still requires a radarODE-style long-term ECG
-assembly protocol before claiming superiority in full continuous ECG
-reconstruction.
+space. The final Q1 claim must lock exactly which protocols are used in the
+main table. If the paper claims superiority over radarODE-MTL's final long ECG
+result, it requires a radarODE-style long-term ECG assembly protocol.
 
 ## Dataset Protocols
 

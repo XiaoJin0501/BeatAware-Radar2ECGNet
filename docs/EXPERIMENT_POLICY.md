@@ -2,6 +2,11 @@
 
 Every experiment must be registered and classified before it is launched.
 
+Experiments must serve the single Q1 paper objective: validate a new
+radar-to-ECG reconstruction model on MMECG and CR_RVS against strong published
+or reproduced baselines. Avoid open-ended side experiments that do not directly
+support this objective.
+
 ## Experiment Tiers
 
 | Tier | Meaning | Publishable |

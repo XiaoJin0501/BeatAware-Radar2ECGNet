@@ -20,7 +20,9 @@ claims.
 ## Scientific Impact
 
 This change does not change model behavior or experimental results. It changes
-the governance layer so future results are easier to audit.
+the governance layer so future results are easier to audit. The governance
+layer must remain subordinate to the single Q1 objective: validate a new
+radar-to-ECG model on MMECG and CR_RVS against strong baselines.
 
 ## Tests
 

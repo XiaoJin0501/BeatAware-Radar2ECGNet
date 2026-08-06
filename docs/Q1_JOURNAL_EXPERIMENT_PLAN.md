@@ -2,7 +2,10 @@
 
 ## Core Positioning
 
-This journal extension advances BeatAware-Radar2ECGNet from a single-dataset raw-input reconstruction model into a representation-aware, event-structured, and alignment-guided framework for continuous radar-to-ECG reconstruction.
+This journal extension serves one paper-level objective: propose a new
+radar-to-ECG reconstruction model and show strong performance on both MMECG and
+CR_RVS, outperforming or comparing favorably with most relevant published and
+reproduced baselines under fair protocols.
 
 The central claim is not that a new backbone alone solves radar-to-ECG reconstruction. Reliable reconstruction requires:
 
@@ -10,7 +13,7 @@ The central claim is not that a new backbone alone solves radar-to-ECG reconstru
 2. explicit cardiac event structure, and
 3. electromechanical alignment between radar-measured mechanical motion and ECG-recorded electrical activity.
 
-The ICONIP version already showed that KI, CP, and PA improve continuous ECG reconstruction and beat-level timing from raw FMCW range-bin inputs on MMECG. The journal version explains why stronger pipelines such as radarODE-MTL perform well, then proposes a more systematic framework that keeps continuous ECG reconstruction as the primary task.
+The ICONIP version already showed that KI, CP, and PA improve continuous ECG reconstruction and beat-level timing from raw FMCW range-bin inputs on MMECG. The journal version should focus on the proposed model, currently named REM-AlignNet-MTL, and use representation analysis, event/morphology structure, alignment, and external CR_RVS validation as supporting evidence for that single model claim.
 
 ## Contributions
 
@@ -20,9 +23,9 @@ We provide a representation-controlled analysis of radar-to-ECG reconstruction. 
 
 This contribution treats radarODE-MTL as a strong pipeline-level reference, not merely as a stronger neural backbone. Its performance reflects representation, task formulation, and optimization. The goal is to show that reconstruction performance depends strongly on whether the radar representation exposes cardiac-informative mechanical patterns.
 
-### Contribution 2: Representation-Aware Event-Structured Continuous ECG Reconstruction
+### Contribution 2: Proposed REM-AlignNet-MTL Model
 
-We propose PhysioStruct-Radar2ECG, a representation-aware event-structured framework for continuous ECG reconstruction. The framework uses STFT/SST or other extensible radar representations, extracts cardiac motion latent features, and explicitly predicts R-peak and QRS-region structures to guide ECG waveform reconstruction.
+We propose REM-AlignNet-MTL, a representation-aware event/morphology-structured radar-to-ECG reconstruction model. The model uses STFT/SST or other extensible radar representations, extracts cardiac motion latent features, and explicitly predicts rhythm/event/morphology-related targets to guide ECG waveform reconstruction.
 
 The event structure layer upgrades the ICONIP beat-aware conditioning idea into an interpretable intermediate physiological structure. The model is not framed as black-box sequence regression from arbitrary radar inputs.
 
@@ -55,7 +58,7 @@ Shape-200 peak and interval metrics are treated as exploratory only. They are no
 
 ### Full-Window Monitoring Protocol
 
-This protocol evaluates continuous ECG reconstruction over 8-second windows with length 1600 at 200 Hz. It is the primary protocol for BeatAware, PhysioStruct-Radar2ECG, and other continuous-output models.
+This protocol evaluates continuous ECG reconstruction over 8-second windows with length 1600 at 200 Hz. It is the primary protocol for BeatAware, REM-AlignNet-MTL, and other continuous-output models.
 
 Primary metrics:
 
@@ -107,7 +110,7 @@ Models:
 - ICONIP BeatAware
 - STFT/SST-TCN
 - radarODE-MTL original pipeline
-- Proposed PhysioStruct-Radar2ECG
+- Proposed REM-AlignNet-MTL
 
 Reports:
 
@@ -210,7 +213,7 @@ At most, one small robustness test such as temporal masking or noise injection c
 1. Freeze and summarize reproduced radarODE-MTL shape-200 results.
 2. Build a unified MMECG shape-200 benchmark summary path.
 3. Add missing Raw-TCN, Raw+KI-TCN, and STFT/SST-TCN entries under the same LOSO and shape-200 protocol.
-4. Implement the minimal PhysioStruct-Radar2ECG model.
+4. Implement and validate the minimal REM-AlignNet-MTL model.
 5. Add dynamic alignment only after the event-structured model is stable.
 6. Rebuild CR_RVS preprocessing from raw `.mat` files.
 

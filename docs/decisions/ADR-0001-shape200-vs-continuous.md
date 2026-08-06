@@ -16,10 +16,13 @@ ECG reconstruction.
 
 Shape-200 is treated as morphology evidence and auxiliary supervision only.
 Final manuscript claims about continuous ECG reliability require a locked
-long-term ECG assembly evaluator.
+continuous or long-term evaluation protocol. Shape-200 can still support the
+Q1 model as morphology evidence if it is labeled correctly.
 
 ## Consequences
 
 - Shape-200 tables can appear as morphology analysis or pilot evidence.
 - Shape-200 results must not be labeled final long-term continuous ECG results.
-- The next formal task is radarODE-style long ECG assembly.
+- The next formal task is to lock the final evaluation protocol. radarODE-style
+  long ECG assembly is required if comparing against radarODE-MTL's final
+  long-term result.

@@ -1,7 +1,9 @@
 # BeatAware-Radar2ECGNet Q1 Workspace
 
-This repository is being reorganized for a Q1 journal extension of the ICONIP
-BeatAware-Radar2ECGNet work.
+This repository supports one Q1 journal objective: propose a new radar-to-ECG
+reconstruction model and demonstrate strong performance on both MMECG and
+CR_RVS, outperforming or comparing favorably with most relevant published and
+reproduced baselines under fair protocols.
 
 ## Source of Truth
 
@@ -51,8 +53,8 @@ All current results are treated as `pilot` unless explicitly promoted in
 Rhythm-Event-Morphology Alignment Network with Multi-Task Learning
 ```
 
-The intended Q1 framing is representation-aware, event-structured, and
-morphology-guided radar-to-ECG reconstruction.
+The intended Q1 framing is a new representation-aware, event/morphology-guided
+radar-to-ECG model validated on two datasets.
 
 ## Current Protocols
 
@@ -63,8 +65,9 @@ morphology-guided radar-to-ECG reconstruction.
 
 ## Next Formal Milestone
 
-The next paper-critical experiment is a fair radarODE-style long-term ECG
-assembly evaluation:
+The next paper-critical experiment is to lock the final evaluation protocol.
+If the manuscript directly compares with radarODE-MTL's final long-ECG result,
+this requires a fair radarODE-style long-term ECG assembly evaluation:
 
 ```text
 radarODE-MTL original-style long ECG protocol

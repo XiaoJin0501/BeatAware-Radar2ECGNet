@@ -33,6 +33,10 @@ Claude Code, Codex, and any future agent.
 
 ## Claim Integrity
 
+- The project has one active paper-level research question: propose and
+  validate a strong new radar-to-ECG reconstruction model on MMECG and CR_RVS.
+  Do not create additional independent research questions unless the user
+  explicitly changes the project scope.
 - Do not claim causality without a controlled ablation.
 - Do not claim external generalization without subject-independent external
   validation.

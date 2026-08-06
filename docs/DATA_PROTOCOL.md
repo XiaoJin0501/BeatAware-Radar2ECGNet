@@ -58,4 +58,6 @@ define:
 - metric aggregation;
 - failure handling.
 
-Until this is done, all long-term claims remain untested.
+Until this is done, long-term continuous ECG superiority claims remain
+untested. Shape-200 morphology claims may still support the Q1 model if the
+manuscript clearly labels them as morphology evidence.
