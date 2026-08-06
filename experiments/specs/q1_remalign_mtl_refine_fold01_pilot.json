@@ -1,0 +1,39 @@
+{
+  "experiment_id": "q1_remalign_mtl_refine_fold01_pilot",
+  "research_question": "Can morphology-guided residual refinement improve REM-AlignNet-MTL full-window continuous ECG reconstruction without losing the strong Shape-200 morphology head?",
+  "hypothesis": "Adding the existing REMAlignMTLRefineNet residual path will improve fold-01 full-window/long OLA PCC over the current REM-AlignNet-MTL full-window OLA baseline of 0.394 while preserving high Shape-200 performance.",
+  "dataset": "MMECG public",
+  "protocol": "Fold-01 strict LOSO pilot, WSST input, 30 epochs, no target-subject calibration.",
+  "tier": "pilot",
+  "publishable": false,
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "commit_id": "71de136",
+  "baseline": "q1_remalign_mtl_shapefirst_loso fold_01 REM-AlignNet-MTL",
+  "changed_variable": "model_arch changes from rem_align_mtl to rem_align_mtl_refine; data split, input representation, loss settings, and training script remain controlled.",
+  "controlled_variables": [
+    "MMECG fold_01 strict LOSO",
+    "WSST input with test_wsst.h5",
+    "target_norm=minmax",
+    "beta_peak=0.3",
+    "use_shape200_loss=true",
+    "lambda_shape200=0.8",
+    "shape200_pcc_weight=0.5",
+    "No subject calibration",
+    "No checkpoint reselection outside validation-best checkpoint"
+  ],
+  "success_criteria": [
+    "Training completes and writes fold_01 checkpoint/config/logs.",
+    "Full-window record-level OLA PCC improves meaningfully above 0.394.",
+    "Shape-200 head remains close to the existing REM-AlignNet-MTL fold_01 morphology result.",
+    "If long OLA does not improve, mark the pilot as failed and clean reproducible intermediate artifacts."
+  ],
+  "checkpoint_selection": "Use training script's validation-best checkpoint only.",
+  "expected_outputs": [
+    "experiments_mmecg/q1_remalign_mtl_refine_fold01_pilot/fold_01/config.json",
+    "experiments_mmecg/q1_remalign_mtl_refine_fold01_pilot/fold_01/checkpoints/best.pt",
+    "experiments_mmecg/q1_remalign_mtl_refine_fold01_pilot/fold_01/results_long/global_summary_long.json",
+    "experiments_mmecg/q1_remalign_mtl_refine_fold01_pilot/fold_01/results_shape_head/global_summary_shape_head.json"
+  ],
+  "estimated_compute": "Fold-01 only, 30 epochs, one GPU.",
+  "failure_interpretation": "If full-window OLA remains near or below 0.394, residual refinement is insufficient and the next architecture should explicitly assemble cycles from the strong morphology head rather than only refining dense decoder output."
+}
