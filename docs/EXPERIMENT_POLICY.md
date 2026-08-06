@@ -19,9 +19,14 @@ support this objective.
 
 ## Required Before Training
 
+- Current code is committed before any non-smoke training starts.
+- `git status --short` is clean or contains only intentionally ignored local
+  files.
 - Experiment spec exists in `experiments/specs/`.
 - A registry row exists in the single canonical registry:
   `experiments_mmecg/EXPERIMENT_REGISTRY.csv`.
+- The registry row records `commit_id` and `branch`. New experiments must not
+  use `unknown`.
 - Branch follows `docs/GITHUB_WORKFLOW.md`.
 - Baseline and single changed variable are identified.
 - Dataset split and normalization rules are stated.
@@ -32,7 +37,7 @@ support this objective.
 ## Required After Training
 
 - Manifest exists in `experiments/manifests/`.
-- Code commit is recorded.
+- Code commit and branch are recorded and match the pre-training code state.
 - Dataset fingerprint or source version is recorded.
 - Metrics and aggregation method are recorded.
 - Prediction artifact paths are recorded if generated.
@@ -49,3 +54,13 @@ publishable=false -> publishable=true
 
 Promotion requires complete folds, locked protocol, clean commit, manifest,
 prediction artifacts, metric audit, and fair baselines.
+
+## Commit Before Train
+
+No formal or pilot training run may start from an uncommitted code state. This
+prevents training results from drifting away from the code that produced them.
+
+Allowed exception:
+
+- `smoke` runs used only to check syntax/runtime shape can run before commit,
+  but they must not be reported as experiment results.

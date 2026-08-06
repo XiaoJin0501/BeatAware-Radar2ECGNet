@@ -30,6 +30,8 @@ report/q1-long-ecg-comparison
 
 ## Rules
 
+- `main` must remain the current clean baseline: runnable, stable, and not
+  polluted by failed experiments.
 - Do not commit directly to `main` unless the change is tiny and already
   reviewed.
 - One branch should have one clear objective.
@@ -39,6 +41,10 @@ report/q1-long-ecg-comparison
   run manifest in `experiments/manifests/` after execution.
 - Experiment outputs, checkpoints, logs, and generated fold directories stay
   out of Git.
+- Commit before train: any non-smoke experiment must start from a committed
+  code state, and the registry must record the commit and branch.
+- Push completed stages to GitHub so the remote repository is the durable
+  backup.
 - Commit source code, configs, runbooks, registry rows, and reproducible report
   scripts.
 - PDF literature files are local-only under `reference_papers/`; cite papers
@@ -62,8 +68,9 @@ Before merging into `main`:
 
 ```text
 [ ] Branch name follows the policy.
-[ ] New or changed experiments are registered.
+[ ] New or changed experiments are registered with commit ID and branch.
 [ ] No checkpoints, logs, fold outputs, or local dataset files are committed.
+[ ] Metric/preprocessing/hyperparameter/protocol changes update docs in the same PR.
 [ ] Relevant scripts pass syntax/import checks.
 [ ] Agent skills are synchronized if `agent_skills/` changed.
 [ ] README/CLAUDE handoff remains accurate.

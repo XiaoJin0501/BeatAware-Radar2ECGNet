@@ -42,5 +42,11 @@ jobs:
           path = Path("experiments_mmecg/EXPERIMENT_REGISTRY.csv")
           with path.open() as f:
               rows = list(csv.DictReader(f))
+          required = {"tag", "dataset", "protocol", "category", "publishable", "commit_id", "branch"}
+          if not rows:
+              raise SystemExit("experiment registry is empty")
+          missing = required - set(rows[0].keys())
+          if missing:
+              raise SystemExit(f"missing registry columns: {sorted(missing)}")
           print(path, len(rows))
           PY

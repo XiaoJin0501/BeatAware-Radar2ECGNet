@@ -9,6 +9,8 @@
     "dataset",
     "protocol",
     "tier",
+    "branch",
+    "commit_id",
     "baseline",
     "changed_variable",
     "controlled_variables",
@@ -29,6 +31,8 @@
       "type": "string",
       "enum": ["smoke", "probe", "pilot", "final", "invalid"]
     },
+    "branch": {"type": "string", "minLength": 1},
+    "commit_id": {"type": "string", "minLength": 1},
     "publishable": {"type": "boolean", "default": false},
     "baseline": {"type": "string", "minLength": 1},
     "changed_variable": {"type": "string", "minLength": 1},

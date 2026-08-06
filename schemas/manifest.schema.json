@@ -14,6 +14,7 @@
     "spec_path",
     "output_root",
     "checkpoint_selection",
+    "code_state",
     "metrics",
     "artifacts"
   ],
@@ -32,6 +33,10 @@
     "spec_path": {"type": "string"},
     "output_root": {"type": "string"},
     "checkpoint_selection": {"type": "string"},
+    "code_state": {
+      "type": "string",
+      "description": "Description of pre-training code state, e.g. clean committed tree."
+    },
     "metrics": {
       "type": "object",
       "additionalProperties": true

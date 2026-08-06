@@ -16,6 +16,7 @@ claims.
 - Added ADRs for Shape-200 and long-term ECG assembly.
 - Added agent skill single-source directory and sync script.
 - Added schemas, PR template, issue templates, and CI validation.
+- Added commit-before-train and commit-bound registry requirements.
 
 ## Scientific Impact
 

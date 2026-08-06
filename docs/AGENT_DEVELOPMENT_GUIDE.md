@@ -53,6 +53,8 @@ Then identify:
 
 - Preserve the current `main` baseline unless working on a branch.
 - Follow `docs/GITHUB_WORKFLOW.md` for branch names and PR flow.
+- Push completed development stages to GitHub; the server is the workbench,
+  GitHub is the backup.
 - Make small, coherent commits with clear messages.
 - Do not mix cleanup, model changes, metric changes, and report edits in one
   commit unless the change is explicitly a governance/update commit.
@@ -62,11 +64,16 @@ Then identify:
 - Do not add dependencies unless they are necessary and documented.
 - Keep generated experiment outputs, checkpoints, logs, and local datasets out
   of Git.
+- When changing metrics, preprocessing, hyperparameters, or protocol behavior,
+  update the relevant documentation in the same commit.
 
 ## Experiment Development
 
 Before training:
 
+- commit the current code before any non-smoke run;
+- record the commit ID and branch in
+  `experiments_mmecg/EXPERIMENT_REGISTRY.csv`;
 - create or reference an experiment spec;
 - confirm dataset split and subject independence;
 - confirm the baseline;
@@ -133,6 +140,7 @@ docs/changes/
 
 ## What Not To Do
 
+- Do not run a non-smoke experiment from uncommitted code.
 - Do not launch broad architecture sweeps without a hypothesis.
 - Do not keep adding modules to hide an evaluation mismatch.
 - Do not promote pilot results to final.
