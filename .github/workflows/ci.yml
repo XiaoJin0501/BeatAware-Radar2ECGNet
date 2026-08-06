@@ -28,6 +28,7 @@ jobs:
           test -f docs/DATA_PROTOCOL.md
           test -f docs/METRIC_CONTRACT.md
           test -f docs/EXPERIMENT_POLICY.md
+          test -f docs/AGENT_DEVELOPMENT_GUIDE.md
           test -f docs/PAPER_CLAIM_LEDGER.md
       - name: Check skill synchronization
         run: python scripts/agent/sync_skills.py --check

@@ -17,6 +17,7 @@ REQUIRED = [
     "docs/DATA_PROTOCOL.md",
     "docs/METRIC_CONTRACT.md",
     "docs/EXPERIMENT_POLICY.md",
+    "docs/AGENT_DEVELOPMENT_GUIDE.md",
     "docs/PAPER_CLAIM_LEDGER.md",
 ]
 

@@ -7,6 +7,7 @@
     "docs/RESEARCH_CONTRACT.md",
     "docs/DATA_PROTOCOL.md",
     "docs/METRIC_CONTRACT.md",
-    "docs/EXPERIMENT_POLICY.md"
+    "docs/EXPERIMENT_POLICY.md",
+    "docs/AGENT_DEVELOPMENT_GUIDE.md"
   ]
 }

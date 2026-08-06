@@ -11,7 +11,8 @@ Before substantial work, read in order:
 4. `docs/DATA_PROTOCOL.md`
 5. `docs/METRIC_CONTRACT.md`
 6. `docs/EXPERIMENT_POLICY.md`
-7. The active experiment specification or GitHub issue
+7. `docs/AGENT_DEVELOPMENT_GUIDE.md`
+8. The active experiment specification or GitHub issue
 
 Codex primary responsibilities:
 
