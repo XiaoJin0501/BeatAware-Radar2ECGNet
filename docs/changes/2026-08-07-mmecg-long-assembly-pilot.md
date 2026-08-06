@@ -17,6 +17,7 @@ Fold-01 pilot evidence separates three questions:
 - REM-AlignNet-MTL full-window continuous decoding: record-level PCC `0.394`, coverage `1.00`.
 - REM-AlignNet-MTL morphology head under oracle cycle placement: record-level PCC `0.937`, coverage `0.44`.
 - Adapted radarODE-MTL ECG_shape under oracle cycle placement: record-level PCC `0.871`, coverage `0.44`.
+- Adapted radarODE-MTL ECG_shape under predicted Anchor/PPI placement: record-level PCC `0.151`, coverage `0.37`.
 
 This suggests the REM morphology representation is strong, but the current continuous decoder/assembly path is the bottleneck. The oracle-cycle protocols are diagnostics and must not be promoted as final deployable long ECG claims.
 
@@ -27,14 +28,16 @@ This suggests the REM morphology representation is strong, but the current conti
 /home/qhh2237/miniconda3/envs/cyberbrain/bin/python scripts/evaluate_mmecg_long_assembly.py --exp_tag q1_remalign_mtl_shapefirst_loso --fold_idx 1 --protocol rem_full_ola --batch_size 32
 /home/qhh2237/miniconda3/envs/cyberbrain/bin/python scripts/evaluate_mmecg_long_assembly.py --exp_tag mmecg_radarode_mtl_ega_strict_loso --fold_idx 1 --protocol radarode_shape_oracle_cycle_ola --batch_size 32
 /home/qhh2237/miniconda3/envs/cyberbrain/bin/python scripts/evaluate_mmecg_long_assembly.py --exp_tag q1_remalign_mtl_shapefirst_loso --fold_idx 1 --protocol rem_shape_oracle_cycle_ola --batch_size 32 --output_dir experiments_mmecg/q1_remalign_mtl_shapefirst_loso/fold_01/results_long_shape_oracle
+/home/qhh2237/miniconda3/envs/cyberbrain/bin/python scripts/evaluate_mmecg_long_assembly.py --exp_tag mmecg_radarode_mtl_ega_strict_loso --fold_idx 1 --protocol radarode_pred_anchor_ppi_cycle_ola --batch_size 32 --output_dir experiments_mmecg/mmecg_radarode_mtl_ega_strict_loso/fold_01/results_long_pred_anchor
 ```
 
 ## Outputs
 
 - `experiments_mmecg/q1_mmecg_long_assembly_fold01_pilot/summary_long_fold01.csv`
 - `experiments_mmecg/q1_mmecg_long_assembly_fold01_pilot/long_assembly_fold01_bar.png`
+- `experiments_mmecg/q1_mmecg_long_assembly_fold01_pilot/long_assembly_waveform_fold01_examples.png`
 - Per-method `results_long/global_summary_long.json` files under the corresponding fold directories.
 
 ## Next Agent Task
 
-Implement the non-oracle radarODE predicted Anchor/PPI assembly and then rerun all 11 MMECG folds under the locked long ECG protocol.
+Audit the predicted Anchor/PPI placement against the original radarODE paper implementation details. Then either refine the non-oracle assembly or explicitly scope radarODE comparison to ECG_shape morphology before running all 11 MMECG folds.
