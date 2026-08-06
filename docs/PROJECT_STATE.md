@@ -28,6 +28,10 @@ assembly needed for non-oracle comparison.
 - MMECG fold-01 radarODE Anchor/PPI audit exists:
   - Anchor median nearest-R error: 42.5 ms.
   - PPI median length error: 20.0 ms.
+- MMECG fold-01 REM refine pilot exists:
+  - REM-AlignNet-MTL-Refine full-window OLA: record PCC 0.420, coverage 1.00.
+  - REM-AlignNet-MTL-Refine shape-head PCC: 0.938.
+  - Improvement over REM full-window OLA is only +0.026 PCC.
 - Current registry explicitly marks all retained results as `publishable=false`.
 
 ## Current Blockers
@@ -37,6 +41,8 @@ assembly needed for non-oracle comparison.
 - radarODE predicted Anchor/PPI assembly variants are currently failed
   diagnostics. They should not be used as paper-comparison results unless the
   original long ECG assembly details can be reproduced more faithfully.
+- REMAlignMTLRefineNet is weak-positive but insufficient; do not promote it to
+  11-fold final experiments yet.
 - Metric aggregation contract is not fully locked for manuscript tables.
 - No machine-validated experiment spec/manifest workflow yet.
 - Current Shape-200 evidence is strong but not yet enough by itself to support
@@ -44,9 +50,8 @@ assembly needed for non-oracle comparison.
 
 ## Next Three Approved Tasks
 
-1. Refocus model work on improving REM-AlignNet-MTL full-window continuous
-   decoding/assembly, because the morphology head is strong but full-window
-   OLA is weak.
+1. Design a cycle-assembled continuous decoder that explicitly injects the
+   strong Shape-200 morphology head into full-window ECG reconstruction.
 2. Keep radarODE comparison scoped to Shape-200/oracle-cycle morphology unless
    a faithful official long ECG assembly implementation becomes available.
 3. After a REM continuous-decoder fix passes fold-01 pilot, run all 11 MMECG
