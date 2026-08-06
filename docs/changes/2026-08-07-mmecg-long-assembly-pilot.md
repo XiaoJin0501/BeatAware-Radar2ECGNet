@@ -18,8 +18,14 @@ Fold-01 pilot evidence separates three questions:
 - REM-AlignNet-MTL morphology head under oracle cycle placement: record-level PCC `0.937`, coverage `0.44`.
 - Adapted radarODE-MTL ECG_shape under oracle cycle placement: record-level PCC `0.871`, coverage `0.44`.
 - Adapted radarODE-MTL ECG_shape under predicted Anchor/PPI placement: record-level PCC `0.151`, coverage `0.37`.
+- Adapted radarODE-MTL ECG_shape under center-selected Anchor/PPI placement: record-level PCC `0.113`, coverage `0.44`.
 
 This suggests the REM morphology representation is strong, but the current continuous decoder/assembly path is the bottleneck. The oracle-cycle protocols are diagnostics and must not be promoted as final deployable long ECG claims.
+
+The radarODE Anchor/PPI audit found median Anchor nearest-R error `42.5 ms`
+and median PPI length error `20.0 ms`, yet both predicted assembly variants
+remain poor. Therefore the current adapted predicted Anchor/PPI long assembly
+is treated as a failed diagnostic, not a paper-comparison result.
 
 ## Commands
 
@@ -44,4 +50,7 @@ metadata. Lightweight CSV/JSON/PNG evidence was retained for reporting.
 
 ## Next Agent Task
 
-Audit the predicted Anchor/PPI placement against the original radarODE paper implementation details. Then either refine the non-oracle assembly or explicitly scope radarODE comparison to ECG_shape morphology before running all 11 MMECG folds.
+Refocus the next model experiment on improving REM-AlignNet-MTL full-window
+continuous decoding/assembly. Keep radarODE in the main comparison as
+Shape-200/oracle-cycle morphology unless a faithful official long ECG assembly
+implementation becomes available.

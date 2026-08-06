@@ -24,14 +24,19 @@ assembly needed for non-oracle comparison.
   - REM-AlignNet-MTL shape oracle-cycle OLA: record PCC 0.937, coverage 0.44.
   - radarODE-MTL shape oracle-cycle OLA: record PCC 0.871, coverage 0.44.
   - radarODE-MTL predicted Anchor/PPI OLA: record PCC 0.151, coverage 0.37.
+  - radarODE-MTL center Anchor/PPI OLA: record PCC 0.113, coverage 0.44.
+- MMECG fold-01 radarODE Anchor/PPI audit exists:
+  - Anchor median nearest-R error: 42.5 ms.
+  - PPI median length error: 20.0 ms.
 - Current registry explicitly marks all retained results as `publishable=false`.
 
 ## Current Blockers
 
 - Long-ECG evaluator is implemented for pilot use, but not yet locked for
   final manuscript tables.
-- radarODE predicted Anchor/PPI assembly has a first approximation, but it
-  must be audited against the original paper/source before full 11-fold runs.
+- radarODE predicted Anchor/PPI assembly variants are currently failed
+  diagnostics. They should not be used as paper-comparison results unless the
+  original long ECG assembly details can be reproduced more faithfully.
 - Metric aggregation contract is not fully locked for manuscript tables.
 - No machine-validated experiment spec/manifest workflow yet.
 - Current Shape-200 evidence is strong but not yet enough by itself to support
@@ -39,12 +44,13 @@ assembly needed for non-oracle comparison.
 
 ## Next Three Approved Tasks
 
-1. Audit radarODE-MTL Anchor/PPI coordinates and cycle placement against the
-   original source/paper.
-2. Refine or reject `radarode_pred_anchor_ppi_cycle_ola` as the fair
-   non-oracle radarODE long-assembly protocol.
-3. After protocol lock, run all 11 MMECG folds and then mirror the accepted
-   protocol on CR_RVS.
+1. Refocus model work on improving REM-AlignNet-MTL full-window continuous
+   decoding/assembly, because the morphology head is strong but full-window
+   OLA is weak.
+2. Keep radarODE comparison scoped to Shape-200/oracle-cycle morphology unless
+   a faithful official long ECG assembly implementation becomes available.
+3. After a REM continuous-decoder fix passes fold-01 pilot, run all 11 MMECG
+   folds and then mirror the accepted protocol on CR_RVS.
 
 ## Do Not Do
 

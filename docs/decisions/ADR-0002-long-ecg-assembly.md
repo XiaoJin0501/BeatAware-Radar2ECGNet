@@ -39,12 +39,21 @@ families:
 - REM-AlignNet-MTL shape oracle-cycle OLA: record PCC 0.937, coverage 0.44.
 - radarODE-MTL shape oracle-cycle OLA: record PCC 0.871, coverage 0.44.
 - radarODE-MTL predicted Anchor/PPI OLA: record PCC 0.151, coverage 0.37.
+- radarODE-MTL center Anchor/PPI OLA: record PCC 0.113, coverage 0.44.
+
+Anchor/PPI audit on the same fold found median Anchor nearest-R error 42.5 ms
+and median PPI length error 20.0 ms. Despite reasonable median subtask errors,
+the predicted assembly variants remain poor, likely because the public source
+does not expose the official long ECG assembly logic and the adapted Anchor
+target is a multi-peak mask while ECG_shape is a center-cycle target.
 
 These values are pilot evidence only and must not be promoted to final tables.
+Predicted Anchor/PPI variants are failed diagnostics under the current adapted
+protocol.
 
 ## Open Questions
 
-- Whether the adapted radarODE predicted Anchor/PPI placement exactly matches
-  the original paper/source pipeline.
+- Whether an official or more faithful radarODE long ECG assembly can be
+  recovered from paper details beyond the released source.
 - Whether manuscript PCC is computed on assembled trials, subjects, folds, or
   pooled segments.
