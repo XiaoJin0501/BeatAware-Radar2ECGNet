@@ -7,14 +7,14 @@ directories and should not be committed.
 ```text
 experiments/specs/       planned experiment specifications
 experiments/manifests/   completed run manifests
-experiments/registry.csv lightweight registry for future formal experiments
 ```
 
-The historical retained result registry is still:
+There is exactly one experiment registry:
 
 ```text
 experiments_mmecg/EXPERIMENT_REGISTRY.csv
 ```
 
 New formal Q1 experiments should use `experiments/specs/` and
-`experiments/manifests/` in addition to the registry.
+`experiments/manifests/` in addition to the single registry. Do not create a
+second registry.

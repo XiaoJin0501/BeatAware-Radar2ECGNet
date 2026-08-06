@@ -39,8 +39,8 @@ jobs:
           python - <<'PY'
           import csv
           from pathlib import Path
-          for path in [Path("experiments_mmecg/EXPERIMENT_REGISTRY.csv"), Path("experiments/registry.csv")]:
-              with path.open() as f:
-                  rows = list(csv.DictReader(f))
-              print(path, len(rows))
+          path = Path("experiments_mmecg/EXPERIMENT_REGISTRY.csv")
+          with path.open() as f:
+              rows = list(csv.DictReader(f))
+          print(path, len(rows))
           PY

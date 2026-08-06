@@ -24,7 +24,6 @@ docs/PROJECT_STRUCTURE_Q1.md
 docs/NEXT_EXPERIMENTS_Q1.md
 docs/GITHUB_WORKFLOW.md
 experiments_mmecg/EXPERIMENT_REGISTRY.csv
-experiments/registry.csv
 experiments_mmecg/README.md
 experiments/README.md
 scripts/README.md

@@ -20,7 +20,8 @@ support this objective.
 ## Required Before Training
 
 - Experiment spec exists in `experiments/specs/`.
-- Registry row exists and has a unique experiment ID.
+- A registry row exists in the single canonical registry:
+  `experiments_mmecg/EXPERIMENT_REGISTRY.csv`.
 - Branch follows `docs/GITHUB_WORKFLOW.md`.
 - Baseline and single changed variable are identified.
 - Dataset split and normalization rules are stated.
