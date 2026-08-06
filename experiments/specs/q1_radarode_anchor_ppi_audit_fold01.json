@@ -1,0 +1,31 @@
+{
+  "experiment_id": "q1_radarode_anchor_ppi_audit_fold01",
+  "research_question": "Are the adapted radarODE-MTL Anchor and PPI outputs reliable enough to support non-oracle long ECG assembly on MMECG?",
+  "hypothesis": "The low predicted Anchor/PPI OLA result is caused by coordinate and length-estimation errors rather than ECG_shape morphology alone.",
+  "dataset": "MMECG public",
+  "protocol": "Fold-01 strict LOSO audit of radarODE-MTL Anchor peak and PPI length against GT R-peak/cycle metadata.",
+  "tier": "pilot",
+  "publishable": false,
+  "branch": "q1/radarode-long-ecg-evaluator",
+  "commit_id": "f9adcf7",
+  "baseline": "Adapted radarODE-MTL/EGA fold_01 checkpoint",
+  "changed_variable": "Audit outputs only; no model or checkpoint change.",
+  "controlled_variables": [
+    "Same MMECG fold_01 strict LOSO test.h5",
+    "Same radarODE-MTL fold_01 checkpoint",
+    "No retraining",
+    "No checkpoint reselection"
+  ],
+  "success_criteria": [
+    "Produce Anchor nearest-R error and PPI length error summary.",
+    "Decide whether predicted Anchor/PPI long assembly should be refined, rejected, or treated as invalid for paper comparison."
+  ],
+  "checkpoint_selection": "Use existing best_radarode_mtl_ega_fold01.pt.",
+  "expected_outputs": [
+    "experiments_mmecg/mmecg_radarode_mtl_ega_strict_loso/fold_01/anchor_ppi_audit/global_summary_anchor_ppi_audit.json",
+    "experiments_mmecg/mmecg_radarode_mtl_ega_strict_loso/fold_01/anchor_ppi_audit/anchor_ppi_audit.csv",
+    "experiments_mmecg/mmecg_radarode_mtl_ega_strict_loso/fold_01/anchor_ppi_audit/anchor_ppi_audit_hist.png"
+  ],
+  "estimated_compute": "Inference only, fold_01, under 10 minutes.",
+  "failure_interpretation": "If Anchor/PPI errors are large, the current predicted Anchor/PPI assembly is invalid as a fair radarODE reproduction and should be excluded from main comparison."
+}
