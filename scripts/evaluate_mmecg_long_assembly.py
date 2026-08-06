@@ -14,6 +14,10 @@ Supported protocols:
     center-cycle bounds; comparable to Shape-200 morphology but assembled in
     record coordinates. This is still an oracle-cycle diagnostic until the
     predicted Anchor/PPI assembly protocol is implemented.
+  - radarode_pred_anchor_ppi_cycle_ola: radarODE ECG_shape placed using the
+    predicted Anchor peak and predicted PPI length. This is the first
+    deployable radarODE-style assembly approximation for the processed MMECG
+    H5 representation.
 """
 
 from __future__ import annotations
@@ -258,12 +262,16 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                 pred_shape = out["ECG_shape"].detach().cpu().numpy()[:, 0]
                 anchor = out.get("Anchor")
                 ppi = out.get("PPI")
+                anchor_argmax_batch: list[int | None] = [None] * len(indices)
+                ppi_argmax_batch: list[int | None] = [None] * len(indices)
                 if anchor is not None:
                     anchor_np = anchor.detach().cpu().numpy()
-                    extra_anchor_argmax.extend(np.argmax(anchor_np.reshape(anchor_np.shape[0], -1), axis=1).tolist())
+                    anchor_argmax_batch = np.argmax(anchor_np.reshape(anchor_np.shape[0], -1), axis=1).astype(int).tolist()
+                    extra_anchor_argmax.extend(anchor_argmax_batch)
                 if ppi is not None:
                     ppi_np = ppi.detach().cpu().numpy()
-                    extra_ppi_argmax.extend(np.argmax(ppi_np.reshape(ppi_np.shape[0], -1), axis=1).tolist())
+                    ppi_argmax_batch = np.argmax(ppi_np.reshape(ppi_np.shape[0], -1), axis=1).astype(int).tolist()
+                    extra_ppi_argmax.extend(ppi_argmax_batch)
                 pred_full = None
                 target_shape = None
             else:
@@ -301,6 +309,19 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                         gt_cycle = normalize_01(ecg_np[j, a:b] if b > a else ecg_np[j, 700:900])
                         gt_piece = _resample_to_len(gt_cycle, max(0, b - a))
                     piece_start = start + a
+                elif args.protocol == "radarode_pred_anchor_ppi_cycle_ola":
+                    if anchor_argmax_batch[j] is None or ppi_argmax_batch[j] is None:
+                        raise ValueError("radarode_pred_anchor_ppi_cycle_ola requires Anchor and PPI outputs.")
+                    pred_local_start = int(400 + int(anchor_argmax_batch[j]))
+                    pred_len = int(np.clip(int(ppi_argmax_batch[j]) + 1, 40, 260))
+                    pred_local_end = min(WIN_LEN, pred_local_start + pred_len)
+                    if pred_local_end <= pred_local_start:
+                        pred_piece = np.empty((0,), dtype=np.float32)
+                        gt_piece = np.empty((0,), dtype=np.float32)
+                    else:
+                        pred_piece = _resample_to_len(pred_shape[j], pred_local_end - pred_local_start)
+                        gt_piece = ecg_np[j, pred_local_start:pred_local_end]
+                    piece_start = start + pred_local_start
                 else:
                     raise ValueError(f"Unknown protocol: {args.protocol}")
 
@@ -317,6 +338,11 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                     "piece_start": int(piece_start),
                     "piece_len": int(len(pred_piece)),
                 }
+                if args.protocol.startswith("radarode"):
+                    row["anchor_argmax"] = (
+                        int(anchor_argmax_batch[j]) if anchor_argmax_batch[j] is not None else -1
+                    )
+                    row["ppi_argmax"] = int(ppi_argmax_batch[j]) if ppi_argmax_batch[j] is not None else -1
                 row.update(_metrics(pred_piece, gt_piece))
                 rows.append(row)
 
@@ -398,6 +424,7 @@ def main() -> None:
             "rem_full_ola",
             "rem_shape_oracle_cycle_ola",
             "radarode_shape_oracle_cycle_ola",
+            "radarode_pred_anchor_ppi_cycle_ola",
         ],
     )
     parser.add_argument("--device", default=_default_device())
