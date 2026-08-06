@@ -18,6 +18,10 @@ Supported protocols:
     predicted Anchor peak and predicted PPI length. This is the first
     deployable radarODE-style assembly approximation for the processed MMECG
     H5 representation.
+  - radarode_center_anchor_ppi_cycle_ola: same as above, but selects the
+    predicted Anchor peak closest to the window center. This better matches
+    the adapted training target where ECG_shape is the center cardiac cycle
+    while Anchor is a multi-peak mask over the central 4 seconds.
 """
 
 from __future__ import annotations
@@ -172,6 +176,31 @@ def _extract_ecg_tensor(model_out: Any) -> torch.Tensor:
     raise TypeError(f"Unsupported model output: {type(model_out)!r}")
 
 
+def _select_center_anchor_peak(anchor_row: np.ndarray, center: int = 400) -> int:
+    """Select an Anchor peak near the ECG_shape center cycle.
+
+    radarODE's adapted Anchor target is a multi-R-peak heatmap over the central
+    4 seconds. A global argmax may select any beat. For ECG_shape assembly, use
+    the detected local maximum closest to the center beat.
+    """
+    y = np.asarray(anchor_row, dtype=np.float32).reshape(-1)
+    if y.size == 0:
+        return int(center)
+    y_min, y_max = float(np.min(y)), float(np.max(y))
+    if y_max - y_min > 1e-8:
+        yn = (y - y_min) / (y_max - y_min)
+    else:
+        yn = np.zeros_like(y)
+    if yn.size >= 3:
+        peak_mask = (yn[1:-1] >= yn[:-2]) & (yn[1:-1] >= yn[2:]) & (yn[1:-1] >= 0.5)
+        peaks = np.flatnonzero(peak_mask) + 1
+    else:
+        peaks = np.empty((0,), dtype=np.int64)
+    if peaks.size == 0:
+        return int(np.argmax(y))
+    return int(peaks[np.argmin(np.abs(peaks - int(center)))])
+
+
 class _Accumulator:
     def __init__(self, length: int) -> None:
         self.pred_sum = np.zeros(length, dtype=np.float64)
@@ -266,7 +295,13 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                 ppi_argmax_batch: list[int | None] = [None] * len(indices)
                 if anchor is not None:
                     anchor_np = anchor.detach().cpu().numpy()
-                    anchor_argmax_batch = np.argmax(anchor_np.reshape(anchor_np.shape[0], -1), axis=1).astype(int).tolist()
+                    anchor_flat = anchor_np.reshape(anchor_np.shape[0], -1)
+                    if args.protocol == "radarode_center_anchor_ppi_cycle_ola":
+                        anchor_argmax_batch = [
+                            _select_center_anchor_peak(anchor_flat[k]) for k in range(anchor_flat.shape[0])
+                        ]
+                    else:
+                        anchor_argmax_batch = np.argmax(anchor_flat, axis=1).astype(int).tolist()
                     extra_anchor_argmax.extend(anchor_argmax_batch)
                 if ppi is not None:
                     ppi_np = ppi.detach().cpu().numpy()
@@ -309,9 +344,9 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                         gt_cycle = normalize_01(ecg_np[j, a:b] if b > a else ecg_np[j, 700:900])
                         gt_piece = _resample_to_len(gt_cycle, max(0, b - a))
                     piece_start = start + a
-                elif args.protocol == "radarode_pred_anchor_ppi_cycle_ola":
+                elif args.protocol in {"radarode_pred_anchor_ppi_cycle_ola", "radarode_center_anchor_ppi_cycle_ola"}:
                     if anchor_argmax_batch[j] is None or ppi_argmax_batch[j] is None:
-                        raise ValueError("radarode_pred_anchor_ppi_cycle_ola requires Anchor and PPI outputs.")
+                        raise ValueError(f"{args.protocol} requires Anchor and PPI outputs.")
                     pred_local_start = int(400 + int(anchor_argmax_batch[j]))
                     pred_len = int(np.clip(int(ppi_argmax_batch[j]) + 1, 40, 260))
                     pred_local_end = min(WIN_LEN, pred_local_start + pred_len)
@@ -425,6 +460,7 @@ def main() -> None:
             "rem_shape_oracle_cycle_ola",
             "radarode_shape_oracle_cycle_ola",
             "radarode_pred_anchor_ppi_cycle_ola",
+            "radarode_center_anchor_ppi_cycle_ola",
         ],
     )
     parser.add_argument("--device", default=_default_device())
