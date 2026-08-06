@@ -35,6 +35,8 @@ report/q1-long-ecg-comparison
 - One branch should have one clear objective.
 - Every experiment branch must add or update
   `experiments_mmecg/EXPERIMENT_REGISTRY.csv`.
+- New formal experiments should also add a spec in `experiments/specs/` and a
+  run manifest in `experiments/manifests/` after execution.
 - Experiment outputs, checkpoints, logs, and generated fold directories stay
   out of Git.
 - Commit source code, configs, runbooks, registry rows, and reproducible report
@@ -63,6 +65,7 @@ Before merging into `main`:
 [ ] New or changed experiments are registered.
 [ ] No checkpoints, logs, fold outputs, or local dataset files are committed.
 [ ] Relevant scripts pass syntax/import checks.
+[ ] Agent skills are synchronized if `agent_skills/` changed.
 [ ] README/CLAUDE handoff remains accurate.
 [ ] Results are not marked publishable unless category=final.
 ```

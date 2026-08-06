@@ -8,12 +8,22 @@ BeatAware-Radar2ECGNet work.
 Read these files first:
 
 ```text
+AGENTS.md
 CLAUDE.md
+docs/agent/SHARED_CONTEXT.md
+docs/PROJECT_STATE.md
+docs/RESEARCH_CONTRACT.md
+docs/DATA_PROTOCOL.md
+docs/METRIC_CONTRACT.md
+docs/EXPERIMENT_POLICY.md
+docs/PAPER_CLAIM_LEDGER.md
 docs/PROJECT_STRUCTURE_Q1.md
 docs/NEXT_EXPERIMENTS_Q1.md
 docs/GITHUB_WORKFLOW.md
 experiments_mmecg/EXPERIMENT_REGISTRY.csv
+experiments/registry.csv
 experiments_mmecg/README.md
+experiments/README.md
 scripts/README.md
 src/README.md
 docs/DELETED_EXPERIMENTS_LOG.md
@@ -72,3 +82,6 @@ Only after this should results be promoted from `pilot` to `final`.
 - Add each experiment to `experiments_mmecg/EXPERIMENT_REGISTRY.csv`.
 - Keep temporary outputs out of paper-facing directories.
 - Use `scripts/README.md` before running scripts.
+- Use `agent_skills/` as the single source for shared Claude/Codex skills.
+- Run `python3 scripts/agent/sync_skills.py --check` before PRs that touch
+  agent skills.

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Experiment Run Manifest",
+  "type": "object",
+  "required": [
+    "experiment_id",
+    "run_id",
+    "git_commit",
+    "branch",
+    "dataset",
+    "protocol",
+    "tier",
+    "publishable",
+    "spec_path",
+    "output_root",
+    "checkpoint_selection",
+    "metrics",
+    "artifacts"
+  ],
+  "properties": {
+    "experiment_id": {"type": "string"},
+    "run_id": {"type": "string"},
+    "git_commit": {"type": "string"},
+    "branch": {"type": "string"},
+    "dataset": {"type": "string"},
+    "protocol": {"type": "string"},
+    "tier": {
+      "type": "string",
+      "enum": ["smoke", "probe", "pilot", "final", "invalid"]
+    },
+    "publishable": {"type": "boolean"},
+    "spec_path": {"type": "string"},
+    "output_root": {"type": "string"},
+    "checkpoint_selection": {"type": "string"},
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "known_caveats": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  },
+  "additionalProperties": true
+}

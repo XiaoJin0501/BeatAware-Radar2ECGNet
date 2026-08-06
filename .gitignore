@@ -7,6 +7,8 @@ dataset_mmecg/
 experiments_mmecg/*
 !experiments_mmecg/README.md
 !experiments_mmecg/EXPERIMENT_REGISTRY.csv
+experiments/manifests/artifacts/
+experiments/manifests/predictions/
 
 # ── 本地文献 PDF（保留 README/BibTeX，PDF 不进 GitHub）──────────
 reference_papers/*.pdf
@@ -40,6 +42,7 @@ venv/
 *.swp
 *.swo
 *~
+.claude/settings.local.json
 
 # ── macOS ─────────────────────────────────────────────────────
 .DS_Store

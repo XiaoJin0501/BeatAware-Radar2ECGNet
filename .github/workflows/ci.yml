@@ -1,0 +1,45 @@
+name: governance-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "q1/**"
+      - "feat/**"
+      - "exp/**"
+      - "fix/**"
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Check required governance files
+        run: |
+          test -f AGENTS.md
+          test -f CLAUDE.md
+          test -f docs/agent/SHARED_CONTEXT.md
+          test -f docs/PROJECT_STATE.md
+          test -f docs/RESEARCH_CONTRACT.md
+          test -f docs/DATA_PROTOCOL.md
+          test -f docs/METRIC_CONTRACT.md
+          test -f docs/EXPERIMENT_POLICY.md
+          test -f docs/PAPER_CLAIM_LEDGER.md
+      - name: Check skill synchronization
+        run: python scripts/agent/sync_skills.py --check
+      - name: Python syntax check
+        run: python -m compileall -q scripts src
+      - name: Check experiment registry can be parsed
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          for path in [Path("experiments_mmecg/EXPERIMENT_REGISTRY.csv"), Path("experiments/registry.csv")]:
+              with path.open() as f:
+                  rows = list(csv.DictReader(f))
+              print(path, len(rows))
+          PY

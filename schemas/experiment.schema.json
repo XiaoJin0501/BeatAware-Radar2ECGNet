@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Experiment Specification",
+  "type": "object",
+  "required": [
+    "experiment_id",
+    "research_question",
+    "hypothesis",
+    "dataset",
+    "protocol",
+    "tier",
+    "baseline",
+    "changed_variable",
+    "controlled_variables",
+    "success_criteria",
+    "checkpoint_selection",
+    "expected_outputs"
+  ],
+  "properties": {
+    "experiment_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_\\-]*$"
+    },
+    "research_question": {"type": "string", "minLength": 1},
+    "hypothesis": {"type": "string", "minLength": 1},
+    "dataset": {"type": "string", "minLength": 1},
+    "protocol": {"type": "string", "minLength": 1},
+    "tier": {
+      "type": "string",
+      "enum": ["smoke", "probe", "pilot", "final", "invalid"]
+    },
+    "publishable": {"type": "boolean", "default": false},
+    "baseline": {"type": "string", "minLength": 1},
+    "changed_variable": {"type": "string", "minLength": 1},
+    "controlled_variables": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "success_criteria": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1
+    },
+    "checkpoint_selection": {"type": "string", "minLength": 1},
+    "expected_outputs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1
+    },
+    "estimated_compute": {"type": "string"},
+    "failure_interpretation": {"type": "string"},
+    "notes": {"type": "string"}
+  },
+  "additionalProperties": true
+}

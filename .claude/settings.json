@@ -1,0 +1,12 @@
+{
+  "project": "BeatAware-Radar2ECGNet",
+  "entrypoint": "CLAUDE.md",
+  "shared_context": [
+    "docs/agent/SHARED_CONTEXT.md",
+    "docs/PROJECT_STATE.md",
+    "docs/RESEARCH_CONTRACT.md",
+    "docs/DATA_PROTOCOL.md",
+    "docs/METRIC_CONTRACT.md",
+    "docs/EXPERIMENT_POLICY.md"
+  ]
+}
