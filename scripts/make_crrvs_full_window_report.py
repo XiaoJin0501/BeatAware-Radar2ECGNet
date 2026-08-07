@@ -18,9 +18,14 @@ EXP_ROOT = ROOT / "experiments_mmecg"
 
 METHODS = [
     {
+        "method": "CW-STFT + REM-AlignNet-MTL-Refine-Lag",
+        "tag": "q1_crrvs_remalign_refine_lagaware_5fold_pilot",
+        "role": "proposed_lagaware_pilot",
+    },
+    {
         "method": "CW-STFT + REM-AlignNet-MTL",
         "tag": "q1_crrvs_remalign_mtl_5fold",
-        "role": "proposed",
+        "role": "proposed_shape_pilot",
     },
     {
         "method": "CW-STFT + TCN",
@@ -68,7 +73,8 @@ def _plot_metric(df: pd.DataFrame, metric: str, title: str, out_path: Path, ylab
 
     plot_df = df.dropna(subset=[metric]).copy()
     colors = {
-        "proposed": "#59A14F",
+        "proposed_lagaware_pilot": "#59A14F",
+        "proposed_shape_pilot": "#86BC86",
         "local_baseline": "#4C78A8",
         "published": "#F28E2B",
     }
@@ -94,11 +100,11 @@ def _shape_table() -> pd.DataFrame:
     df["evaluation_space"] = "Shape-200 morphology"
     df["role"] = df["method"].map(
         {
-            "CW-STFT + REM-AlignNet-MTL": "proposed",
+            "CW-STFT + REM-AlignNet-MTL": "proposed_shape_pilot",
             "CW-STFT + TCN": "local_baseline",
         }
     ).fillna("local_baseline")
-    return df.rename(
+    base = df.rename(
         columns={
             "pcc": "pcc_mean",
             "rmse": "rmse_mean",
@@ -122,6 +128,40 @@ def _shape_table() -> pd.DataFrame:
             "r2_mean",
         ],
     ]
+    extra_rows = []
+    for method in METHODS:
+        if method["tag"] in {"q1_crrvs_remalign_mtl_5fold", "q1_crrvs_wsst_tcn_5fold"}:
+            continue
+        vals: dict[str, list[float]] = {"pcc_mean": [], "rmse_mean": [], "mae_mean": [], "r2_mean": []}
+        total = 0
+        available = 0
+        for fold in range(1, 6):
+            path = EXP_ROOT / method["tag"] / f"fold_{fold:02d}" / "results_shape_head" / "global_summary_shape_head.json"
+            if not path.exists():
+                path = EXP_ROOT / method["tag"] / f"fold_{fold:02d}" / "results_shape200" / "global_summary_shape200.json"
+            if not path.exists():
+                continue
+            row = _load_json(path)
+            available += 1
+            total += int(row.get("num_segments", 0))
+            vals["pcc_mean"].append(float(row.get("pcc_mean", row.get("pcc_raw_mean", np.nan))))
+            vals["rmse_mean"].append(float(row.get("rmse_mean", row.get("rmse_norm_mean", np.nan))))
+            vals["mae_mean"].append(float(row.get("mae_mean", row.get("mae_norm_mean", np.nan))))
+            vals["r2_mean"].append(float(row.get("r2_mean", np.nan)))
+        if available:
+            extra = {
+                "method": method["method"],
+                "role": method["role"],
+                "evaluation_space": "Shape-200 morphology",
+                "available_folds": available,
+                "total_segments": total,
+            }
+            for key, values in vals.items():
+                extra[key] = _mean_std(values)[0]
+            extra_rows.append(extra)
+    if extra_rows:
+        base = pd.concat([base, pd.DataFrame(extra_rows)], ignore_index=True)
+    return base
 
 
 def _full_window_table() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -250,8 +290,9 @@ def build_report(out_dir: Path) -> None:
         "",
         "## Interpretation",
         "",
-        "- Shape-200 morphology remains the strongest current evidence for REM-AlignNet-MTL on CR_RVS.",
-        "- Full-window results are diagnostic and should not replace the Shape-200 comparison until the full decoder is improved.",
+        "- Lag-aware REM-AlignNet-MTL-Refine preserves the original REM Shape-200 morphology advantage on CR_RVS.",
+        "- It also improves 8-second full-window diagnostic PCC and RR timing over CW-STFT+TCN in the current 5-fold pilot.",
+        "- Results remain pilot-level until metric audit and final protocol promotion are completed.",
         "- Published VMD-CBNeT numbers are included as reported-only Nature/CR_RVS references, not as locally reproduced baselines.",
         "",
         "## Outputs",
