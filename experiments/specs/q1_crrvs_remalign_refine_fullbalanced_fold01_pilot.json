@@ -24,6 +24,8 @@
     "model_arch": "rem_align_mtl_refine",
     "epochs": 50,
     "early_stop_patience": 100,
+    "narrow_bandpass": false,
+    "beta_peak": 0.3,
     "use_shape200_loss": true,
     "lambda_shape200": 0.2,
     "shape200_pcc_weight": 0.3,
