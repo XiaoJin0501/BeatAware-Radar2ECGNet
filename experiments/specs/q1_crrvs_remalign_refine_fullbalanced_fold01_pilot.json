@@ -7,7 +7,7 @@
   "tier": "pilot",
   "publishable": false,
   "branch": "exp/rem-shape-guided-continuous-decoder",
-  "commit_id": "cc963c6",
+  "commit_id": "7d8b256",
   "baseline": "q1_crrvs_remalign_mtl_5fold fold_01 and q1_crrvs_wsst_tcn_5fold fold_01",
   "changed_variable": "Full-balanced REM refinement package: model_arch=rem_align_mtl_refine with lower lambda_shape200 to emphasize the full-window branch.",
   "controlled_variables": [
