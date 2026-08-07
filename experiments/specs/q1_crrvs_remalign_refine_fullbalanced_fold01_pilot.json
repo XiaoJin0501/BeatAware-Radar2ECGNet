@@ -1,0 +1,50 @@
+{
+  "experiment_id": "q1_crrvs_remalign_refine_fullbalanced_fold01_pilot",
+  "research_question": "Can a morphology-guided continuous refinement branch improve CR_RVS full-window ECG reconstruction while preserving the strong Shape-200 morphology evidence?",
+  "hypothesis": "REMAlignMTLRefineNet with a lower Shape-200 auxiliary weight will improve fold-01 full-window PCC and RR error over the current CR_RVS REM-AlignNet-MTL full-window diagnostic result, while keeping Shape-200 PCC competitive.",
+  "dataset": "CR_RVS / Nature",
+  "protocol": "Fold-01 subject-independent 5-fold CV pilot, CW-STFT input, no target-subject calibration.",
+  "tier": "pilot",
+  "publishable": false,
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "commit_id": "cc963c6",
+  "baseline": "q1_crrvs_remalign_mtl_5fold fold_01 and q1_crrvs_wsst_tcn_5fold fold_01",
+  "changed_variable": "Full-balanced REM refinement package: model_arch=rem_align_mtl_refine with lower lambda_shape200 to emphasize the full-window branch.",
+  "controlled_variables": [
+    "CR_RVS processed/q1_shape_kfold fold_01 split",
+    "Subject-independent split",
+    "CW-STFT input from train_wsst/val_wsst/test_wsst H5 files",
+    "target_norm=minmax",
+    "beta_peak=0.3",
+    "No target-subject calibration",
+    "No oracle radar bin selection",
+    "Validation-best checkpoint only"
+  ],
+  "training_config": {
+    "model_arch": "rem_align_mtl_refine",
+    "epochs": 50,
+    "early_stop_patience": 100,
+    "use_shape200_loss": true,
+    "lambda_shape200": 0.2,
+    "shape200_pcc_weight": 0.3,
+    "loso_h5_dir": "/home/qhh2237/Datasets/CR_RVS/processed/q1_shape_kfold",
+    "n_range_bins": 1,
+    "wsst_suffix": "_wsst.h5"
+  },
+  "success_criteria": [
+    "Training completes for fold_01.",
+    "Full-window diagnostic PCC improves over current REM fold_01 PCC 0.4555.",
+    "RR error improves over current REM fold_01 RR error 27.5 ms.",
+    "Shape-200 PCC remains close to the current REM fold_01 morphology level.",
+    "If full-window PCC remains below CW-STFT+TCN fold_01 PCC 0.5651, keep as pilot and do not promote."
+  ],
+  "checkpoint_selection": "Use the training script's validation-best checkpoint only; no test-set checkpoint selection.",
+  "expected_outputs": [
+    "experiments_mmecg/q1_crrvs_remalign_refine_fullbalanced_fold01_pilot/fold_01/config.json",
+    "experiments_mmecg/q1_crrvs_remalign_refine_fullbalanced_fold01_pilot/fold_01/checkpoints/best.pt",
+    "experiments_mmecg/q1_crrvs_remalign_refine_fullbalanced_fold01_pilot/fold_01/results/global_summary.json",
+    "experiments_mmecg/q1_crrvs_remalign_refine_fullbalanced_fold01_pilot/fold_01/results_shape_head/global_summary_shape_head.json"
+  ],
+  "estimated_compute": "Fold-01 only, 50 epochs, one GPU.",
+  "failure_interpretation": "If refinement does not improve full-window PCC/RR, the current REM latent is useful for morphology but not sufficient for dense continuous reconstruction; the next step should use explicit morphology-to-window assembly or distillation from CW-STFT+TCN."
+}
