@@ -1,0 +1,62 @@
+{
+  "experiment_id": "q1_crrvs_remalign_refine_lagaware_fold01_pilot",
+  "research_question": "Does a constrained lag-aware full-window loss improve the CR_RVS continuous ECG branch of the full-balanced REM refinement model?",
+  "hypothesis": "Adding a small lag-aware PCC/L1 loss will improve full-window PCC and RR timing over q1_crrvs_remalign_refine_fullbalanced_fold01_pilot without degrading Shape-200 morphology.",
+  "dataset": "CR_RVS / Nature",
+  "protocol": "Fold-01 subject-independent 5-fold CV pilot, CW-STFT input, no target-subject calibration.",
+  "tier": "pilot",
+  "publishable": false,
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "commit_id": "d163393",
+  "baseline": "q1_crrvs_remalign_refine_fullbalanced_fold01_pilot fold_01",
+  "changed_variable": "Enable constrained lag-aware full-window loss while keeping the refine architecture and full-balanced Shape-200 loss settings fixed.",
+  "controlled_variables": [
+    "CR_RVS processed/q1_shape_kfold fold_01 split",
+    "Subject-independent split",
+    "CW-STFT input",
+    "model_arch=rem_align_mtl_refine",
+    "target_norm=minmax",
+    "narrow_bandpass=false",
+    "beta_peak=0.3",
+    "use_shape200_loss=true",
+    "lambda_shape200=0.2",
+    "shape200_pcc_weight=0.3",
+    "No target-subject calibration",
+    "Validation-best checkpoint only"
+  ],
+  "training_config": {
+    "model_arch": "rem_align_mtl_refine",
+    "epochs": 50,
+    "early_stop_patience": 100,
+    "narrow_bandpass": false,
+    "beta_peak": 0.3,
+    "use_shape200_loss": true,
+    "lambda_shape200": 0.2,
+    "shape200_pcc_weight": 0.3,
+    "use_lag_aware_loss": true,
+    "lag_max_ms": 80.0,
+    "lambda_lag_pcc": 0.05,
+    "lambda_lag_l1": 0.01,
+    "lambda_zero_pcc": 0.05,
+    "lambda_lag_penalty": 0.02,
+    "loso_h5_dir": "/home/qhh2237/Datasets/CR_RVS/processed/q1_shape_kfold",
+    "n_range_bins": 1,
+    "wsst_suffix": "_wsst.h5"
+  },
+  "success_criteria": [
+    "Training completes for fold_01.",
+    "Full-window PCC exceeds the full-balanced refine fold01 PCC 0.5455.",
+    "RR error improves below the full-balanced refine fold01 RR error 21.7 ms.",
+    "Shape-200 PCC remains near or above 0.88.",
+    "If it does not exceed CW-STFT+TCN fold01 PCC 0.5651 and RR error 14.1 ms, keep as pilot."
+  ],
+  "checkpoint_selection": "Use the training script's validation-best checkpoint only; no test-set checkpoint selection.",
+  "expected_outputs": [
+    "experiments_mmecg/q1_crrvs_remalign_refine_lagaware_fold01_pilot/fold_01/config.json",
+    "experiments_mmecg/q1_crrvs_remalign_refine_lagaware_fold01_pilot/fold_01/checkpoints/best.pt",
+    "experiments_mmecg/q1_crrvs_remalign_refine_lagaware_fold01_pilot/fold_01/results/global_summary.json",
+    "experiments_mmecg/q1_crrvs_remalign_refine_lagaware_fold01_pilot/fold_01/results_shape_head/global_summary_shape_head.json"
+  ],
+  "estimated_compute": "Fold-01 only, 50 epochs, one GPU.",
+  "failure_interpretation": "If lag-aware loss does not improve full-window metrics, the next step should be explicit morphology-to-window assembly or distillation from CW-STFT+TCN rather than more loss tuning."
+}
