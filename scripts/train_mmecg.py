@@ -71,6 +71,7 @@ def _uses_wsst_loader(model_arch: str) -> bool:
         "rem_align", "remalign", "remalign_net",
         "rem_align_mtl", "remalign_mtl", "remalign_net_mtl",
         "rem_align_mtl_refine", "remalign_mtl_refine", "remalign_net_mtl_refine",
+        "rem_align_hybrid_mtl", "rem_align_hybrid", "remalign_hybrid_mtl",
     }
 
 
@@ -595,7 +596,9 @@ def main():
                                  "remalign", "remalign_net", "rem_align_mtl",
                                  "remalign_mtl", "remalign_net_mtl",
                                  "rem_align_mtl_refine", "remalign_mtl_refine",
-                                 "remalign_net_mtl_refine"],
+                                 "remalign_net_mtl_refine",
+                                 "rem_align_hybrid_mtl", "rem_align_hybrid",
+                                 "remalign_hybrid_mtl"],
                         help="Runnable model architecture. Frozen legacy baseline outputs remain in experiments_mmecg but are not current training entry points.")
     parser.add_argument("--baseline_hidden", type=int, default=None,
                         help="Hidden channels for simple baseline models.")
@@ -642,6 +645,18 @@ def main():
                         help="Max absolute predicted output lag in milliseconds")
     parser.add_argument("--lambda_output_lag_l1", type=float, default=None,
                         help="L1 regularization weight for normalized output lag")
+    parser.add_argument("--use_delta_sys",
+                        type=lambda x: x.lower() != "false", default=None,
+                        help="Hybrid alignment: enable interpretable systematic delay delta_sys.")
+    parser.add_argument("--use_delta_residual",
+                        type=lambda x: x.lower() != "false", default=None,
+                        help="Hybrid alignment: enable constrained residual delay field r.")
+    parser.add_argument("--delta_sys_knots", type=int, default=None,
+                        help="Number of spline knots for delta_sys.")
+    parser.add_argument("--delta_sys_max_ms", type=float, default=None,
+                        help="Max absolute systematic delay in milliseconds.")
+    parser.add_argument("--delta_residual_eps_ms", type=float, default=None,
+                        help="Residual delay budget epsilon in milliseconds.")
     parser.add_argument("--topk_bins", type=int, default=None,
                         help="Per-(subject,scene) top-K range bins by 0.8-3.5 Hz band energy. 0 or unset = all 50 bins.")
     parser.add_argument("--target_norm", type=str, default=None,
@@ -713,6 +728,11 @@ def main():
     if args.use_shape200_loss is not None: cfg.use_shape200_loss = args.use_shape200_loss
     if args.lambda_shape200   is not None: cfg.lambda_shape200   = args.lambda_shape200
     if args.shape200_pcc_weight is not None: cfg.shape200_pcc_weight = args.shape200_pcc_weight
+    if args.use_delta_sys      is not None: cfg.use_delta_sys      = args.use_delta_sys
+    if args.use_delta_residual is not None: cfg.use_delta_residual = args.use_delta_residual
+    if args.delta_sys_knots    is not None: cfg.delta_sys_knots    = args.delta_sys_knots
+    if args.delta_sys_max_ms   is not None: cfg.delta_sys_max_ms   = args.delta_sys_max_ms
+    if args.delta_residual_eps_ms is not None: cfg.delta_residual_eps_ms = args.delta_residual_eps_ms
     if args.fmcw_selector     is not None: cfg.fmcw_selector     = args.fmcw_selector
     if args.fmcw_topk         is not None: cfg.fmcw_topk         = args.fmcw_topk
     if args.fmcw_out_channels is not None: cfg.fmcw_out_channels = args.fmcw_out_channels

@@ -36,6 +36,9 @@ SUPPORTED_ARCHES = {
     "rem_align_mtl_refine",
     "remalign_mtl_refine",
     "remalign_net_mtl_refine",
+    "rem_align_hybrid_mtl",
+    "rem_align_hybrid",
+    "remalign_hybrid_mtl",
 }
 
 

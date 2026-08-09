@@ -68,6 +68,7 @@ def _uses_wsst_loader(model_arch: str) -> bool:
         "rem_align", "remalign", "remalign_net",
         "rem_align_mtl", "remalign_mtl", "remalign_net_mtl",
         "rem_align_mtl_refine", "remalign_mtl_refine", "remalign_net_mtl_refine",
+        "rem_align_hybrid_mtl", "rem_align_hybrid", "remalign_hybrid_mtl",
     }
 
 

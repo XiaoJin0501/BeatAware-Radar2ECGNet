@@ -380,3 +380,187 @@ class REMAlignMTLRefineNet(nn.Module):
         ecg.morphology_residual = residual
 
         return ecg, (r_mask, qrs_mask, delay)
+
+
+class HybridElectromechanicalAlignment(nn.Module):
+    """Hybrid electromechanical delay field: interpretable delta_sys + residual.
+
+        delta(t) = delta_sys(t) + r(t)          [milliseconds]
+
+    - `delta_sys(t)`: low-DoF, interpretable systematic delay. A K-knot spline
+      whose knot values are predicted from a global latent context, tanh-bounded
+      to +/- `delta_sys_max_ms`, zero-initialized so the module starts at identity.
+      This is the scientific quantity (approx. PEP) reported/validated for C3.
+    - `r(t)`: eps-bounded residual field for local jitter, zero-initialized.
+
+    The delay is defined in milliseconds and applied as a smooth `grid_sample`
+    warp of the temporal latent (ms semantics for interpretability, latent warp
+    for training stability). `use_delta_sys` and `use_delta_residual` toggle the
+    two components independently so one backbone realizes the B0-B4 ablation.
+    See docs/ALIGNMENT_DESIGN.md.
+    """
+
+    def __init__(
+        self,
+        hidden: int = 128,
+        window_ms: float = 8000.0,
+        knots: int = 5,
+        delta_sys_max_ms: float = 150.0,
+        delta_residual_eps_ms: float = 30.0,
+        use_delta_sys: bool = True,
+        use_delta_residual: bool = True,
+    ) -> None:
+        super().__init__()
+        self.window_ms = float(window_ms)
+        self.knots = int(knots)
+        self.delta_sys_max_ms = float(delta_sys_max_ms)
+        self.delta_residual_eps_ms = float(delta_residual_eps_ms)
+        self.use_delta_sys = bool(use_delta_sys)
+        self.use_delta_residual = bool(use_delta_residual)
+
+        # Systematic delay: K knot values from a global latent context.
+        self.knot_head = nn.Sequential(
+            nn.Linear(hidden, hidden // 2),
+            nn.GELU(),
+            nn.Linear(hidden // 2, self.knots),
+        )
+        nn.init.zeros_(self.knot_head[-1].weight)
+        nn.init.zeros_(self.knot_head[-1].bias)
+
+        # Residual jitter field conditioned on latent + event map.
+        self.residual_head = nn.Sequential(
+            nn.Conv1d(hidden + 2, hidden // 2, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden // 2),
+            nn.GELU(),
+            nn.Conv1d(hidden // 2, 1, kernel_size=1),
+        )
+        nn.init.zeros_(self.residual_head[-1].weight)
+        nn.init.zeros_(self.residual_head[-1].bias)
+
+    def forward(
+        self, h: torch.Tensor, event_low: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        b, c, t = h.shape
+
+        if self.use_delta_sys:
+            ctx = h.mean(dim=-1)  # [B, C] global context
+            knots = torch.tanh(self.knot_head(ctx)) * self.delta_sys_max_ms  # [B, K]
+            delta_sys = F.interpolate(
+                knots.unsqueeze(1), size=t, mode="linear", align_corners=True
+            )  # [B, 1, t] ms
+        else:
+            delta_sys = torch.zeros(b, 1, t, device=h.device, dtype=h.dtype)
+
+        if self.use_delta_residual:
+            delta_res = self.delta_residual_eps_ms * torch.tanh(
+                self.residual_head(torch.cat([h, event_low], dim=1))
+            )  # [B, 1, t] ms
+        else:
+            delta_res = torch.zeros(b, 1, t, device=h.device, dtype=h.dtype)
+
+        delta_ms = delta_sys + delta_res
+        if t <= 1:
+            return h, delta_sys, delta_res
+
+        # ms -> latent-step offset: the latent spans `t` steps over `window_ms`.
+        ms_per_step = self.window_ms / float(t)
+        delta_steps = delta_ms / ms_per_step
+
+        base = torch.linspace(-1.0, 1.0, t, device=h.device, dtype=h.dtype).view(1, 1, t)
+        offset = 2.0 * delta_steps / float(t - 1)
+        x = (base - offset).clamp(-1.0, 1.0)
+        y = torch.zeros_like(x)
+        grid = torch.stack([x.squeeze(1), y.squeeze(1)], dim=-1).unsqueeze(1)
+        aligned = F.grid_sample(
+            h.unsqueeze(2),
+            grid,
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=True,
+        ).squeeze(2)
+        return aligned, delta_sys, delta_res
+
+
+class REMAlignHybridMTLNet(nn.Module):
+    """REM-AlignNet-MTL with the hybrid electromechanical alignment module.
+
+    Identical to REMAlignMTLNet except the latent alignment is the ablatable
+    HybridElectromechanicalAlignment (delta_sys + residual). The 200-point
+    morphology head is retained so Shape-200 stays comparable across the B0-B4
+    ablation. delta_sys / delta_residual are exposed on the output tensor for
+    interpretability analysis (C3).
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 50,
+        hidden: int = 128,
+        dropout: float = 0.1,
+        knots: int = 5,
+        delta_sys_max_ms: float = 150.0,
+        delta_residual_eps_ms: float = 30.0,
+        use_delta_sys: bool = True,
+        use_delta_residual: bool = True,
+    ) -> None:
+        super().__init__()
+        self.encoder = WSSTEncoder(in_channels=in_channels, hidden=hidden, dropout=dropout)
+        self.event_head = EventStructureHead(hidden=hidden)
+        self.event_proj = nn.Sequential(
+            nn.Conv1d(2, hidden, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden),
+            nn.GELU(),
+        )
+        self.alignment = HybridElectromechanicalAlignment(
+            hidden=hidden,
+            knots=knots,
+            delta_sys_max_ms=delta_sys_max_ms,
+            delta_residual_eps_ms=delta_residual_eps_ms,
+            use_delta_sys=use_delta_sys,
+            use_delta_residual=use_delta_residual,
+        )
+        self.tcn = nn.Sequential(
+            _ResidualTCNBlock(hidden, dilation=1, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=2, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=4, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=8, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=16, dropout=dropout),
+        )
+        self.full_decoder = nn.Sequential(
+            nn.Conv1d(hidden, hidden // 2, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden // 2),
+            nn.GELU(),
+            nn.Conv1d(hidden // 2, 1, kernel_size=1),
+        )
+        self.shape_decoder = nn.Sequential(
+            nn.Conv1d(hidden, hidden // 2, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden // 2),
+            nn.GELU(),
+            nn.Conv1d(hidden // 2, hidden // 4, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden // 4),
+            nn.GELU(),
+            nn.Conv1d(hidden // 4, 1, kernel_size=1),
+        )
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+        h = self.encoder(x)
+        r_mask, qrs_mask = self.event_head(h)
+        event_low = F.interpolate(
+            torch.cat([r_mask, qrs_mask], dim=1),
+            size=h.shape[-1],
+            mode="linear",
+            align_corners=False,
+        )
+        h = h + self.event_proj(event_low)
+        h, delta_sys, delta_res = self.alignment(h, event_low)
+        h = self.tcn(h)
+
+        full_h = F.interpolate(h, size=1600, mode="linear", align_corners=False)
+        ecg = torch.sigmoid(self.full_decoder(full_h))
+
+        shape_h = F.interpolate(h, size=200, mode="linear", align_corners=False)
+        shape200 = torch.sigmoid(self.shape_decoder(shape_h))
+        ecg.shape200_pred = shape200
+        ecg.delta_sys = delta_sys
+        ecg.delta_residual = delta_res
+
+        return ecg, (r_mask, qrs_mask, delta_sys)

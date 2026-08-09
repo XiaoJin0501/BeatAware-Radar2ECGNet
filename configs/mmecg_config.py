@@ -75,6 +75,14 @@ class MMECGConfig:
     output_lag_max_ms    : float = 200.0
     lambda_output_lag_l1 : float = 0.0
 
+    # Hybrid electromechanical alignment (rem_align_hybrid_mtl). See
+    # docs/ALIGNMENT_DESIGN.md. Toggle delta_sys / residual for the B0-B4 ablation.
+    use_delta_sys         : bool  = True
+    use_delta_residual    : bool  = True
+    delta_sys_knots       : int   = 5
+    delta_sys_max_ms      : float = 150.0
+    delta_residual_eps_ms : float = 30.0
+
     def __repr__(self):
         lines = [f"{self.__class__.__name__}:"]
         for k, v in self.__class__.__dict__.items():

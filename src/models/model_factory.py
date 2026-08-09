@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from src.models.BeatAwareNet.radar2ecgnet import BeatAwareRadar2ECGNet
-from src.models.remalign import REMAlignMTLNet, REMAlignMTLRefineNet, REMAlignNet, REMEventNet
+from src.models.remalign import (
+    REMAlignHybridMTLNet,
+    REMAlignMTLNet,
+    REMAlignMTLRefineNet,
+    REMAlignNet,
+    REMEventNet,
+)
 
 
 def build_mmecg_model(cfg):
@@ -66,6 +72,18 @@ def build_mmecg_model(cfg):
             hidden=getattr(cfg, "baseline_hidden", 128),
             dropout=getattr(cfg, "dropout", 0.1),
             max_delay=getattr(cfg, "align_max_delay", 8.0),
+        )
+
+    if arch in ("rem_align_hybrid_mtl", "rem_align_hybrid", "remalign_hybrid_mtl"):
+        return REMAlignHybridMTLNet(
+            in_channels=getattr(cfg, "n_range_bins", 50),
+            hidden=getattr(cfg, "baseline_hidden", 128),
+            dropout=getattr(cfg, "dropout", 0.1),
+            knots=getattr(cfg, "delta_sys_knots", 5),
+            delta_sys_max_ms=getattr(cfg, "delta_sys_max_ms", 150.0),
+            delta_residual_eps_ms=getattr(cfg, "delta_residual_eps_ms", 30.0),
+            use_delta_sys=getattr(cfg, "use_delta_sys", True),
+            use_delta_residual=getattr(cfg, "use_delta_residual", True),
         )
 
     if arch in ("rem_align_mtl_refine", "remalign_mtl_refine", "remalign_net_mtl_refine"):
