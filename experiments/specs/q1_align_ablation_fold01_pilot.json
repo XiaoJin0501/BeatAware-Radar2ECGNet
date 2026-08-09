@@ -1,0 +1,48 @@
+{
+  "experiment_id": "q1_align_ablation_fold01_pilot",
+  "research_question": "Does the hybrid electromechanical alignment (delta_sys + residual + lag-aware) close the MMECG continuous ECG gap while preserving Shape-200 morphology?",
+  "hypothesis": "On MMECG fold_01, adding delta_sys (B1), then residual (B3), then lag-aware (B4) progressively increases full-window PCC and improves RR/R-F1 while Shape-200 PCC stays roughly flat, versus the WSST-TCN floor (B0).",
+  "dataset": "MMECG public",
+  "protocol": "Fold-01 strict LOSO minimal-loop ablation, WSST input, 50 epochs, no target-subject calibration.",
+  "tier": "pilot",
+  "publishable": false,
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "commit_id": "5131949",
+  "baseline": "B0 = WSST-TCN floor (model_arch=wsst_tcn, same training settings).",
+  "changed_variable": "Alignment components toggled on one backbone: B1 +delta_sys; B3 +delta_sys+residual; B4 +delta_sys+residual+lag-aware. All other settings fixed.",
+  "controlled_variables": [
+    "MMECG processed/loso fold_01 strict LOSO split",
+    "WSST input _wsst.h5",
+    "target_norm=minmax",
+    "narrow_bandpass=true",
+    "balance_by=subject",
+    "beta_peak=0.3",
+    "use_shape200_loss=true, lambda_shape200=0.8, shape200_pcc_weight=0.5",
+    "epochs=50, early_stop_patience=100",
+    "delta_sys_max_ms=150, delta_residual_eps_ms=30, delta_sys_knots=5",
+    "lag (B4 only): lag_max_ms=40, lambda_lag_pcc=0.05, lambda_lag_l1=0.01, lambda_zero_pcc=0.05, lambda_lag_penalty=0.02",
+    "Validation-best checkpoint only"
+  ],
+  "arms": {
+    "b0_wssttcn": {"model_arch": "wsst_tcn"},
+    "b1_deltasys": {"model_arch": "rem_align_hybrid_mtl", "use_delta_sys": true, "use_delta_residual": false, "use_lag_aware_loss": false},
+    "b3_deltasys_res": {"model_arch": "rem_align_hybrid_mtl", "use_delta_sys": true, "use_delta_residual": true, "use_lag_aware_loss": false},
+    "b4_full": {"model_arch": "rem_align_hybrid_mtl", "use_delta_sys": true, "use_delta_residual": true, "use_lag_aware_loss": true, "lag_max_ms": 40}
+  },
+  "success_criteria": [
+    "All four arms complete on fold_01.",
+    "B4 full-window (rem_full_ola) PCC clearly improves over B0 and over the prior refine baseline 0.420.",
+    "Shape-200 PCC on B1/B3/B4 stays roughly flat (not dropping meaningfully below ~0.87).",
+    "RR / R-F1 improve from B0 -> B4."
+  ],
+  "go_no_go": "If B4 continuous does not clearly improve on fold_01, stop-loss or adjust the alignment design before scaling. If it clearly improves, extend to 11-fold LOSO + CR_RVS.",
+  "checkpoint_selection": "Validation-best checkpoint only; no test-set selection.",
+  "expected_outputs": [
+    "experiments_mmecg/q1_align_ablation_fold01_b0_wssttcn/fold_01/",
+    "experiments_mmecg/q1_align_ablation_fold01_b1_deltasys/fold_01/",
+    "experiments_mmecg/q1_align_ablation_fold01_b3_deltasys_res/fold_01/",
+    "experiments_mmecg/q1_align_ablation_fold01_b4_full/fold_01/"
+  ],
+  "estimated_compute": "Four fold-01 runs, 50 epochs each, one GPU.",
+  "failure_interpretation": "If delta_sys/residual/lag do not separably help continuous metrics, dense-decoder alignment is insufficient; pivot to explicit cycle assembly from the Shape-200 head."
+}
