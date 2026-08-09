@@ -382,6 +382,25 @@ class REMAlignMTLRefineNet(nn.Module):
         return ecg, (r_mask, qrs_mask, delay)
 
 
+def _grid_warp_time(feat: torch.Tensor, offset_steps: torch.Tensor) -> torch.Tensor:
+    """Warp `feat` [B,C,L] along time by `offset_steps` [B,1,L] (index units).
+
+    Positive offset delays the signal. Shared by latent-space and output-space
+    alignment so the two only differ in where the delay is applied.
+    """
+    b, c, L = feat.shape
+    if L <= 1:
+        return feat
+    base = torch.linspace(-1.0, 1.0, L, device=feat.device, dtype=feat.dtype).view(1, 1, L)
+    offset = 2.0 * offset_steps / float(L - 1)
+    x = (base - offset).clamp(-1.0, 1.0)
+    y = torch.zeros_like(x)
+    grid = torch.stack([x.squeeze(1), y.squeeze(1)], dim=-1).unsqueeze(1)
+    return F.grid_sample(
+        feat.unsqueeze(2), grid, mode="bilinear", padding_mode="border", align_corners=True
+    ).squeeze(2)
+
+
 class HybridElectromechanicalAlignment(nn.Module):
     """Hybrid electromechanical delay field: interpretable delta_sys + residual.
 
@@ -409,6 +428,7 @@ class HybridElectromechanicalAlignment(nn.Module):
         delta_residual_eps_ms: float = 30.0,
         use_delta_sys: bool = True,
         use_delta_residual: bool = True,
+        warp_latent: bool = True,
     ) -> None:
         super().__init__()
         self.window_ms = float(window_ms)
@@ -417,6 +437,11 @@ class HybridElectromechanicalAlignment(nn.Module):
         self.delta_residual_eps_ms = float(delta_residual_eps_ms)
         self.use_delta_sys = bool(use_delta_sys)
         self.use_delta_residual = bool(use_delta_residual)
+        # When False, the module still predicts delta but leaves the latent
+        # untouched, so the model can apply delta at output/event time instead
+        # (align_space="output"). This tests the "latent warp is absorbed by the
+        # decoder" hypothesis. See docs/ALIGNMENT_DESIGN.md.
+        self.warp_latent = bool(warp_latent)
 
         # Systematic delay: K knot values from a global latent context.
         self.knot_head = nn.Sequential(
@@ -459,25 +484,13 @@ class HybridElectromechanicalAlignment(nn.Module):
             delta_res = torch.zeros(b, 1, t, device=h.device, dtype=h.dtype)
 
         delta_ms = delta_sys + delta_res
-        if t <= 1:
+        if (not self.warp_latent) or t <= 1:
             return h, delta_sys, delta_res
 
         # ms -> latent-step offset: the latent spans `t` steps over `window_ms`.
         ms_per_step = self.window_ms / float(t)
         delta_steps = delta_ms / ms_per_step
-
-        base = torch.linspace(-1.0, 1.0, t, device=h.device, dtype=h.dtype).view(1, 1, t)
-        offset = 2.0 * delta_steps / float(t - 1)
-        x = (base - offset).clamp(-1.0, 1.0)
-        y = torch.zeros_like(x)
-        grid = torch.stack([x.squeeze(1), y.squeeze(1)], dim=-1).unsqueeze(1)
-        aligned = F.grid_sample(
-            h.unsqueeze(2),
-            grid,
-            mode="bilinear",
-            padding_mode="border",
-            align_corners=True,
-        ).squeeze(2)
+        aligned = _grid_warp_time(h, delta_steps)
         return aligned, delta_sys, delta_res
 
 
@@ -501,8 +514,14 @@ class REMAlignHybridMTLNet(nn.Module):
         delta_residual_eps_ms: float = 30.0,
         use_delta_sys: bool = True,
         use_delta_residual: bool = True,
+        align_space: str = "latent",
+        fs: int = 200,
+        out_len: int = 1600,
     ) -> None:
         super().__init__()
+        self.align_space = str(align_space).lower()
+        self.fs = int(fs)
+        self.out_len = int(out_len)
         self.encoder = WSSTEncoder(in_channels=in_channels, hidden=hidden, dropout=dropout)
         self.event_head = EventStructureHead(hidden=hidden)
         self.event_proj = nn.Sequential(
@@ -517,6 +536,7 @@ class REMAlignHybridMTLNet(nn.Module):
             delta_residual_eps_ms=delta_residual_eps_ms,
             use_delta_sys=use_delta_sys,
             use_delta_residual=use_delta_residual,
+            warp_latent=(self.align_space == "latent"),
         )
         self.tcn = nn.Sequential(
             _ResidualTCNBlock(hidden, dilation=1, dropout=dropout),
@@ -554,8 +574,17 @@ class REMAlignHybridMTLNet(nn.Module):
         h, delta_sys, delta_res = self.alignment(h, event_low)
         h = self.tcn(h)
 
-        full_h = F.interpolate(h, size=1600, mode="linear", align_corners=False)
+        full_h = F.interpolate(h, size=self.out_len, mode="linear", align_corners=False)
         ecg = torch.sigmoid(self.full_decoder(full_h))
+
+        if self.align_space == "output":
+            # Apply the predicted delay (ms) at output/event time instead of in
+            # the latent, so it cannot be absorbed by the decoder.
+            delta_out_ms = F.interpolate(
+                delta_sys + delta_res, size=self.out_len, mode="linear", align_corners=True
+            )
+            delta_samples = delta_out_ms * (self.fs / 1000.0)
+            ecg = _grid_warp_time(ecg, delta_samples)
 
         shape_h = F.interpolate(h, size=200, mode="linear", align_corners=False)
         shape200 = torch.sigmoid(self.shape_decoder(shape_h))

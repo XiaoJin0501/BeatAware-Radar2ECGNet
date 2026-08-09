@@ -82,6 +82,7 @@ class MMECGConfig:
     delta_sys_knots       : int   = 5
     delta_sys_max_ms      : float = 150.0
     delta_residual_eps_ms : float = 30.0
+    align_space           : str   = "latent"  # "latent" | "output"
 
     def __repr__(self):
         lines = [f"{self.__class__.__name__}:"]

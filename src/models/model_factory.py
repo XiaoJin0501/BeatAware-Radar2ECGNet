@@ -84,6 +84,9 @@ def build_mmecg_model(cfg):
             delta_residual_eps_ms=getattr(cfg, "delta_residual_eps_ms", 30.0),
             use_delta_sys=getattr(cfg, "use_delta_sys", True),
             use_delta_residual=getattr(cfg, "use_delta_residual", True),
+            align_space=getattr(cfg, "align_space", "latent"),
+            fs=getattr(cfg, "fs", 200),
+            out_len=getattr(cfg, "signal_len", 1600),
         )
 
     if arch in ("rem_align_mtl_refine", "remalign_mtl_refine", "remalign_net_mtl_refine"):
