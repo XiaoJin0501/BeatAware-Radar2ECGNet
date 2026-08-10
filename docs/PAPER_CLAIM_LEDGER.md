@@ -3,21 +3,28 @@
 This ledger maps manuscript claims to verified experimental evidence. Do not
 write paper claims that cannot be traced here.
 
-## Central thesis
+## Central thesis (revised 2026-08-10)
 
-Radar↔ECG reconstruction is limited by a time-varying **electromechanical delay**
-`δ(t)` (≈ pre-ejection period). Explicit event structure plus a self-emergently
-learned alignment closes the morphology↔continuous gap. See
-`docs/ALIGNMENT_DESIGN.md` and `docs/Q1_EXPERIMENT_MATRIX.md`.
+Radar-to-ECG continuous fidelity is gated by accurate **beat localization**
+(rhythm/anchor prediction), not by beat morphology. We reconstruct continuous ECG
+by (1) a strong beat-localization head predicting precise anchor positions + local
+rhythm from radar, and (2) assembling the learned morphology (~0.96) at those
+positions. See `docs/ASSEMBLY_DESIGN.md` and `docs/Q1_EXPERIMENT_MATRIX.md`.
+
+> Superseded thesis: "time-varying electromechanical delay `δ(t)` closes the gap"
+> was FALSIFIED on MMECG fold_01 (delay warp in latent/output space did not move
+> continuous PCC beyond ~0.40; see `docs/ALIGNMENT_DESIGN.md` §7b). The δ analysis
+> is retained only as an interpretability side-figure.
 
 ## Thesis claims
 
 | Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
 |---|---|---|---|---|
-| C1 | Explicit event structure + learned time-varying electromechanical alignment enables continuous ECG reconstruction on radar. | T1, T2, T4 (B1/B4) | planned | Needs the fold_01 minimal loop, then 11-fold LOSO. |
-| C2 | Dual-track evaluation shows morphology is easy but timing is hard, and the alignment closes the gap. | T2, Fig-A, T4 | planned | Requires B0→B4 gap-closing evidence. |
-| C3 | The learned delay `δ` is interpretable and varies with physiological state (HR, Valsalva/apnea). | Fig-B (pseudo-GT lag), Fig-C (HR), Fig-D (state) | planned | Pseudo-GT delay is validation-only, never in training/inference. |
-| C4 | The framework generalizes across FMCW (MMECG) and CW (CR_RVS) under subject-independent protocols. | T3, CR_RVS ablation | partial | CR_RVS lag-aware refine 5-fold pilot exists (PCC 0.500 vs TCN 0.438), but not under the new hybrid-δ design yet. |
+| C1 | A radar beat-localization head predicts accurate beat anchors/rhythm, enabling structured continuous ECG assembly. | T2, T4 (L1/L3), localization error | planned | Needs the localization head (route C). Diagnostic ceiling: oracle-cycle 0.93–0.96 vs predicted-anchor 0.23–0.37. |
+| C2 | Dual-track evaluation shows morphology is easy but localization/timing is hard; the localization head closes the continuous gap. | T2, Fig-A, T4 | planned | Requires L0→L3 gap-closing evidence. |
+| C3 | Beat morphology is reconstructed with high fidelity and, given correct anchors, assembles into near-oracle continuous ECG. | T1, oracle-cycle OLA | partial | Shape-head PCC ≈0.96; oracle-cycle OLA ≈0.93–0.96 on fold_01. |
+| C4 | The framework generalizes across FMCW (MMECG) and CW (CR_RVS) under subject-independent protocols. | T3, CR_RVS | partial | CR_RVS lag-aware refine 5-fold pilot exists (PCC 0.500 vs TCN 0.438); route-C localization not yet run on CR_RVS. |
+| C5 (side) | A residual electromechanical delay (predicted anchor vs GT R) is observable per beat. | delay side-analysis | optional | Demoted interpretability analysis, not a main claim. |
 
 ## Supporting / boundary claims
 
