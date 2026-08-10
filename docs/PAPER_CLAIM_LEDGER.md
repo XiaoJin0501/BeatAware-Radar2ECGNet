@@ -3,28 +3,39 @@
 This ledger maps manuscript claims to verified experimental evidence. Do not
 write paper claims that cannot be traced here.
 
-## Central thesis (revised 2026-08-10)
+## Main thesis (revised 2026-08-10, after route-C demotion)
 
-Radar-to-ECG continuous fidelity is gated by accurate **beat localization**
-(rhythm/anchor prediction), not by beat morphology. We reconstruct continuous ECG
-by (1) a strong beat-localization head predicting precise anchor positions + local
-rhythm from radar, and (2) assembling the learned morphology (~0.96) at those
-positions. See `docs/ASSEMBLY_DESIGN.md` and `docs/Q1_EXPERIMENT_MATRIX.md`.
+A new representation-aware radar-to-ECG model achieves strong **beat-morphology**
+reconstruction on two radar modalities (FMCW MMECG, CW CR_RVS) under
+subject-independent protocols, compares favorably with published/reproduced
+baselines, and — as a mechanistic **discovery** — shows that the remaining
+continuous-ECG gap is governed by **beat-anchor localization precision**, not by
+morphology. See `docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
 
-> Superseded thesis: "time-varying electromechanical delay `δ(t)` closes the gap"
-> was FALSIFIED on MMECG fold_01 (delay warp in latent/output space did not move
-> continuous PCC beyond ~0.40; see `docs/ALIGNMENT_DESIGN.md` §7b). The δ analysis
-> is retained only as an interpretability side-figure.
+> Demoted (2026-08-10): "anchor-guided assembly as the main continuous model" is
+> NOT the main claim. 3-fold LOSO showed anchor detection recall generalizes but
+> anchor PRECISION does not (fold_02/03 MAE 40–55 ms vs fold_01 16–20 ms;
+> continuous OLA ~0 on 2/3 folds even after recall is restored). Route C is kept
+> as a discovery + mechanism/future-direction section, not the Q1 main model.
+> The earlier "electromechanical delay `δ(t)`" thesis was falsified before this
+> (see `docs/ALIGNMENT_DESIGN.md` §7b).
 
-## Thesis claims
+## Main claims
 
 | Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
 |---|---|---|---|---|
-| C1 | A radar beat-localization head predicts accurate beat anchors/rhythm, enabling structured continuous ECG assembly. | T2, T4 (L1/L3), localization error | planned | Needs the localization head (route C). Diagnostic ceiling: oracle-cycle 0.93–0.96 vs predicted-anchor 0.23–0.37. |
-| C2 | Dual-track evaluation shows morphology is easy but localization/timing is hard; the localization head closes the continuous gap. | T2, Fig-A, T4 | planned | Requires L0→L3 gap-closing evidence. |
-| C3 | Beat morphology is reconstructed with high fidelity and, given correct anchors, assembles into near-oracle continuous ECG. | T1, oracle-cycle OLA | partial | Shape-head PCC ≈0.96; oracle-cycle OLA ≈0.93–0.96 on fold_01. |
-| C4 | The framework generalizes across FMCW (MMECG) and CW (CR_RVS) under subject-independent protocols. | T3, CR_RVS | partial | CR_RVS lag-aware refine 5-fold pilot exists (PCC 0.500 vs TCN 0.438); route-C localization not yet run on CR_RVS. |
-| C5 (side) | A residual electromechanical delay (predicted anchor vs GT R) is observable per beat. | delay side-analysis | optional | Demoted interpretability analysis, not a main claim. |
+| M1 | Strong beat-morphology reconstruction on MMECG (Shape-200). | T1 | pilot | Shape-200 PCC ≈0.89 vs radarODE(adapted) 0.73, BeatAware 0.67. |
+| M2 | External validation on CR_RVS (CW radar) matches/exceeds published results. | T3 | pilot | CW-STFT+REM Shape-200 PCC ≈0.887 vs VMD-CBNeT reported 0.856; protocol caveats stated. |
+| M3 | Compares favorably with published/reproduced baselines under fair, output-formulation-aware protocols. | T1/T2/T3 tiers | partial | Needs final tier-labeled tables; sample-level results kept separate from subject-independent. |
+| M4 | Generalizes across FMCW (MMECG) and CW (CR_RVS) under subject-independent protocols. | T1, T3 | partial | Morphology track; CR_RVS lag-aware refine 5-fold pilot (PCC 0.500 vs TCN 0.438). |
+
+## Discovery / mechanism claims (route C, demoted from main model)
+
+| Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
+|---|---|---|---|---|
+| D1 | The radar→ECG continuous gap is governed by beat-anchor localization, not morphology: with oracle anchors, learned morphology assembles into near-oracle continuous ECG. | oracle-cycle OLA 0.93–0.98; morphology ≈0.96 | supported (fold-level) | Strong upper-bound evidence. |
+| D2 | Robust sub-50 ms anchor localization under LOSO is the open bottleneck: detection recall generalizes across subjects but precision does not. | 3-fold anchor validation + failure diagnosis + threshold re-eval | supported | fold_02/03 MAE 40–55 ms; OLA ~0; recovering recall does not recover OLA. Frame as finding + future direction. |
+| D3 (side) | A per-beat electromechanical offset (predicted anchor vs GT R) is observable but subject-dependent. | anchor signed-bias analysis | optional | Interpretability side-note; not globally correctable (LOSO val→test offset does not transfer). |
 
 ## Supporting / boundary claims
 

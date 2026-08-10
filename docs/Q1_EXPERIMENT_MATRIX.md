@@ -1,21 +1,30 @@
 # Q1 Experiment Matrix
 
-Paper-first experiment design for the electromechanical-alignment thesis. Each
-table/figure exists to prove a specific claim (see `docs/PAPER_CLAIM_LEDGER.md`).
-Do not add experiments that do not map to a claim.
+Paper-first experiment design. Each table/figure exists to prove a specific claim
+(see `docs/PAPER_CLAIM_LEDGER.md`). Do not add experiments that do not map to a claim.
 
-## Central thesis & claims (recap)
+## Main-line status (2026-08-10, after route-C demotion)
 
-Radar↔ECG has a time-varying electromechanical delay `δ(t)` (≈PEP). Modeling and
-self-emergently learning it closes the morphology↔continuous gap.
+Main line = **morphology reconstruction + external validation + fair comparison**
+(claims M1–M4). Route C (anchor-guided continuous assembly) is **demoted to a
+discovery/mechanism section** (D1–D2) after 3-fold LOSO showed anchor precision does
+not generalize (see `docs/ASSEMBLY_DESIGN.md`).
 
-- **C1** Explicit event structure + learned time-varying electromechanical
-  alignment (`δ` field + lag-aware) framework for continuous ECG.
-- **C2** Dual-track evaluation quantifies "morphology easy, timing hard" and the
-  alignment closes the gap.
-- **C3** Learned `δ` is interpretable and varies with physiological state.
-- **C4** Holds across FMCW (MMECG) and CW (CR_RVS) under subject-independent
-  protocols.
+- **Main tables**: T1 (MMECG morphology), T3 (CR_RVS external), reported-literature
+  (Table D), T5 (efficiency).
+- **Mechanism/discovery section**: oracle-vs-predicted anchor OLA + the 3-fold
+  precision-generalization finding (D1–D2); the continuous table (T2) and anchor
+  ablation (T4) become supporting mechanism evidence, not the headline.
+
+## Claims (recap)
+
+- **M1** Strong MMECG beat morphology (Shape-200).
+- **M2** CR_RVS external validation matches/exceeds published (VMD-CBNeT).
+- **M3** Favorable vs published/reproduced baselines under fair protocols.
+- **M4** Generalizes across FMCW (MMECG) and CW (CR_RVS), subject-independent.
+- **D1/D2 (discovery)** Continuous gap = anchor localization; robust sub-50 ms
+  anchor precision under LOSO is the open bottleneck (oracle 0.93–0.98 vs
+  predicted assembly; precision does not generalize across subjects).
 
 ## Protocols & aggregation (locked)
 

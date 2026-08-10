@@ -1,10 +1,23 @@
-# Anchor-Guided Morphology Assembly — Design (Route C, MAIN direction)
+# Anchor-Guided Morphology Assembly — Design (Route C)
 
-Status: **this is the new main model direction, not a fallback** (decided
-2026-08-10). It replaces the falsified alignment/delay thesis
-(see `docs/ALIGNMENT_DESIGN.md` §7b). Concrete code lives in
-`src/models/remalign/`, `src/losses/`, and the assembly evaluator
-`scripts/evaluate_mmecg_long_assembly.py`.
+Status: **DEMOTED to discovery / mechanism / future-direction (2026-08-10).** It is
+NOT the Q1 main model. 3-fold LOSO validation showed anchor detection recall
+generalizes across subjects but anchor **precision does not** (fold_02/03 MAE
+40–55 ms vs fold_01 16–20 ms; continuous OLA ~0 on 2/3 folds even after recall is
+restored via threshold tuning). The Q1 main line reverts to the robust
+morphology + external-validation track (see `docs/Q1_EXPERIMENT_MATRIX.md`,
+`docs/PAPER_CLAIM_LEDGER.md` M1–M4); route C contributes the discovery D1–D2.
+
+### Route-C evidence chain (fold_01 → 3-fold, all committed)
+- Oracle-cycle OLA 0.93–0.98, morphology ≈0.96 → gap is localization, not shape (D1).
+- fold_01 PoC: fusion (WSST detect + rcg timing) F1@50 0.82, MAE 16 ms, OLA 0.51.
+- 3-fold: mean F1@50 0.56, MAE 38 ms, OLA 0.17; folds 02/03 collapse (OLA ~0.02).
+- Diagnosis: recall collapse was largely a threshold artifact (model fires at ~88%
+  of beats), BUT threshold-tuned re-eval did NOT recover OLA → **precision
+  generalization** is the true bottleneck (D2). fold_01 was an easy subject
+  (HR 66, all normal-breathing, high confidence).
+
+The design below is retained as the mechanism/future-direction blueprint.
 
 ## 0. Paper contributions (restructured)
 
