@@ -1,0 +1,35 @@
+{
+  "experiment_id": "q1_anchor_head_fold01_pilot",
+  "research_question": "Can a standalone radar/WSST beat-anchor localization head learn accurate beat positions, and does better anchor quality raise continuous ECG assembly PCC toward the oracle ceiling?",
+  "hypothesis": "Training AnchorHeatmapNet on fold_01 pushes anchor F1@100ms from the ~0.3 predicted-anchor baseline toward 0.7-0.8, and predicted-anchor OLA PCC (morphology given) rises toward the oracle ceiling (~0.93-0.98).",
+  "dataset": "MMECG public",
+  "protocol": "Fold-01 strict LOSO, WSST input, standalone anchor localization only (no waveform decoder).",
+  "tier": "pilot",
+  "publishable": false,
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "commit_id": "d1aafe6",
+  "baseline": "Predicted-anchor assembly from prior REM R-mask (q1_align_ceval_pred_anchor_fold01): anchor-driven PCC 0.23-0.37; oracle ceiling 0.93-0.96.",
+  "changed_variable": "Dedicated anchor localization head + CenterNet focal loss on Gaussian R heatmap, trained as an independent task.",
+  "controlled_variables": [
+    "MMECG processed/loso fold_01 strict LOSO split",
+    "WSST input _wsst.h5",
+    "balance_by=subject",
+    "rpeak Gaussian target sigma=5 samples (25 ms)",
+    "Validation-best (F1@100ms) checkpoint only"
+  ],
+  "training_config": {"model": "AnchorHeatmapNet", "epochs": 40, "lr": 1e-4, "batch_size": 16, "loss": "centernet_focal"},
+  "metrics": ["anchor_mae_ms", "anchor_f1_50/100/150ms", "rr_error_ms", "predicted_anchor_ola_pcc", "oracle_anchor_ola_pcc"],
+  "success_criteria": [
+    "Training completes on fold_01; oracle_anchor_ola_pcc sanity is high (~0.95+).",
+    "Anchor F1@100ms clearly improves over the ~0.3 predicted-anchor baseline (target 0.6-0.8).",
+    "predicted_anchor_ola_pcc rises well above the dense full-window floor (~0.40) toward the oracle ceiling as anchor F1 improves."
+  ],
+  "go_no_go": "Goal is to prove anchor->continuous coupling, not to beat radarODE. If anchor F1 cannot improve, do not stack a waveform decoder; rethink the localization signal/representation.",
+  "expected_outputs": [
+    "experiments_mmecg/q1_anchor_head_fold01/fold_01/checkpoints/anchor_best.pt",
+    "experiments_mmecg/q1_anchor_head_fold01/fold_01/results/train_history.json",
+    "experiments_mmecg/q1_anchor_head_fold01/fold_01/results_anchor/anchor_metrics.json"
+  ],
+  "estimated_compute": "Fold-01 only, 40 epochs, one GPU.",
+  "failure_interpretation": "If anchor F1 stays near baseline, WSST may lack the beat-timing signal at this resolution; revisit representation (SST/phase) or add temporal context before more modeling."
+}
