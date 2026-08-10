@@ -96,9 +96,10 @@ Must-have for a credible Q1 submission:
 
 Should-have:
 - **G4 Efficiency table (T5)** — params/FLOPs/latency (model vs preprocessing).
-- **G5 Alignment-module ablation** — REM-AlignNet-MTL with vs without alignment on
-  Shape-200; if alignment doesn't help morphology, **drop it from the main model**
-  for a cleaner morphology-first architecture (honest + simpler).
+- **G5 Alignment-module ablation — RESOLVED (2026-08-10):** align vs no-align gives
+  Δ Shape-200 PCC +0.005 (fold01) / −0.004 (fold05) = within noise. **Alignment
+  module DROPPED.** Final REM-Net = encoder → event head → morphology MTL decoder
+  (use_alignment=False). G1 multi-seed runs on this final model.
 
 Optional / decide:
 - **G6 strict-LOSO BeatAware** re-run to get a fair prior-conf row in T1 Block A
