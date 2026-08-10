@@ -1,6 +1,7 @@
 """REM-AlignNet model family."""
 
 from .rem_align_net import (
+    AnchorHeatmapFusionNet,
     AnchorHeatmapNet,
     AnchorHeatmapRcgNet,
     REMAlignHybridMTLNet,
@@ -18,4 +19,5 @@ __all__ = [
     "REMAlignHybridMTLNet",
     "AnchorHeatmapNet",
     "AnchorHeatmapRcgNet",
+    "AnchorHeatmapFusionNet",
 ]

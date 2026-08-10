@@ -460,6 +460,51 @@ class AnchorHeatmapRcgNet(nn.Module):
         return torch.sigmoid(self.head(h))
 
 
+class AnchorHeatmapFusionNet(nn.Module):
+    """Fused beat-anchor localization: WSST (detection) + rcg (timing).
+
+    WSST gives strong beat detection (F1@100 ~0.97) but coarse timing (~67 ms/
+    frame); raw rcg gives fine timing (5 ms/sample) but weaker detection. Fusing
+    both branches at full 1600 resolution aims for high detection AND precision.
+    Route C stage-1b lever A.
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 50,
+        hidden: int = 128,
+        dropout: float = 0.1,
+        n_blocks: int = 6,
+        out_len: int = 1600,
+    ) -> None:
+        super().__init__()
+        self.out_len = int(out_len)
+        self.wsst_encoder = WSSTEncoder(in_channels=in_channels, hidden=hidden, dropout=dropout)
+        self.rcg_stem = nn.Sequential(
+            nn.Conv1d(in_channels, hidden, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden),
+            nn.GELU(),
+        )
+        self.rcg_tcn = nn.Sequential(
+            *[_ResidualTCNBlock(hidden, dilation=2 ** i, dropout=dropout) for i in range(n_blocks)]
+        )
+        self.fuse = nn.Sequential(
+            nn.Conv1d(hidden * 2, hidden, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden),
+            nn.GELU(),
+            nn.Conv1d(hidden, hidden // 2, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden // 2),
+            nn.GELU(),
+            nn.Conv1d(hidden // 2, 1, kernel_size=1),
+        )
+
+    def forward(self, wsst: torch.Tensor, rcg: torch.Tensor) -> torch.Tensor:
+        w = self.wsst_encoder(wsst)
+        w = F.interpolate(w, size=self.out_len, mode="linear", align_corners=False)
+        r = self.rcg_tcn(self.rcg_stem(rcg))
+        return torch.sigmoid(self.fuse(torch.cat([w, r], dim=1)))
+
+
 def _grid_warp_time(feat: torch.Tensor, offset_steps: torch.Tensor) -> torch.Tensor:
     """Warp `feat` [B,C,L] along time by `offset_steps` [B,1,L] (index units).
 
