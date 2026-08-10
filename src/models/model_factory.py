@@ -66,12 +66,13 @@ def build_mmecg_model(cfg):
             max_delay=getattr(cfg, "align_max_delay", 8.0),
         )
 
-    if arch in ("rem_align_mtl", "remalign_mtl", "remalign_net_mtl"):
+    if arch in ("rem_align_mtl", "remalign_mtl", "remalign_net_mtl", "rem_net"):
         return REMAlignMTLNet(
             in_channels=getattr(cfg, "n_range_bins", 50),
             hidden=getattr(cfg, "baseline_hidden", 128),
             dropout=getattr(cfg, "dropout", 0.1),
             max_delay=getattr(cfg, "align_max_delay", 8.0),
+            use_alignment=getattr(cfg, "use_alignment", True),
         )
 
     if arch in ("rem_align_hybrid_mtl", "rem_align_hybrid", "remalign_hybrid_mtl"):

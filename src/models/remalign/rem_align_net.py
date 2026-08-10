@@ -234,7 +234,11 @@ class REMAlignNet(nn.Module):
 
 
 class REMAlignMTLNet(nn.Module):
-    """REM-AlignNet with an explicit 200-point morphology auxiliary head."""
+    """REM-Net (morphology-first): 200-point morphology multi-task head.
+
+    Paper name REM-Net; `use_alignment` toggles the event-conditioned alignment
+    module for the G5 ablation (if it does not help Shape-200, drop it).
+    """
 
     def __init__(
         self,
@@ -242,8 +246,10 @@ class REMAlignMTLNet(nn.Module):
         hidden: int = 128,
         dropout: float = 0.1,
         max_delay: float = 8.0,
+        use_alignment: bool = True,
     ) -> None:
         super().__init__()
+        self.use_alignment = bool(use_alignment)
         self.encoder = WSSTEncoder(in_channels=in_channels, hidden=hidden, dropout=dropout)
         self.event_head = EventStructureHead(hidden=hidden)
         self.event_proj = nn.Sequential(
@@ -251,7 +257,10 @@ class REMAlignMTLNet(nn.Module):
             nn.BatchNorm1d(hidden),
             nn.GELU(),
         )
-        self.alignment = EventConditionedAlignment(hidden=hidden, max_delay=max_delay)
+        self.alignment = (
+            EventConditionedAlignment(hidden=hidden, max_delay=max_delay)
+            if self.use_alignment else None
+        )
         self.tcn = nn.Sequential(
             _ResidualTCNBlock(hidden, dilation=1, dropout=dropout),
             _ResidualTCNBlock(hidden, dilation=2, dropout=dropout),
@@ -285,7 +294,10 @@ class REMAlignMTLNet(nn.Module):
             align_corners=False,
         )
         h = h + self.event_proj(event_low)
-        h, delay = self.alignment(h, event_low)
+        if self.use_alignment:
+            h, delay = self.alignment(h, event_low)
+        else:
+            delay = torch.zeros_like(r_mask)
         h = self.tcn(h)
 
         full_h = F.interpolate(h, size=1600, mode="linear", align_corners=False)

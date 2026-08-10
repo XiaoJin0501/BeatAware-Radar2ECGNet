@@ -660,6 +660,9 @@ def main():
     parser.add_argument("--align_space", type=str, default=None,
                         choices=["latent", "output"],
                         help="Where to apply the electromechanical delay: latent warp or output/event-time warp.")
+    parser.add_argument("--use_alignment",
+                        type=lambda x: x.lower() != "false", default=None,
+                        help="G5: enable REM-Net event-conditioned alignment module (rem_align_mtl).")
     parser.add_argument("--topk_bins", type=int, default=None,
                         help="Per-(subject,scene) top-K range bins by 0.8-3.5 Hz band energy. 0 or unset = all 50 bins.")
     parser.add_argument("--target_norm", type=str, default=None,
@@ -737,6 +740,7 @@ def main():
     if args.delta_sys_max_ms   is not None: cfg.delta_sys_max_ms   = args.delta_sys_max_ms
     if args.delta_residual_eps_ms is not None: cfg.delta_residual_eps_ms = args.delta_residual_eps_ms
     if args.align_space       is not None: cfg.align_space       = args.align_space
+    if args.use_alignment     is not None: cfg.use_alignment     = args.use_alignment
     if args.fmcw_selector     is not None: cfg.fmcw_selector     = args.fmcw_selector
     if args.fmcw_topk         is not None: cfg.fmcw_topk         = args.fmcw_topk
     if args.fmcw_out_channels is not None: cfg.fmcw_out_channels = args.fmcw_out_channels
