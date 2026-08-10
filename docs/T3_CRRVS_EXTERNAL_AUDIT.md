@@ -24,6 +24,13 @@ Morphology (Shape-200, beat-normalized):
 | CW-STFT + REM-AlignNet-MTL (proposed) | 0.887 ± 0.023 | 0.104 | 0.088 | 0.26 |
 | CW-STFT + TCN (local baseline) | 0.550 ± 0.075 | 0.174 | 0.124 | −0.99 |
 
+**Multi-seed confirmation (G1, 2026-08-11):** final no-alignment REM-Net, 3 seeds
+(42/123/2024), CR_RVS Shape-200 fold-macro PCC 0.8874 / 0.8865 / 0.8849 →
+**across-seed mean 0.886 ± 0.001** (0.023 above is the across-fold std). Confirms the
+external morphology result is seed-robust. Claim language unchanged (§ "Allowed
+claim language": exceeds *reported* VMD-CBNeT PCC under our morphology protocol,
+protocol caveat).
+
 Full-window (8-s continuous, diagnostic; NeuroKit delineation on reconstructed ECG):
 | Method | PCC | RR ms | PR ms | QRS ms | QT ms | F1@150 |
 |---|---|---|---|---|---|---|

@@ -89,8 +89,9 @@ continuous evidence; route C as the main continuous model; any different-dataset
 ## 7. Remaining gaps (must-have vs optional)
 
 Must-have for a credible Q1 submission:
-- **G1 Multi-seed (≥3)** for the proposed morphology on MMECG + CR_RVS → real
-  mean±std (current numbers are single-seed pilots). *This is the main required run.*
+- **G1 Multi-seed (≥3) — DONE (2026-08-11):** final no-alignment REM-Net, seeds
+  42/123/2024. MMECG Shape-200 **0.885 ± 0.002**, CR_RVS **0.886 ± 0.001**
+  (across-seed). Seed-robust; confirms M1/M2 and the G5 alignment drop.
 - **G2 Publication-quality T1/T3 figures** (current are report-style).
 - **G3 Naming/positioning cleanup** across code/docs/paper (Section 1).
 

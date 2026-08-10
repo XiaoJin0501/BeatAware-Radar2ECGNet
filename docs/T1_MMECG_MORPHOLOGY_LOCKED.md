@@ -15,6 +15,16 @@ aggregation, tier labels, and per-method fairness verdicts. Source:
 - Checkpoint selection: validation-best only.
 - Shape-200 is morphology evidence only (never long-term continuous ECG).
 
+## Multi-seed confirmation (G1, 2026-08-11)
+
+The proposed number is confirmed with **3 seeds (42/123/2024)** on the **final
+no-alignment REM-Net** (G5): MMECG Shape-200 fold-macro PCC per seed
+0.8857 / 0.8821 / 0.8859 → **across-seed mean 0.885 ± 0.002**. The tiny across-seed
+std shows the result is not a lucky-seed artifact and that dropping the alignment
+module did not hurt (single-seed-with-alignment pilot was 0.890). Two variances to
+report: across-fold std ≈0.05 (subject variability, below) vs across-seed std 0.002
+(training stability). Use the final multi-seed model for the paper table.
+
 ## Locked table — Block A: strict subject-independent LOSO (11-fold, fold-macro)
 
 This is the fair-comparison block. All rows share the strict-LOSO protocol.
