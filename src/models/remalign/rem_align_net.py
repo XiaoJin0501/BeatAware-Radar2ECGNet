@@ -420,6 +420,46 @@ class AnchorHeatmapNet(nn.Module):
         return torch.sigmoid(self.head(h))
 
 
+class AnchorHeatmapRcgNet(nn.Module):
+    """High-time-resolution beat-anchor localization from raw radar range-time.
+
+    Route C stage-1b lever A. WSST is only ~120 frames / 8 s (~67 ms/frame),
+    which caps anchor precision; the raw `rcg` [B,50,1600] is at 5 ms/sample. This
+    head localizes at full 1600 resolution with a dilated TCN so it can reach
+    sub-frame precision that WSST cannot.
+
+        rcg [B,50,1600] -> conv stem -> dilated TCN (full res) -> sigmoid heatmap
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 50,
+        hidden: int = 128,
+        dropout: float = 0.1,
+        n_blocks: int = 6,
+    ) -> None:
+        super().__init__()
+        self.stem = nn.Sequential(
+            nn.Conv1d(in_channels, hidden, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden),
+            nn.GELU(),
+        )
+        self.tcn = nn.Sequential(
+            *[_ResidualTCNBlock(hidden, dilation=2 ** i, dropout=dropout) for i in range(n_blocks)]
+        )
+        self.head = nn.Sequential(
+            nn.Conv1d(hidden, hidden // 2, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden // 2),
+            nn.GELU(),
+            nn.Conv1d(hidden // 2, 1, kernel_size=1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.stem(x)
+        h = self.tcn(h)
+        return torch.sigmoid(self.head(h))
+
+
 def _grid_warp_time(feat: torch.Tensor, offset_steps: torch.Tensor) -> torch.Tensor:
     """Warp `feat` [B,C,L] along time by `offset_steps` [B,1,L] (index units).
 

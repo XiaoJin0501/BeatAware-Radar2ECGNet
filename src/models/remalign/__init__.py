@@ -2,6 +2,7 @@
 
 from .rem_align_net import (
     AnchorHeatmapNet,
+    AnchorHeatmapRcgNet,
     REMAlignHybridMTLNet,
     REMAlignMTLNet,
     REMAlignMTLRefineNet,
@@ -16,4 +17,5 @@ __all__ = [
     "REMAlignMTLRefineNet",
     "REMAlignHybridMTLNet",
     "AnchorHeatmapNet",
+    "AnchorHeatmapRcgNet",
 ]
