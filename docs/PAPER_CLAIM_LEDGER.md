@@ -24,8 +24,8 @@ morphology. See `docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
 
 | Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
 |---|---|---|---|---|
-| M1 | Strong beat-morphology reconstruction on MMECG (Shape-200). | T1 | pilot | Shape-200 PCC ≈0.89 vs radarODE(adapted) 0.73, BeatAware 0.67. |
-| M2 | External validation on CR_RVS (CW radar) matches/exceeds published results. | T3 | pilot | CW-STFT+REM Shape-200 PCC ≈0.887 vs VMD-CBNeT reported 0.856; protocol caveats stated. |
+| M1 | Strong beat-morphology reconstruction on MMECG (Shape-200). | T1, G1 | multi-seed | Shape-200 PCC **0.885 ± 0.002** (3 seeds, final no-align REM-Net) vs radarODE(adapted) 0.728; BeatAware 0.671 is Block B (calibration, not comparable). |
+| M2 | External validation on CR_RVS (CW radar) matches/exceeds published results. | T3, G1 | multi-seed | CW-STFT+REM Shape-200 PCC **0.886 ± 0.001** (3 seeds) vs VMD-CBNeT *reported* 0.856; different-protocol caveat (morphology space). |
 | M3 | Compares favorably with published/reproduced baselines under fair, output-formulation-aware protocols. | T1/T2/T3 tiers | partial | Needs final tier-labeled tables; sample-level results kept separate from subject-independent. |
 | M4 | Generalizes across FMCW (MMECG) and CW (CR_RVS) under subject-independent protocols. | T1, T3 | partial | Morphology track; CR_RVS lag-aware refine 5-fold pilot (PCC 0.500 vs TCN 0.438). |
 
@@ -41,9 +41,9 @@ morphology. See `docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
 
 | Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
 |---|---|---|---|---|
-| S1 | Strong beat morphology reconstruction on MMECG and CR_RVS. | T1, T3 | pilot | Shape-200 PCC ≈0.890 (MMECG), ≈0.887 (CR_RVS); morphology evidence only. |
+| S1 | Strong beat morphology reconstruction on MMECG and CR_RVS. | T1, T3, G1 | multi-seed | Shape-200 PCC 0.885 ± 0.002 (MMECG), 0.886 ± 0.001 (CR_RVS), 3 seeds; morphology evidence only. |
 | S2 | Compares favorably with published/reproduced baselines under fair protocols. | T1/T2/T3 tiers | partial | Requires fair-tier labels; sample-level reported results separated from subject-independent main comparison. |
-| S3 | CR_RVS external morphology exceeds VMD-CBNeT reported PCC. | T3 | pilot | 0.887 vs reported 0.856; protocol definitions must be stated. |
+| S3 | CR_RVS external morphology exceeds VMD-CBNeT reported PCC. | T3 | multi-seed | 0.886 ± 0.001 vs *reported* 0.856; different-protocol/morphology-space caveat required. |
 
 ## Forbidden / caution
 
