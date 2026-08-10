@@ -663,6 +663,8 @@ def main():
     parser.add_argument("--use_alignment",
                         type=lambda x: x.lower() != "false", default=None,
                         help="G5: enable REM-Net event-conditioned alignment module (rem_align_mtl).")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Base training seed; per-fold seed = seed + fold (G1 multi-seed).")
     parser.add_argument("--topk_bins", type=int, default=None,
                         help="Per-(subject,scene) top-K range bins by 0.8-3.5 Hz band energy. 0 or unset = all 50 bins.")
     parser.add_argument("--target_norm", type=str, default=None,
@@ -817,7 +819,7 @@ def main():
                 )
 
         for fold in folds:
-            set_seed(42 + fold)
+            set_seed(args.seed + fold)
             if args.protocol == "loso_calib":
                 if _uses_wsst_loader(cfg.model_arch):
                     raise NotImplementedError("WSST loaders are currently implemented for strict LOSO only.")
