@@ -54,11 +54,16 @@ in some external papers.
 |---|---|
 | BeatAware | ICONIP baseline with raw/FMCW physiology-aware modules |
 | radarODE-MTL | Strong pipeline baseline; final paper comparison requires its long-term assembly protocol |
-| REM-AlignNet-MTL | Current Q1 candidate model for rhythm-event-morphology multi-task reconstruction |
+| REM-Net (code: REMAlignMTLNet; formerly "REM-AlignNet-MTL") | Q1 main model: morphology-first, beat-structured multi-task reconstruction |
 
-Use `REM-AlignNet-MTL` as the working model name unless the user explicitly
-renames the method. Avoid introducing new names such as PhysioStruct unless a
-separate naming decision is made.
+Canonical paper model name (locked 2026-08-10): **REM-Net**
+(Representation–Event–Morphology Network), positioned as **morphology-first,
+beat-structured** radar-to-ECG reconstruction. The former working name
+"REM-AlignNet-MTL" and the code class `REMAlignMTLNet` refer to the same model;
+"Align" was dropped because the electromechanical-alignment/continuous thesis was
+demoted (see `docs/PAPER_CLAIM_LEDGER.md`, `docs/Q1_MANUSCRIPT_BLUEPRINT.md`).
+Anchor-guided continuous assembly (route C) is a mechanism analysis, not the main
+model. Do not introduce other names without a separate naming decision.
 
 ## Non-Negotiable Caveat
 
