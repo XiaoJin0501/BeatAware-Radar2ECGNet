@@ -85,8 +85,26 @@ def _soft_argmax(heat, peaks, win=8):
     return np.asarray(out, dtype=np.float32)
 
 
-def _anchors(heat, soft):
-    p = peaks_from_heatmap(heat)
+def _peaks_param(y, thr_rel=0.5, thr_floor=0.3, min_dist=40):
+    y = np.asarray(y, np.float32).reshape(-1)
+    if y.size < 3:
+        return np.empty(0, np.int64)
+    ymax = float(y.max())
+    if ymax < 1e-6:
+        return np.empty(0, np.int64)
+    thr = max(thr_floor, thr_rel * ymax)
+    cand = np.flatnonzero((y[1:-1] >= y[:-2]) & (y[1:-1] >= y[2:]) & (y[1:-1] >= thr)) + 1
+    out = []
+    for p in cand.tolist():
+        if not out or p - out[-1] >= min_dist:
+            out.append(int(p))
+        elif y[p] > y[out[-1]]:
+            out[-1] = int(p)
+    return np.asarray(out, np.int64)
+
+
+def _anchors(heat, soft, thr_rel=0.5, thr_floor=0.3):
+    p = _peaks_param(heat, thr_rel, thr_floor)
     if p.size == 0:
         return p.astype(np.float32)
     return _soft_argmax(heat, p) if soft else p.astype(np.float32)
@@ -141,24 +159,24 @@ def _load_split(model, h5_path, wsst_path, device, batch=32):
     return items
 
 
-def _estimate_offset(items, soft):
+def _estimate_offset(items, soft, thr_rel=0.5, thr_floor=0.3):
     """Median signed (gt - pred) over matched pairs within 150 ms."""
     signed = []
     for heat, gt, _ in items:
-        pred = _anchors(heat, soft)
+        pred = _anchors(heat, soft, thr_rel, thr_floor)
         _, _, _, s, _ = _match(pred, gt, int(150 * FS / 1000))
         signed.extend(s)
     return float(np.median(signed)) if signed else 0.0
 
 
-def _metrics(items, soft, offset):
+def _metrics(items, soft, offset, thr_rel=0.5, thr_floor=0.3):
     tols = {50: 50 * FS / 1000, 100: 100 * FS / 1000, 150: 150 * FS / 1000}
     TP = {k: 0 for k in tols}; FP = dict(TP); FN = dict(TP)
     mae = []; rr_crude = []; rr_matched = []; signed_bias = []
     gt_total = 0; pred_total = 0; miss100 = 0; extra100 = 0
     pcc_pred = []; pcc_oracle = []
     for heat, gt, ecg in items:
-        pred = _anchors(heat, soft) + offset
+        pred = _anchors(heat, soft, thr_rel, thr_floor) + offset
         gt_total += int(gt.size); pred_total += int(pred.size)
         pairs100 = []
         for tms, tol in tols.items():
