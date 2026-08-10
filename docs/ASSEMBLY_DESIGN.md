@@ -1,9 +1,24 @@
-# Structured Rhythm-Localized Assembly — Design (Route C)
+# Anchor-Guided Morphology Assembly — Design (Route C, MAIN direction)
 
-This is the design contract for the pivoted approach after the alignment/delay
-thesis was falsified on MMECG fold_01 (see `docs/ALIGNMENT_DESIGN.md` §7b).
-Concrete code lives in `src/models/remalign/`, `src/losses/`, and the assembly
-evaluator `scripts/evaluate_mmecg_long_assembly.py`.
+Status: **this is the new main model direction, not a fallback** (decided
+2026-08-10). It replaces the falsified alignment/delay thesis
+(see `docs/ALIGNMENT_DESIGN.md` §7b). Concrete code lives in
+`src/models/remalign/`, `src/losses/`, and the assembly evaluator
+`scripts/evaluate_mmecg_long_assembly.py`.
+
+## 0. Paper contributions (restructured)
+
+- **Discovery.** The radar-to-ECG continuous gap comes mainly from **beat-anchor
+  localization failure**, not from ECG morphology-modeling failure. Evidenced by a
+  strong oracle upper bound: morphology high (~0.96), oracle-anchor assembly high
+  (0.93–0.96), predicted-anchor assembly low (0.23–0.37).
+- **Model.** An **anchor-guided morphology assembly framework**: predict beat
+  anchors → generate/retrieve/reconstruct beat morphology → assemble ECG on the
+  continuous time axis (differentiably or semi-differentiably).
+- **Evidence.** Quantify the upper-bound gap with **predicted-anchor vs
+  oracle-anchor** assembly; show continuous metrics rise as anchor quality
+  improves. This is more convincing than a delay-field story because the oracle
+  evidence is so strong.
 
 ## 1. Finding that motivates this route
 
@@ -46,6 +61,32 @@ time-varying electromechanical delay.**
 4. **Assembly** — place the morphology at each predicted anchor, cycle length from
    local inter-anchor interval, overlap-add. Extend the evaluator from center-cycle
    only (~44% coverage) to **all beats in the window** (coverage → ~1.0).
+
+## 3b. Implementation staging (PRINCIPLE: anchor localization first, standalone)
+
+Do NOT mix the anchor head with the waveform decoder yet. Build and prove beat
+localization as an **independent task** first:
+
+```
+Radar / WSST  ->  Anchor Heatmap Head  ->  beat anchor positions
+```
+
+**Stage 1 (this minimal loop) — standalone anchor localization.** No waveform
+decoder, no shape head. Gate metrics:
+
+- Anchor MAE (ms) — median predicted-anchor to nearest GT R.
+- Anchor F1 @ 50 / 100 / 150 ms.
+- RR error (ms) from predicted anchors.
+- Predicted-anchor OLA PCC and Oracle-anchor OLA PCC (assembly uses a given/
+  reused morphology so the ONLY变量 is anchor quality).
+
+**Stage-1 goal**: not to beat radarODE. Prove that as anchor F1 rises from ~0.3
+toward 0.7–0.8, continuous (predicted-anchor OLA) PCC rises substantially toward
+the oracle ceiling. If anchor F1 cannot improve, stacking a waveform decoder is
+pointless — stop and rethink the localization signal/representation.
+
+**Stage 2 (only if Stage 1 passes)**: integrate morphology (learned shape head)
+and the assembly into an end-to-end / semi-differentiable model.
 
 ## 4. Key design decisions
 
