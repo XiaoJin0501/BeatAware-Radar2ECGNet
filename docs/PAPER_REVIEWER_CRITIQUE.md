@@ -17,12 +17,12 @@ top biomedical engineering venues such as JBHI/TBME in the current form because
 the primary quantitative win is on Shape-200, an easier beat-normalized target,
 while continuous ECG and clinical interval timing remain weak.
 
-Recommended decision: **go forward, but add one substance booster before full
-paper drafting**. The best booster is not SSL and not another architecture probe.
-It is a clinical/fiducial morphology analysis computed from existing Shape-200
-outputs: QRS width fidelity, T-wave timing/amplitude fidelity, intra-beat
-fiducial timing error, and morphology-bias/error maps. This directly addresses
-the reviewer objection that a high PCC may hide clinically relevant shape errors.
+Recommended decision: **go forward**. The first substance booster has now been
+completed (`docs/MORPHOLOGY_FIDUCIAL_BOOSTER.md`) without retraining. It is not a
+clinical QT/QRS delineation analysis, but it does show that REM-Net improves
+QRS-edge and ST/T phase-region morphology rather than only global PCC. A stricter
+clinical/fiducial analysis can still be added later, but the paper no longer rests
+only on a single smooth-curve metric.
 
 ## Strengths
 
@@ -62,11 +62,12 @@ through oracle assembly that the continuous gap is dominated by beat-anchor
 localization precision. This is a principled decomposition of the radar-to-ECG
 problem rather than a shortcut.
 
-**Needed evidence.** Add morphology-space clinical/fiducial metrics. PCC alone is
-too soft. Compute QRS width error, T-wave peak timing/amplitude error, intra-beat
-fiducial timing, and local error around QRS/ST/T regions from existing outputs.
-This is the highest-value booster because it makes Shape-200 less "just a smooth
-curve metric."
+**Added evidence.** `docs/MORPHOLOGY_FIDUCIAL_BOOSTER.md` reports fixed
+phase-region morphology metrics from existing Shape-200 outputs. On MMECG,
+REM-Net reaches QRS-edge PCC 0.962 and ST/T PCC 0.787; radarODE-MTL is similarly
+strong at QRS-edge (0.961) but weak in ST/T (0.157) and diastolic morphology
+(0.034). This does not solve the full clinical critique, but it makes Shape-200
+less "just a smooth curve metric."
 
 ### Risk 2: Model novelty is not high enough.
 
@@ -114,10 +115,11 @@ imitate that dishonestly. However, the current overlays reveal a real weakness:
 REM-Net captures global beat morphology and QRS/T structure but does not perfectly
 match amplitude calibration or low-amplitude regions.
 
-**Needed evidence.** Improve the qualitative panel with transparent selection
-rules and add error-band plots or region-wise morphology metrics. Do not cherry
-pick only perfect beats. A professional figure can show strong, median, and hard
-cases; that is more credible than four glossy examples.
+**Added evidence.** Region-wise morphology metrics now explain the visual
+mismatch: QRS-edge and ST/T structure are strong, but low-amplitude diastolic
+regions remain weaker. The qualitative panel should still be regenerated with
+transparent selection rules and optional region shading; do not cherry pick only
+perfect beats.
 
 ### Risk 5: Clinical interval performance is weak.
 
@@ -161,10 +163,11 @@ but still needs careful framing. The dual-dataset, subject-independent,
 multi-seed morphology results are meaningful, and the continuous-gap discovery is
 scientifically honest.
 
-**After one morphology-clinical booster:** substantially stronger. If the model
-also performs well on QRS/T/ST region metrics within Shape-200, the paper can
-argue that it reconstructs clinically relevant beat morphology, not merely
-normalized curve correlation.
+**After the morphology-region booster:** stronger, but still not a continuous ECG
+paper. The model performs well on QRS-edge and ST/T phase-region metrics within
+Shape-200, so the paper can argue that it reconstructs broader beat morphology,
+not merely a single normalized correlation score. It must still avoid clinical
+interval superiority claims.
 
 ## Recommended Next Step
 
@@ -172,13 +175,11 @@ Do **not** switch to self-supervised learning for this paper; that belongs to RQ
 Do **not** keep tuning the abandoned alignment/continuous assembly route as the
 main line. The next supervised RQ1 step should be:
 
-1. Compute fiducial and region-wise morphology metrics from existing MMECG and
-   CR_RVS Shape-200 outputs, with no retraining.
-2. Regenerate the qualitative figure using transparent selection rules: high,
+1. Regenerate the qualitative figure using transparent selection rules: high,
    median, and hard examples; include error bands or region highlights.
-3. Add an efficiency table if quick: parameters, FLOPs, inference time, and
+2. Add an efficiency table if quick: parameters, FLOPs, inference time, and
    preprocessing cost.
-4. Only after these checks, write the full Results and Methods prose.
+3. Only after these checks, write the full Results and Methods prose.
 
 This path preserves the current model, strengthens the clinical credibility of
 Shape-200, and keeps RQ1 cleanly supervised.

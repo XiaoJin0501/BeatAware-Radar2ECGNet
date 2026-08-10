@@ -9,7 +9,8 @@ available.
 ## 5.1 MMECG Beat-Morphology Reconstruction
 
 Reports: Table T1 (Block A strict-LOSO) + Fig F1 (method comparison) + Fig F5
-(representative morphology overlays) + Fig F3-left (multi-seed stability).
+(representative morphology overlays) + Fig F3-left (multi-seed stability) +
+the morphology fiducial booster (`docs/MORPHOLOGY_FIDUCIAL_BOOSTER.md`).
 
 Key numbers (Shape-200, 11-fold strict LOSO, fold-macro):
 - **REM-Net (proposed): PCC 0.885 ± 0.002** (multi-seed, 3 seeds; across-fold std ≈0.05).
@@ -20,6 +21,10 @@ Narrative beats:
 - REM-Net reconstructs beat morphology with the highest fidelity among all
   strict-LOSO methods, a large margin over the strongest reproduced baseline
   (radarODE-MTL, adapted, ECG_shape).
+- Region-wise morphology analysis shows the gain is not only global PCC:
+  REM-Net preserves QRS-edge morphology (0.962 PCC) and ST/T morphology
+  (0.787 PCC), while radarODE-MTL is competitive at QRS-edge (0.961) but weak in
+  ST/T (0.157) and diastolic morphology (0.034).
 - The ablation chain (WSST-TCN → +event head → +morphology MTL decoder) shows the
   morphology multi-task decoder is the key component; the alignment module was
   ablated with no effect and removed (G5).
@@ -39,6 +44,8 @@ Key numbers (Shape-200, 5-fold subject-independent, verified no subject overlap)
 - **CW-STFT + REM-Net (proposed): PCC 0.886 ± 0.001** (multi-seed).
 - CW-STFT + TCN (local baseline): 0.550 ± 0.075.
 - VMD-CBNeT (reported-only, different protocol): PCC 0.856; CNN+LSTM 0.647.
+- Region-wise booster: REM-Net vs CW-STFT+TCN reaches QRS-edge PCC 0.941 vs
+  0.464 and ST/T PCC 0.793 vs 0.744; diastolic remains weak (0.380 vs 0.358).
 
 Narrative beats:
 - REM-Net transfers to a different radar modality (24-GHz CW) under
@@ -85,4 +92,6 @@ mechanism closes the gap (falsified).
 Continuous/full-window fidelity remains limited; clinical interval errors exceed
 reported VMD-CBNeT under different protocols; radarODE long-term assembly not
 reproduced (compared only in Shape-200 space); adapted-baseline preprocessing partly
-unrecorded; Shape-200 is beat-normalized morphology (not continuous ECG).
+unrecorded; Shape-200 is beat-normalized morphology (not continuous ECG);
+low-amplitude diastolic morphology remains visibly and quantitatively weaker than
+QRS/ST-T morphology.
