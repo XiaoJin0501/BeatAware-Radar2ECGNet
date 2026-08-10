@@ -100,6 +100,35 @@ closed-loop (see `docs/Q1_EXPERIMENT_MATRIX.md`) runs B0/B1/B3/B4 on fold_01.
 - once alignment on, lag window ≈ `ε` scale.
 - HR proxy: differentiable sliding-window rate from the predicted R-mask.
 
+## 7b. Fold-01 findings and pivot (2026-08-10)
+
+The fold-01 minimal loop (spec `q1_align_ablation_fold01_pilot`) tested whether the
+delay mechanism closes the MMECG continuous gap. It does NOT.
+
+| variant | continuous long-OLA PCC | shape-head PCC |
+|---|---|---|
+| B0 floor (WSST-TCN) | 0.386 | 0.38 |
+| B1 (+delta_sys, latent) | 0.356 | 0.949 |
+| B3 (+delta_sys+residual, latent) | 0.377 | 0.955 |
+| B4 (full, latent) | 0.404 | 0.937 |
+| out_B1 (delta_sys, output) | 0.385 | 0.962 |
+| out_B4 (full, output) | 0.383 | 0.965 |
+| prior refine baseline (ref) | 0.420 | 0.938 |
+| oracle-cycle OLA (morphology into GT beat positions) | **0.937** | — |
+
+**Conclusion.** Applying the electromechanical delay in either latent or output
+space does not move continuous PCC beyond ~0.40. Morphology is essentially solved
+(~0.96). The oracle-cycle result (0.937) shows that placing the good morphology at
+the correct beat positions yields excellent continuous ECG. Therefore the MMECG
+continuous bottleneck is **beat localization / assembly (predicted anchor/PPI),
+not a time-varying electromechanical delay.** The delay-warp thesis (as a warp) is
+not supported and is demoted to at most an interpretability side-analysis.
+
+**Pivot (chosen).** Reframe toward **structured rhythm-localized assembly**: predict
+beat anchors + local PPI from radar and assemble the strong morphology into
+continuous ECG. See the assembly design (to be written) and
+`docs/Q1_EXPERIMENT_MATRIX.md`.
+
 ## 8. Component toggles (for the ablation)
 
 The module exposes independent switches so a single backbone realizes B0–B4:
