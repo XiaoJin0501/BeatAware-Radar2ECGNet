@@ -55,12 +55,12 @@ Generic backbones (CNN/LSTM/BiLSTM/Conformer/GRU) have no Shape-200 evaluation
 
 | Method | protocol (config) | Verdict |
 |---|---|---|
-| REM-AlignNet-MTL | `loso`, narrow_bandpass=True, minmax | OK (proposed, strict) |
-| radarODE-MTL | `strict_loso` | OK in Shape-200 space; label adapted; no long-assembly claim |
-| RSSRNet | `strict_loso` | OK (adapted) — verify preprocessing parity |
-| AirECG | `strict_loso` | OK (adapted) — verify preprocessing parity |
-| WSST-TCN, REM-Event | `loso` | OK (ablation) |
-| ICONIP BeatAware | `loso_calib`, calib_n_train=40/val=10, narrow_bandpass=False | **NOT COMPARABLE** — uses target-subject calibration (not subject-independent); different preprocessing; 7185 vs 7735 segments (calib holdout) |
+| REM-AlignNet-MTL | `loso`, 8-s WSST (_wsst.h5), narrow_bandpass=True, minmax | OK (proposed, strict) |
+| radarODE-MTL | `strict_loso`, **calibration segments = 0** (verified all folds), 4-s WSST (native radarODE) | OK — genuinely subject-independent; fair in Shape-200/ECG_shape space; input window is 4 s by radarODE design (state it); no long-assembly claim |
+| RSSRNet | `strict_loso` | OK (adapted); **preprocessing not recorded in config** — state as limitation or confirm from training script |
+| AirECG | `strict_loso` | OK (adapted); **preprocessing not recorded in config** — state as limitation or confirm from training script |
+| WSST-TCN, REM-Event | `loso`, 8-s WSST | OK (ablation, our pipeline) |
+| ICONIP BeatAware | `loso_calib`, calib_n_train=40/val=10, narrow_bandpass=False | **NOT COMPARABLE** — target-subject calibration (not subject-independent); different preprocessing; 7185 vs 7735 segments (calib holdout) → Block B |
 
 ## Hygiene flags & required actions (before final table)
 
@@ -71,9 +71,13 @@ Generic backbones (CNN/LSTM/BiLSTM/Conformer/GRU) have no Shape-200 evaluation
 2. **Traceability gap:** registry `commit_id` is `unknown` for the core T1 rows
    (proposed, radarODE, baselines). Backfill commit IDs or explicitly mark them as
    pre-governance snapshots; a paper table needs each number traceable.
-3. **Preprocessing parity** across methods is only confirmed for the proposed model
-   (narrow_bandpass=True). Confirm the adapted baselines used matched preprocessing,
-   or state the differences.
+3. **Preprocessing parity — partially resolved (2026-08-10):**
+   - Proposed / WSST-TCN / REM-Event: 8-s WSST, narrow_bandpass=True, minmax.
+   - radarODE-MTL: 4-s WSST (native radarODE), strict LOSO, **calibration=0 verified**.
+     Fair in Shape-200 output space; note the 4-s vs 8-s input-window difference.
+   - RSSRNet / AirECG: preprocessing NOT recorded in their configs; either confirm
+     from their training scripts or state as a documented limitation. (Low scorers;
+     does not affect the proposed's lead.)
 4. **Aggregation note:** across-fold std uses n=11; report as mean±std. If the paper
    prefers subject-macro or CIs, recompute from `fold_level_all_methods.csv`.
 
