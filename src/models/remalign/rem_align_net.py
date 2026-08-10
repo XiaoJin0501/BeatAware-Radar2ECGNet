@@ -382,6 +382,44 @@ class REMAlignMTLRefineNet(nn.Module):
         return ecg, (r_mask, qrs_mask, delay)
 
 
+class AnchorHeatmapNet(nn.Module):
+    """Standalone beat-anchor localization head: WSST -> per-sample anchor heatmap.
+
+    Stage-1 of route C (see docs/ASSEMBLY_DESIGN.md): localization ONLY, no
+    waveform decoder and no morphology head, so anchor quality can be measured in
+    isolation before any assembly is attempted.
+
+        WSST [B,50,F,T] -> WSSTEncoder -> [B,hidden,400]
+                        -> interpolate to out_len -> 1D conv head
+                        -> sigmoid anchor heatmap [B,1,out_len]
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 50,
+        hidden: int = 128,
+        dropout: float = 0.1,
+        out_len: int = 1600,
+    ) -> None:
+        super().__init__()
+        self.out_len = int(out_len)
+        self.encoder = WSSTEncoder(in_channels=in_channels, hidden=hidden, dropout=dropout)
+        self.head = nn.Sequential(
+            nn.Conv1d(hidden, hidden, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden),
+            nn.GELU(),
+            nn.Conv1d(hidden, hidden // 2, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden // 2),
+            nn.GELU(),
+            nn.Conv1d(hidden // 2, 1, kernel_size=1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.encoder(x)
+        h = F.interpolate(h, size=self.out_len, mode="linear", align_corners=False)
+        return torch.sigmoid(self.head(h))
+
+
 def _grid_warp_time(feat: torch.Tensor, offset_steps: torch.Tensor) -> torch.Tensor:
     """Warp `feat` [B,C,L] along time by `offset_steps` [B,1,L] (index units).
 
