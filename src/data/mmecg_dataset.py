@@ -673,6 +673,7 @@ def build_loso_wsst_loaders_h5(
     balance_by: str = "subject",
     target_norm: str = "minmax",
     wsst_suffix: str = "_wsst.h5",
+    rpeak_sigma: float = RPEAK_SIGMA_DEFAULT,
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
     """LOSO loaders using cached WSST/time-frequency tensors.
 
@@ -696,15 +697,15 @@ def build_loso_wsst_loaders_h5(
 
     train_ds = MMECGWindowedWSSTH5Dataset(
         fold_dir / "train.h5", wsst_for("train"),
-        include_peak_indices=False, target_norm=target_norm,
+        include_peak_indices=False, target_norm=target_norm, rpeak_sigma=rpeak_sigma,
     )
     val_ds = MMECGWindowedWSSTH5Dataset(
         fold_dir / "val.h5", wsst_for("val"),
-        include_peak_indices=False, target_norm=target_norm,
+        include_peak_indices=False, target_norm=target_norm, rpeak_sigma=rpeak_sigma,
     )
     test_ds = MMECGWindowedWSSTH5Dataset(
         fold_dir / "test.h5", wsst_for("test"),
-        include_peak_indices=True, target_norm=target_norm,
+        include_peak_indices=True, target_norm=target_norm, rpeak_sigma=rpeak_sigma,
     )
 
     sampler = _make_sampler(train_ds, balanced_sampling, balance_by)

@@ -111,6 +111,8 @@ def main() -> None:
     ap.add_argument("--loso_h5_dir", default=None)
     ap.add_argument("--wsst_suffix", default="_wsst.h5")
     ap.add_argument("--balance_by", default="subject")
+    ap.add_argument("--rpeak_sigma", type=float, default=5.0,
+                    help="Gaussian R-target sigma in samples (narrower = sharper localization).")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
@@ -123,6 +125,7 @@ def main() -> None:
         fold_idx=args.fold_idx, loso_dir=loso_dir, batch_size=args.batch_size,
         num_workers=cfg.num_workers, balanced_sampling=cfg.balanced_sampling,
         balance_by=args.balance_by, target_norm=cfg.target_norm, wsst_suffix=args.wsst_suffix,
+        rpeak_sigma=args.rpeak_sigma,
     )
 
     model = AnchorHeatmapNet(in_channels=cfg.n_range_bins, hidden=cfg.baseline_hidden,
@@ -136,7 +139,7 @@ def main() -> None:
         "exp_tag": args.exp_tag, "fold_idx": args.fold_idx, "model_arch": "anchor_heatmap",
         "epochs": args.epochs, "lr": args.lr, "batch_size": args.batch_size,
         "loso_h5_dir": loso_dir, "wsst_suffix": args.wsst_suffix,
-        "balance_by": args.balance_by, "rpeak_sigma_samples": 5, "seed": args.seed,
+        "balance_by": args.balance_by, "rpeak_sigma_samples": args.rpeak_sigma, "seed": args.seed,
         "n_range_bins": cfg.n_range_bins, "signal_len": cfg.signal_len,
     }, indent=2))
 
