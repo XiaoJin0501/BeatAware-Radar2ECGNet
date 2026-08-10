@@ -201,6 +201,30 @@ def _select_center_anchor_peak(anchor_row: np.ndarray, center: int = 400) -> int
     return int(peaks[np.argmin(np.abs(peaks - int(center)))])
 
 
+def _rpeaks_from_mask(mask_1d: np.ndarray, min_dist: int = 40) -> np.ndarray:
+    """Detect predicted R-peak positions from a sigmoid R-mask [L].
+
+    Local maxima above a relative threshold, greedily de-duplicated by a minimum
+    inter-peak distance (default 40 samples = 200 ms @ 200 Hz). Used to derive
+    predicted anchors for rem_pred_anchor_cycle_ola.
+    """
+    y = np.asarray(mask_1d, dtype=np.float32).reshape(-1)
+    if y.size < 3:
+        return np.empty((0,), dtype=np.int64)
+    ymax = float(y.max())
+    if ymax < 1e-6:
+        return np.empty((0,), dtype=np.int64)
+    thr = max(0.3, 0.5 * ymax)
+    cand = np.flatnonzero((y[1:-1] >= y[:-2]) & (y[1:-1] >= y[2:]) & (y[1:-1] >= thr)) + 1
+    peaks: list[int] = []
+    for p in cand.tolist():
+        if not peaks or p - peaks[-1] >= min_dist:
+            peaks.append(int(p))
+        elif y[p] > y[peaks[-1]]:
+            peaks[-1] = int(p)
+    return np.asarray(peaks, dtype=np.int64)
+
+
 class _Accumulator:
     def __init__(self, length: int) -> None:
         self.pred_sum = np.zeros(length, dtype=np.float64)
@@ -310,13 +334,20 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                 pred_full = None
                 target_shape = None
             else:
-                ecg_out = _extract_ecg_tensor(model(radar))
+                full_out = model(radar)
+                ecg_out = _extract_ecg_tensor(full_out)
                 pred_full = ecg_out.detach().cpu().numpy()[:, 0]
-                if args.protocol.startswith("rem_shape"):
+                pred_rmask = None
+                if args.protocol.startswith("rem_shape") or args.protocol == "rem_pred_anchor_cycle_ola":
                     if not hasattr(ecg_out, "shape200_pred"):
-                        raise AttributeError("Selected rem_shape protocol but model output has no shape200_pred attribute.")
+                        raise AttributeError("Selected rem shape/anchor protocol but model output has no shape200_pred attribute.")
                     pred_shape = ecg_out.shape200_pred.detach().cpu().numpy()[:, 0]
                     target_shape = _shape200_targets(ecg, bounds).detach().cpu().numpy()[:, 0]
+                    if args.protocol == "rem_pred_anchor_cycle_ola":
+                        # peak_preds[0] is the R-mask (see REM forward returns).
+                        if not (isinstance(full_out, (tuple, list)) and len(full_out) > 1):
+                            raise AttributeError("rem_pred_anchor_cycle_ola requires model peak outputs (r_mask).")
+                        pred_rmask = full_out[1][0].detach().cpu().numpy()[:, 0]
                 else:
                     pred_shape = None
                     target_shape = None
@@ -343,6 +374,16 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                     else:
                         gt_cycle = normalize_01(ecg_np[j, a:b] if b > a else ecg_np[j, 700:900])
                         gt_piece = _resample_to_len(gt_cycle, max(0, b - a))
+                    piece_start = start + a
+                elif args.protocol == "rem_pred_anchor_cycle_ola":
+                    # Place the shape-head morphology into the center cycle whose
+                    # bounds come from PREDICTED R-mask anchors (not GT). This is
+                    # the predicted-localization analog of the oracle-cycle OLA.
+                    pred_rpeaks = _rpeaks_from_mask(pred_rmask[j])
+                    a, b = _cycle_bounds_from_rpeaks(pred_rpeaks, WIN_LEN)
+                    pred_piece = _resample_to_len(pred_shape[j], max(0, b - a))
+                    gt_cycle = normalize_01(ecg_np[j, a:b] if b > a else ecg_np[j, 700:900])
+                    gt_piece = _resample_to_len(gt_cycle, max(0, b - a))
                     piece_start = start + a
                 elif args.protocol in {"radarode_pred_anchor_ppi_cycle_ola", "radarode_center_anchor_ppi_cycle_ola"}:
                     if anchor_argmax_batch[j] is None or ppi_argmax_batch[j] is None:
@@ -458,6 +499,7 @@ def main() -> None:
         choices=[
             "rem_full_ola",
             "rem_shape_oracle_cycle_ola",
+            "rem_pred_anchor_cycle_ola",
             "radarode_shape_oracle_cycle_ola",
             "radarode_pred_anchor_ppi_cycle_ola",
             "radarode_center_anchor_ppi_cycle_ola",
