@@ -15,17 +15,28 @@ aggregation, tier labels, and per-method fairness verdicts. Source:
 - Checkpoint selection: validation-best only.
 - Shape-200 is morphology evidence only (never long-term continuous ECG).
 
-## Locked table (Shape-200, fold-macro over 11 folds)
+## Locked table — Block A: strict subject-independent LOSO (11-fold, fold-macro)
+
+This is the fair-comparison block. All rows share the strict-LOSO protocol.
 
 | Method | Tier | PCC (mean±std) | PCC median | RMSE | MAE | R² | n_seg |
 |---|---|---|---|---|---|---|---|
 | REM-AlignNet-MTL | **proposed** | **0.890 ± 0.054** | 0.903 | 0.110 | 0.088 | 0.556 | 7735 |
 | radarODE-MTL | adapted (ECG_shape) | 0.728 ± 0.133 | 0.770 | 0.139 | 0.106 | 0.344 | 7735 |
-| WSST-TCN | representation baseline | 0.273 ± 0.151 | 0.349 | 0.258 | 0.183 | −1.47 | 7735 |
 | REM-Event | ablation (event only) | 0.279 ± 0.151 | 0.348 | 0.258 | 0.183 | −1.48 | 7735 |
+| WSST-TCN | representation baseline | 0.273 ± 0.151 | 0.349 | 0.258 | 0.183 | −1.47 | 7735 |
 | RSSRNet | adapted | 0.262 ± 0.107 | 0.256 | 0.290 | 0.226 | −2.15 | 7735 |
 | AirECG | adapted | 0.180 ± 0.062 | 0.188 | 0.245 | 0.173 | −1.14 | 7735 |
-| ICONIP BeatAware | prior-conf — **NOT strict LOSO** | 0.671 ± 0.159 | 0.661 | 0.195 | 0.145 | −0.626 | 7185 |
+
+## Block B: LOSO + target-subject calibration (NOT subject-independent)
+
+Reported separately with an explicit caveat; **not comparable** to Block A (uses
+target-subject calibration data, different preprocessing, 7185 vs 7735 segments).
+Decision (2026-08-10): keep as a caveated row, never merged into Block A.
+
+| Method | protocol | PCC (mean±std) | RMSE | MAE | R² | n_seg |
+|---|---|---|---|---|---|---|
+| ICONIP BeatAware | LOSO + calib (40/10), narrow_bandpass=False | 0.671 ± 0.159 | 0.195 | 0.145 | −0.626 | 7185 |
 
 Generic backbones (CNN/LSTM/BiLSTM/Conformer/GRU) have no Shape-200 evaluation
 (0 folds); they stay in the continuous/appendix pool, not T1.
@@ -53,11 +64,10 @@ Generic backbones (CNN/LSTM/BiLSTM/Conformer/GRU) have no Shape-200 evaluation
 
 ## Hygiene flags & required actions (before final table)
 
-1. **BeatAware is disqualified from the strict-LOSO fair column.** Options:
-   (a) drop it from T1; (b) re-run BeatAware under strict LOSO (no calibration,
-   matched preprocessing) and replace the number; (c) keep only in a clearly
-   separated "LOSO+calibration (not subject-independent)" row. Do NOT present the
-   calibrated 0.671 next to strict-LOSO numbers without this caveat.
+1. **BeatAware — RESOLVED (2026-08-10):** kept as a separate caveated Block B row
+   ("LOSO+calibration, not subject-independent"), never merged into Block A. A
+   strict-LOSO BeatAware re-run is optional future work (a new experiment), not
+   required for T1 to be honest.
 2. **Traceability gap:** registry `commit_id` is `unknown` for the core T1 rows
    (proposed, radarODE, baselines). Backfill commit IDs or explicitly mark them as
    pre-governance snapshots; a paper table needs each number traceable.
