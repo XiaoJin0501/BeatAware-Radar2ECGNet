@@ -94,14 +94,14 @@ def _anchors(heat, soft):
 
 def _match(pred, gt, tol):
     if gt.size == 0 and pred.size == 0:
-        return 0, 0, 0, []
+        return 0, 0, 0, [], []
     if gt.size == 0:
-        return 0, int(pred.size), 0, []
+        return 0, int(pred.size), 0, [], []
     if pred.size == 0:
-        return 0, 0, int(gt.size), []
+        return 0, 0, int(gt.size), [], []
     d = np.abs(gt[:, None] - pred[None, :])
     order = np.argsort(d.ravel()); mg = np.zeros(gt.size, bool); mp = np.zeros(pred.size, bool)
-    tp = 0; signed = []
+    tp = 0; signed = []; pairs = []
     for f in order:
         gi, pi = divmod(int(f), pred.size)
         if mg[gi] or mp[pi]:
@@ -109,7 +109,8 @@ def _match(pred, gt, tol):
         if d[gi, pi] <= tol:
             mg[gi] = mp[pi] = True; tp += 1
             signed.append(float(gt[gi] - pred[pi]))
-    return tp, int((~mp).sum()), int((~mg).sum()), signed
+            pairs.append((gi, pi))
+    return tp, int((~mp).sum()), int((~mg).sum()), signed, pairs
 
 
 def _assemble(anchors, template, length=WIN):
@@ -145,7 +146,7 @@ def _estimate_offset(items, soft):
     signed = []
     for heat, gt, _ in items:
         pred = _anchors(heat, soft)
-        _, _, _, s = _match(pred, gt, int(150 * FS / 1000))
+        _, _, _, s, _ = _match(pred, gt, int(150 * FS / 1000))
         signed.extend(s)
     return float(np.median(signed)) if signed else 0.0
 
@@ -153,16 +154,28 @@ def _estimate_offset(items, soft):
 def _metrics(items, soft, offset):
     tols = {50: 50 * FS / 1000, 100: 100 * FS / 1000, 150: 150 * FS / 1000}
     TP = {k: 0 for k in tols}; FP = dict(TP); FN = dict(TP)
-    mae = []; rr = []; pcc_pred = []; pcc_oracle = []
+    mae = []; rr_crude = []; rr_matched = []; signed_bias = []
+    gt_total = 0; pred_total = 0; miss100 = 0; extra100 = 0
+    pcc_pred = []; pcc_oracle = []
     for heat, gt, ecg in items:
         pred = _anchors(heat, soft) + offset
+        gt_total += int(gt.size); pred_total += int(pred.size)
+        pairs100 = []
         for tms, tol in tols.items():
-            tp, fp, fn, s = _match(pred, gt, tol)
+            tp, fp, fn, s, pairs = _match(pred, gt, tol)
             TP[tms] += tp; FP[tms] += fp; FN[tms] += fn
             if tms == 150:
                 mae.extend([abs(v) * MS for v in s])
+            if tms == 100:
+                signed_bias.extend([v * MS for v in s]); miss100 += fn; extra100 += fp; pairs100 = pairs
+        # crude window mean-RR (count-sensitive)
         if pred.size >= 2 and gt.size >= 2:
-            rr.append(abs(float(np.mean(np.diff(pred))) - float(np.mean(np.diff(gt)))) * MS)
+            rr_crude.append(abs(float(np.mean(np.diff(pred))) - float(np.mean(np.diff(gt)))) * MS)
+        # matched-pair RR (robust to miss/extra): consecutive matched beats only
+        if len(pairs100) >= 2:
+            ps = sorted(pairs100, key=lambda x: x[0])
+            for (g0, p0), (g1, p1) in zip(ps[:-1], ps[1:]):
+                rr_matched.append(abs((gt[g1] - gt[g0]) - (pred[p1] - pred[p0])) * MS)
         a, b = _central_cycle(gt); tmpl = _norm01(ecg[a:b]) if b > a else _norm01(ecg[700:900])
         gtn = _norm01(ecg)
         asm, m = _assemble(pred, tmpl)
@@ -178,7 +191,11 @@ def _metrics(items, soft, offset):
     return {
         "anchor_f1_50ms": f1(50), "anchor_f1_100ms": f1(100), "anchor_f1_150ms": f1(150),
         "anchor_mae_ms_median": float(np.median(mae)) if mae else float("nan"),
-        "rr_error_ms_mean": float(np.mean(rr)) if rr else float("nan"),
+        "signed_bias_ms_median": float(np.median(signed_bias)) if signed_bias else float("nan"),
+        "missed_rate_100ms": float(miss100 / (gt_total + 1e-8)),
+        "extra_rate_100ms": float(extra100 / (pred_total + 1e-8)),
+        "rr_error_ms_crude": float(np.mean(rr_crude)) if rr_crude else float("nan"),
+        "rr_error_ms_matched": float(np.mean(rr_matched)) if rr_matched else float("nan"),
         "predicted_anchor_ola_pcc": float(np.nanmean(pcc_pred)) if pcc_pred else float("nan"),
         "oracle_anchor_ola_pcc": float(np.nanmean(pcc_oracle)) if pcc_oracle else float("nan"),
     }
