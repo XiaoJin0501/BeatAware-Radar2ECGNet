@@ -33,24 +33,31 @@ Full-window (8-s continuous, diagnostic; NeuroKit delineation on reconstructed E
 
 ## Reported-only literature (VMD-CBNeT paper; NOT locally reproduced)
 
-| Method | PCC | RMSE | RR ms | PR ms | QRS ms | QT ms |
-|---|---|---|---|---|---|---|
-| VMD-CBNeT (reported) | 0.856 | 0.112 | 5.625 | 4.911 | 9.643 | 5.625* |
-| CNN+LSTM (reported) | 0.647 | 0.127 | 48.534 | 7.414 | 29.052 | 48.534* |
+Source verified from local PDF:
+`reference_papers/VMD-CBNeT_A_Non-Contact_ECG_Reconstruction_Method.pdf`,
+Table I (page 4). The paper labels the last accuracy row as **QSR Error**; this
+audit preserves that label rather than silently rewriting it as QRS.
 
-`*` **Transcription red flag:** RR == QT for BOTH methods (5.625 / 48.534). Implausible;
-verify against the original VMD-CBNeT paper before publishing the QT (and possibly RR)
-comparison. Do not use these QT values until re-sourced.
+| Method | PCC | RMSE | RR ms | QT ms | PR ms | QSR ms |
+|---|---|---|---|---|---|---|
+| VMD-CBNeT (reported) | 0.856 | 0.112 | 5.625 | 5.625 | 4.911 | 9.643 |
+| CNN+LSTM (reported) | 0.647 | 0.127 | 48.534 | 48.534 | 7.414 | 29.052 |
+
+**Source-verification note:** RR == QT for both reported methods is not a local
+transcription error; it appears exactly that way in Table I. It is still
+methodologically suspicious and should be quoted only as an "as reported" value,
+never used to claim QT superiority.
 
 ## Metric correspondence & fairness verdicts
 
 - **VMD-CBNeT / CNN+LSTM = reported-only, DIFFERENT PROTOCOL** (their leave-one-out,
   their preprocessing/segmentation; not reproduced here). Block B only.
 - **PCC space mismatch:** our headline 0.887 is **Shape-200 beat-normalized
-  morphology** (an easier target); VMD-CBNeT's 0.856 is their reconstruction PCC
-  (space/protocol unstated). These are **NOT the same quantity** — do not place in
-  one comparable cell. Our closest analog to a reconstruction PCC is the full-window
-  0.500 (still different protocol).
+  morphology** (an easier target); VMD-CBNeT's 0.856 is their reconstructed-ECG
+  waveform PCC under their own heartbeat/template/sequence protocol. These are
+  **NOT the same quantity** — do not place in one comparable cell. Our closest
+  analog to a reconstruction PCC is the full-window 0.500 (still different
+  protocol).
 - **Clinical intervals:** our full-window RR 14.65 ms is in a reasonable range, but
   our PR/QRS/QT errors (55/96/75 ms) are **much worse** than VMD-CBNeT's reported
   (4.9/9.6/5.6 ms). Do NOT claim interval superiority; if reported at all, show ours
@@ -63,8 +70,8 @@ comparison. Do not use these QT values until re-sourced.
   PCC 0.856 / RMSE 0.112 (reported-only, different protocol; not a same-protocol
   comparison)."
 - FORBIDDEN: "strictly outperforms VMD-CBNeT under identical protocol"; any claim of
-  interval (PR/QRS/QT) superiority; using the RR==QT reported values without
-  re-sourcing.
+  interval (PR/QSR/QT) superiority; treating the source-verified RR==QT values as
+  independently validated QT evidence.
 
 ## Locked T3 structure (two blocks)
 
@@ -76,11 +83,7 @@ comparison. Do not use these QT values until re-sourced.
 
 ## Required actions before T3 is paper-ready
 
-1. Re-source VMD-CBNeT RR/QT (and confirm QSR vs QRS definition) from the paper;
-   fix the RR==QT transcription or drop those columns.
-2. State the PCC evaluation space for VMD-CBNeT if the paper specifies it; otherwise
-   caveat as unknown.
-3. Decide the headline: recommend leading with morphology PCC (Block A) + the
+1. Decide the headline: recommend leading with morphology PCC (Block A) + the
    protocol-caveated reported reference (Block B); present full-window as a
    secondary diagnostic, not the headline.
-4. Backfill CR_RVS registry commit ids (several are `unknown`/pre-governance).
+2. Backfill CR_RVS registry commit ids (several are `unknown`/pre-governance).
