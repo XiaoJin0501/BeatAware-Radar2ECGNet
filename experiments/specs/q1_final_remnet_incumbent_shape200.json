@@ -1,0 +1,59 @@
+{
+  "experiment_id": "q1_final_remnet_incumbent_shape200",
+  "tier": "final_candidate",
+  "publishable": false,
+  "rq": "RQ1 supervised radar-to-ECG morphology reconstruction",
+  "purpose": "Re-run the stable incumbent REM-Net configuration as the locked final-test candidate on MMECG and CR_RVS.",
+  "model": {
+    "paper_name": "REM-Net",
+    "implementation_arch": "rem_align_mtl",
+    "use_alignment": false,
+    "baseline_hidden": 128,
+    "description": "Representation encoder plus event auxiliary head plus morphology MTL decoder."
+  },
+  "training": {
+    "seed": 42,
+    "epochs": 150,
+    "early_stop_patience": 30,
+    "checkpoint_for_eval": "best.pt",
+    "optimizer": "AdamW",
+    "lr": 0.0001,
+    "weight_decay": 0.0001
+  },
+  "loss": {
+    "full_reconstruction": "L1 + 0.1 * multi-resolution STFT",
+    "beta_peak": 0.3,
+    "lambda_shape200": 0.8,
+    "shape200_pcc_weight": 0.5,
+    "disabled": [
+      "lag-aware loss",
+      "output lag alignment",
+      "electromechanical alignment",
+      "diffusion"
+    ]
+  },
+  "datasets": {
+    "mmecg": {
+      "protocol": "11-fold strict LOSO",
+      "folds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      "loso_h5_dir": "/home/qhh2237/Datasets/MMECG/processed/loso",
+      "n_range_bins": 50,
+      "narrow_bandpass": true,
+      "wsst_suffix": "_wsst.h5"
+    },
+    "crrvs": {
+      "protocol": "5-fold subject-independent CV",
+      "folds": [1, 2, 3, 4, 5],
+      "loso_h5_dir": "/home/qhh2237/Datasets/CR_RVS/processed/q1_shape_kfold",
+      "n_range_bins": 1,
+      "narrow_bandpass": false,
+      "wsst_suffix": "_wsst.h5"
+    }
+  },
+  "metrics": {
+    "primary": "Shape-200 PCC, fold macro mean +/- std",
+    "secondary": ["Shape-200 RMSE", "Shape-200 MAE", "Shape-200 R2"],
+    "not_claimed": "full-window continuous ECG SOTA"
+  },
+  "promotion_rule": "Promote to publishable only after all folds finish, aggregate files are produced, and metric audit confirms no leakage or protocol drift."
+}
