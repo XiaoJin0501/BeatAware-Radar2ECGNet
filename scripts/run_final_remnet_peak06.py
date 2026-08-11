@@ -224,7 +224,7 @@ def aggregate(tags: list[str]) -> None:
                     "rmse": float(summary["rmse_mean"]),
                     "mae": float(summary["mae_mean"]),
                     "r2": float(summary["r2_mean"]),
-                    "n_segments": int(summary["n_segments"]),
+                    "n_segments": int(summary.get("n_segments", summary["num_segments"])),
                 }
             )
     if not rows:
