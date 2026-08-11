@@ -226,14 +226,15 @@ def aggregate(tags: list[str]) -> None:
     for tag in tags:
         for summary_path in sorted((ROOT / "experiments_mmecg" / tag).glob("fold_*/results_shape_head/global_summary_shape_head.json")):
             summary = json.loads(summary_path.read_text())
-            cfg = json.loads((summary_path.parents[2] / "config.json").read_text())
+            fold_dir = summary_path.parents[1]
+            cfg = json.loads((fold_dir / "config.json").read_text())
             rows.append(
                 {
                     "tag": tag,
                     "dataset": "crrvs" if "_crrvs_" in tag else "mmecg",
                     "candidate": tag.split("_seed")[0].split("_")[-1],
                     "seed": int(tag.split("seed")[-1]),
-                    "fold": int(summary_path.parents[2].name.split("_")[-1]),
+                    "fold": int(fold_dir.name.split("_")[-1]),
                     "pcc": float(summary["pcc_mean"]),
                     "rmse": float(summary["rmse_mean"]),
                     "mae": float(summary["mae_mean"]),
