@@ -1,0 +1,55 @@
+{
+  "experiment_id": "q1_freeze_f0_supervised_tuning",
+  "tier": "pilot",
+  "publishable": false,
+  "research_question": "RQ1 supervised radar-to-ECG reconstruction: choose the final REM-Net morphology configuration without using final test folds for model selection.",
+  "hypothesis": "The current no-alignment REM-Net recipe is close to optimal, but a small controlled sweep over morphology/event loss weights and decoder capacity may improve or stabilize Shape-200 morphology across MMECG and CR_RVS.",
+  "baseline": "q1_g1_remnet_mmecg_seed42 / q1_g1_remnet_crrvs_seed42 incumbent recipe",
+  "independent_variables": [
+    "beta_peak",
+    "lambda_shape200",
+    "shape200_pcc_weight",
+    "baseline_hidden"
+  ],
+  "controlled_variables": {
+    "architecture": "rem_align_mtl with use_alignment=false",
+    "training_mode": "supervised only",
+    "target_norm": "minmax",
+    "wsst_suffix": "_wsst.h5",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "epochs": 35,
+    "early_stop_patience": 100,
+    "seed": 42
+  },
+  "datasets": {
+    "MMECG": {
+      "split": "strict LOSO",
+      "development_folds": [1, 5, 9],
+      "loso_h5_dir": "/home/qhh2237/Datasets/MMECG/processed/loso",
+      "n_range_bins": 50,
+      "narrow_bandpass": true
+    },
+    "CR_RVS": {
+      "split": "5-fold subject-independent",
+      "development_folds": [1, 3, 5],
+      "loso_h5_dir": "/home/qhh2237/Datasets/CR_RVS/processed/q1_shape_kfold",
+      "n_range_bins": 1,
+      "narrow_bandpass": false
+    }
+  },
+  "candidate_grid": [
+    {"name": "incumbent", "beta_peak": 0.3, "lambda_shape200": 0.8, "shape200_pcc_weight": 0.5, "baseline_hidden": 128},
+    {"name": "shape12", "beta_peak": 0.3, "lambda_shape200": 1.2, "shape200_pcc_weight": 0.5, "baseline_hidden": 128},
+    {"name": "pcc08", "beta_peak": 0.3, "lambda_shape200": 0.8, "shape200_pcc_weight": 0.8, "baseline_hidden": 128},
+    {"name": "peak01", "beta_peak": 0.1, "lambda_shape200": 0.8, "shape200_pcc_weight": 0.5, "baseline_hidden": 128},
+    {"name": "peak06", "beta_peak": 0.6, "lambda_shape200": 0.8, "shape200_pcc_weight": 0.5, "baseline_hidden": 128},
+    {"name": "hidden192", "beta_peak": 0.3, "lambda_shape200": 0.8, "shape200_pcc_weight": 0.5, "baseline_hidden": 192}
+  ],
+  "selection_metric": "development-fold validation/checkpoint morphology behavior; test-fold shape-head PCC is diagnostic only during F0",
+  "success_criteria": "Promote only if dev-fold mean PCC beats the incumbent by >=0.003 or gives a consistent cross-dataset/region-diagnostic gain without hard-fold regression.",
+  "failure_interpretation": "If no candidate clears the gate, freeze the incumbent rather than continuing open-ended tuning.",
+  "estimated_cost": "36 fold-level train/eval jobs at 35 epochs; intended as a single sequential background batch.",
+  "output_prefix": "experiments_mmecg/q1_freeze_f0_<dataset>_<candidate>_seed42"
+}
+

@@ -586,6 +586,10 @@ def main():
     parser.add_argument("--calib_seed", type=int, default=42,
                         help="For protocol=loso_calib: seed for calibration/eval split.")
     parser.add_argument("--epochs",   type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None,
+                        help="Optimizer learning rate.")
+    parser.add_argument("--weight_decay", type=float, default=None,
+                        help="Optimizer weight decay.")
     parser.add_argument("--early_stop_patience", type=int, default=None,
                         help="Epochs without validation improvement before early stopping. Set large value to run fixed epochs.")
     parser.add_argument("--model_arch", type=str, default=None,
@@ -704,6 +708,8 @@ def main():
     if args.loso_h5_dir    is not None: cfg.loso_h5_dir    = args.loso_h5_dir
     if args.n_range_bins   is not None: cfg.n_range_bins   = args.n_range_bins
     if args.epochs          is not None: cfg.epochs          = args.epochs
+    if args.lr              is not None: cfg.lr              = args.lr
+    if args.weight_decay    is not None: cfg.weight_decay    = args.weight_decay
     if args.early_stop_patience is not None:
         cfg.early_stop_patience = args.early_stop_patience
     if args.model_arch      is not None: cfg.model_arch      = args.model_arch
