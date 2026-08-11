@@ -9,8 +9,9 @@ available.
 ## 5.1 MMECG Beat-Morphology Reconstruction
 
 Reports: Table T1 (Block A strict-LOSO) + Fig F1 (method comparison) + Fig F5
-(representative morphology overlays) + Fig F3-left (multi-seed stability) +
-the morphology fiducial booster (`docs/MORPHOLOGY_FIDUCIAL_BOOSTER.md`).
+(transparent high/median/hard morphology overlays) + Fig F3-left (multi-seed
+stability) + the morphology fiducial booster
+(`docs/MORPHOLOGY_FIDUCIAL_BOOSTER.md`).
 
 Key numbers (Shape-200, 11-fold strict LOSO, fold-macro):
 - **REM-Net (proposed): PCC 0.885 ± 0.002** (multi-seed, 3 seeds; across-fold std ≈0.05).
@@ -25,6 +26,9 @@ Narrative beats:
   REM-Net preserves QRS-edge morphology (0.962 PCC) and ST/T morphology
   (0.787 PCC), while radarODE-MTL is competitive at QRS-edge (0.961) but weak in
   ST/T (0.157) and diastolic morphology (0.034).
+- Qualitative examples must use the deterministic 90th/median/10th percentile
+  selection rule, not hand-picked overlays. Use the signed-error panels to show
+  both successful QRS/ST-T recovery and hard-case amplitude mismatch.
 - The ablation chain (WSST-TCN → +event head → +morphology MTL decoder) shows the
   morphology multi-task decoder is the key component; the alignment module was
   ablated with no effect and removed (G5).

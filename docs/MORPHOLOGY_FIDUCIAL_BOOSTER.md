@@ -42,6 +42,29 @@ Summary file:
 | CR_RVS | REM-Net | **0.886** | **0.941** | **0.793** | **0.380** | **4.9** | **0.120** | **6.4** | **0.094** |
 | CR_RVS | CW-STFT+TCN | 0.550 | 0.464 | 0.744 | 0.358 | 6.2 | 0.172 | 7.8 | 0.124 |
 
+## Transparent qualitative figures
+
+The qualitative panels are regenerated using a deterministic selection rule:
+90th percentile, median, and 10th percentile by per-sample Shape-200 PCC across
+all G1 REM-Net predictions. The selected examples are recorded in
+`experiments_mmecg/q1_morphology_fiducial_booster/transparent_qualitative_selection.csv`.
+This avoids cherry-picking visually perfect beats.
+
+Generated figure candidates:
+
+- `mmecg_transparent_qualitative_examples.png/pdf`: MMECG high/median/hard
+  overlays with QRS-edge, ST/T, and diastolic region shading plus signed error.
+- `cr_rvs_transparent_qualitative_examples.png/pdf`: CR_RVS high/median/hard
+  overlays with the same rule.
+- `mmecg_mean_error_band.png/pdf`: MMECG dataset-level mean GT/pred morphology
+  with standard-deviation envelopes and mean/75th-percentile absolute error.
+- `cr_rvs_mean_error_band.png/pdf`: CR_RVS dataset-level mean/error-band figure.
+
+Recommended paper use: put the transparent high/median/hard examples in the main
+results figure, and keep the mean error-band figures as either a second panel or
+appendix. The high/median/hard figure is more intuitive for readers; the
+error-band figure is better for defending against cherry-picking concerns.
+
 ## Interpretation
 
 This booster strengthens the paper. REM-Net is not only winning by a single
@@ -82,6 +105,6 @@ Forbidden:
 
 ## Recommendation
 
-Keep this booster in the paper as either a compact table or a figure next to the
-qualitative overlays. It directly answers the "easy PCC metric" critique and
-should be included before drafting the full Results section.
+Keep this booster in the paper as a compact region-wise table plus a transparent
+qualitative panel. It directly answers the "easy PCC metric" critique and should
+be included before drafting the full Results section.
