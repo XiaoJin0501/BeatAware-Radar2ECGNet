@@ -1,4 +1,4 @@
-# REM-Net: Representation–Event–Morphology Learning for Subject-Independent Radar-Based ECG Beat Reconstruction
+# REM-Net: Representation–Event–Morphology Learning for Contactless ECG Beat Morphology Reconstruction from Radar
 
 *Complete first draft (venue-agnostic Markdown; target IEEE Sensors Journal / Biomedical
 Signal Processing & Control). Journal extension of our ICONIP conference paper. All
@@ -8,6 +8,12 @@ excluded. Author list / affiliations to be filled.*
 
 **Keywords:** contactless ECG, radar sensing, FMCW, continuous-wave radar, ECG
 reconstruction, beat morphology, subject-independent evaluation.
+
+**Draft control.** This manuscript is the working Q1 journal draft. It integrates the
+core outline from `docs/paper/OUTLINE_Q1_JOURNAL.md` and should be kept aligned with
+`docs/PAPER_CLAIM_LEDGER.md`, `docs/T1_MMECG_MORPHOLOGY_LOCKED.md`,
+`docs/T3_CRRVS_EXTERNAL_AUDIT.md`, and `docs/FINAL_TEST_METRIC_AUDIT.md`. Before
+submission, remove this draft-control paragraph and the authoring checklist at the end.
 
 ---
 
@@ -152,10 +158,12 @@ removed from the final model.
 
 ### G. Objective and optimization
 The loss combines waveform, spectral, event, and morphology terms with fixed weights:
-`L = L1 + α·MultiResSTFT + β·BCE(QRS) + λ·[L1_shape + w_pcc·(1−PCC_shape)]`, with the frozen
-configuration α=0.05, β=0.6, λ=0.8, w_pcc=0.5. The Shape-200 target is the reference center
-cycle resampled to 200 points and min–max normalized per beat. Models are trained per fold
-with AdamW (lr 1e-4, weight decay 1e-4), batch size 16, up to 150 epochs with early stopping
+`L = L_full_recon + β·L_event + λ·L_shape`, where
+`L_full_recon = L1 + α·MultiResSTFT` and
+`L_shape = L1_shape + w_pcc·(1−PCC_shape)`. The frozen configuration is
+α=0.1, β=0.3, λ=0.8, and w_pcc=0.5. The Shape-200 target is the reference center cycle
+resampled to 200 points and min–max normalized per beat. Models are trained per fold with
+AdamW (lr 1e-4, weight decay 1e-4), batch size 16, up to 150 epochs with early stopping
 (patience 30) and subject-balanced sampling; checkpoints use validation criteria only.
 REM-Net has ≈1.79M parameters and ≈1.1 ms latency per window.
 
@@ -182,7 +190,8 @@ across-seed mean ± std over three seeds.
 **Comparison tiers.** (i) proposed (REM-Net); (ii) adapted baselines under our strict-LOSO
 protocol (radarODE-MTL in its ECG_shape space, RSSRNet, AirECG); (iii) representation /
 ablation controls (WSST-TCN, REM-Event); (iv) prior-with-calibration (ICONIP BeatAware,
-reported separately); (v) reported-only literature (VMD-CBNeT, CNN+LSTM), quoted with
+reported separately); (v) reported-only literature (VMD-CBNeT, CNN+LSTM, Jin
+Attention-DCGAN, MultiResLinkNet, LifWavNet, Radar2ECG, and BiLSTM-CW), quoted with
 caveats. Different-dataset or private-split numbers are never placed in a same-protocol
 comparison.
 
@@ -308,6 +317,49 @@ progress in contactless ECG sensing.
 
 **Future work.** Robust, subject-invariant sub-50 ms beat-anchor localization from radar
 (the identified bottleneck), and improved low-amplitude diastolic morphology under CW radar.
+
+---
+
+## Authoring Checklist (remove before submission)
+
+**Figure plan.**
+
+- Fig. 1: REM-Net overview, emphasizing representation encoder, event auxiliary head, and
+  morphology multi-task decoder; do not present alignment as part of the final model.
+- Fig. 2: MMECG qualitative morphology overlays using transparent high/median/hard
+  selection, with region shading or error band.
+- Fig. 3: CR_RVS external validation figure, preferably morphology overlays plus state- or
+  fold-level summary.
+- Fig. 4: continuous-gap discovery figure showing oracle-anchor assembly versus predicted
+  anchor precision failure under LOSO.
+
+**Table plan.**
+
+- Table I: MMECG strict-LOSO Shape-200 morphology comparison.
+- Table II: morphology region/fiducial analysis to defend that Shape-200 is not merely a
+  smooth-curve PCC proxy.
+- Table III: CR_RVS 5-fold external validation with local and reported-only blocks.
+- Table IV: ablation, especially WSST-TCN -> REM-Event -> REM-Net and alignment removed.
+- Table V: efficiency, if space permits.
+- Table D / appendix: tiered reported-literature comparison; never merge different-protocol
+  numbers into the strict-LOSO main table.
+
+**Claim-safety rules.**
+
+- Do not claim continuous ECG SOTA.
+- Do not state that REM-Net strictly outperforms VMD-CBNeT under an identical protocol.
+- Do not describe Shape-200 as clinical long-term ECG.
+- Do not use reported-only literature values as same-protocol baselines.
+- Present route-C/anchor assembly as a mechanistic discovery and future direction, not as
+  the final model contribution.
+
+**Three-day draft priority.**
+
+1. Convert this Markdown into a polished Method, Experimental Setup, and Results draft.
+2. Replace Markdown tables with final manuscript tables from T1/T3/Table D.
+3. Regenerate qualitative figures with transparent high/median/hard selection.
+4. Add only low-risk optional experiments, such as efficiency or morphology fiducial
+   analysis, if they do not delay the draft.
 
 ---
 
