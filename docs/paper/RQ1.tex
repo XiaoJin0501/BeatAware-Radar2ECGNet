@@ -218,6 +218,18 @@ BeatAware & Calibration prior$^\dagger$ & $0.671 \pm 0.159$ & 0.195 & 0.145 \\
 therefore not a strict subject-independent comparator; it is shown for reference only.
 \end{table}
 
+\subsubsection{Per-subject spread}
+Because subject-independent averages can hide worst-case behaviour, we report the
+per-fold spread of the locked final-test run rather than only the mean. On MMECG, the
+per-fold \shape\ PCC ranges from 0.756 (fold~5) to 0.947 (fold~4); two held-out subjects
+(folds~5 and~9) are noticeably harder at $\approx$0.76, while the remaining nine folds lie
+between 0.858 and 0.947. This subject variability is the source of the $\pm0.061$
+across-fold standard deviation and is consistent with lower-SNR recordings for those
+subjects. On \crrvs, per-fold PCC is far more uniform (0.867--0.903, $\pm0.013$),
+indicating that the CW morphology result is not driven by a single easy subject. We
+report these ranges explicitly so that the aggregate numbers are not read as uniform
+across subjects.
+
 \subsection{Morphology Is Not Only a Global PCC Effect}
 Table~\ref{tab:regions} reports region-wise morphology PCC. On MMECG, \remnet\ and radarODE-MTL are both strong near the QRS edge, but radarODE-MTL collapses in ST/T and diastolic regions. \remnet\ preserves broader morphology, reaching ST/T PCC 0.787. On \crrvs, \remnet\ strongly improves QRS-edge morphology over CW-STFT+TCN and remains competitive in ST/T, while diastolic morphology remains the weakest region.
 
