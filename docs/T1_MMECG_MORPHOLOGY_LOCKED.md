@@ -15,15 +15,19 @@ aggregation, tier labels, and per-method fairness verdicts. Source:
 - Checkpoint selection: validation-best only.
 - Shape-200 is morphology evidence only (never long-term continuous ECG).
 
-## Multi-seed confirmation (G1, 2026-08-11)
+## Final-test run and multi-seed confirmation
 
-The proposed number is confirmed with **3 seeds (42/123/2024)** on the **final
-no-alignment REM-Net** (G5): MMECG Shape-200 fold-macro PCC per seed
-0.8857 / 0.8821 / 0.8859 → **across-seed mean 0.885 ± 0.002**. The tiny across-seed
-std shows the result is not a lucky-seed artifact and that dropping the alignment
-module did not hurt (single-seed-with-alignment pilot was 0.890). Two variances to
-report: across-fold std ≈0.05 (subject variability, below) vs across-seed std 0.002
-(training stability). Use the final multi-seed model for the paper table.
+The locked seed-42 final-test re-run (commit `ebb726a`, registry
+`q1_final_remnet_incumbent_mmecg_seed42`) gives MMECG Shape-200 fold-macro
+PCC **0.882 ± 0.061** over 11 strict-LOSO folds. This is the primary final-test
+number for the manuscript.
+
+G1 also confirmed stability with **3 seeds (42/123/2024)** on the same final
+no-alignment REM-Net: MMECG Shape-200 fold-macro PCC per seed
+0.8857 / 0.8821 / 0.8859 → **across-seed mean 0.885 ± 0.002**. Report this as a
+stability check, not as a separate protocol. Across-fold std (0.061 in the
+seed-42 final run) reflects subject variability; across-seed std 0.002 reflects
+training stability.
 
 ## Locked table — Block A: strict subject-independent LOSO (11-fold, fold-macro)
 
@@ -31,7 +35,7 @@ This is the fair-comparison block. All rows share the strict-LOSO protocol.
 
 | Method | Tier | PCC (mean±std) | PCC median | RMSE | MAE | R² | n_seg |
 |---|---|---|---|---|---|---|---|
-| REM-AlignNet-MTL | **proposed** | **0.890 ± 0.054** | 0.903 | 0.110 | 0.088 | 0.556 | 7735 |
+| REM-Net | **proposed** | **0.882 ± 0.061** | — | 0.112 | 0.090 | 0.530 | 7735 |
 | radarODE-MTL | adapted (ECG_shape) | 0.728 ± 0.133 | 0.770 | 0.139 | 0.106 | 0.344 | 7735 |
 | REM-Event | ablation (event only) | 0.279 ± 0.151 | 0.348 | 0.258 | 0.183 | −1.48 | 7735 |
 | WSST-TCN | representation baseline | 0.273 ± 0.151 | 0.349 | 0.258 | 0.183 | −1.47 | 7735 |
@@ -65,7 +69,7 @@ Generic backbones (CNN/LSTM/BiLSTM/Conformer/GRU) have no Shape-200 evaluation
 
 | Method | protocol (config) | Verdict |
 |---|---|---|
-| REM-AlignNet-MTL | `loso`, 8-s WSST (_wsst.h5), narrow_bandpass=True, minmax | OK (proposed, strict) |
+| REM-Net | `loso`, 8-s WSST (_wsst.h5), narrow_bandpass=True, minmax, seed-42 final-test | OK (proposed, strict) |
 | radarODE-MTL | `strict_loso`, **calibration segments = 0** (verified all folds), 4-s WSST (native radarODE) | OK — genuinely subject-independent; fair in Shape-200/ECG_shape space; input window is 4 s by radarODE design (state it); no long-assembly claim |
 | RSSRNet | `strict_loso` | OK (adapted); **preprocessing not recorded in config** — state as limitation or confirm from training script |
 | AirECG | `strict_loso` | OK (adapted); **preprocessing not recorded in config** — state as limitation or confirm from training script |
@@ -94,5 +98,6 @@ Generic backbones (CNN/LSTM/BiLSTM/Conformer/GRU) have no Shape-200 evaluation
 ## Locked vs pending
 
 - Locked: numbers, fold-macro aggregation definition, tier labels, fairness verdicts.
-- Pending (no new modeling; hygiene only): resolve BeatAware protocol, backfill
-  commit IDs, confirm preprocessing parity. Then T1 is paper-ready.
+- Pending (no new modeling; hygiene only): backfill adapted-baseline commit IDs,
+  confirm RSSRNet/AirECG preprocessing parity if they remain in the main table.
+  Then T1 is paper-ready.

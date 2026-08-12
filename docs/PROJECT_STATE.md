@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-08-10
+Last updated: 2026-08-12
 Active branch: exp/rem-shape-guided-continuous-decoder
 Active GitHub issue: none
 
@@ -13,12 +13,16 @@ protocols, favorable vs published/reproduced baselines, plus a mechanistic
 external validation + fair comparison (claims M1–M4). Anchor-guided continuous
 assembly (route C) is a demoted discovery/mechanism section (D1–D2).
 
-## Verified Evidence (all pilot, publishable=false)
+## Verified Evidence
 
-- MMECG Shape-200 morphology: REM-AlignNet-MTL PCC ≈0.89 (vs radarODE adapted
-  0.73, BeatAware 0.67). Main-line strength.
-- CR_RVS Shape-200: CW-STFT+REM PCC ≈0.887 (> VMD-CBNeT reported 0.856);
-  lag-aware refine 5-fold full-window PCC 0.500 vs TCN 0.438.
+- MMECG Shape-200 morphology: REM-Net seed-42 final-test PCC **0.882 ± 0.061**
+  over 11 strict-LOSO folds; G1 stability **0.885 ± 0.002** across 3 seeds.
+  Main-line strength; compare against radarODE adapted 0.728 and caveated
+  BeatAware calibration 0.671.
+- CR_RVS Shape-200: CW-STFT+REM-Net seed-42 final-test PCC **0.881 ± 0.013**
+  over 5 subject-independent folds; G1 stability **0.886 ± 0.001** across 3
+  seeds. This exceeds VMD-CBNeT reported PCC 0.856 only under our morphology
+  protocol, with the reported-only/different-protocol caveat.
 - Discovery (route C): oracle-cycle OLA 0.93–0.98 with morphology ≈0.96 ⇒
   continuous gap is beat-anchor localization, not morphology (D1).
 - Route C robustness FAILED under 3-fold LOSO: fold_01 fusion F1@50 0.82 / OLA
@@ -31,17 +35,19 @@ assembly (route C) is a demoted discovery/mechanism section (D1–D2).
 
 ## Current Blockers
 
-- Final morphology/external tables not yet locked (tiers, aggregation).
-- Reported-literature ledger tables not finalized.
+- Final-test evidence chain is locked for the supervised morphology-first model,
+  but final manuscript tables/figures still need publication-grade formatting.
+- Reported-literature table is design-locked but selected R4 papers can still be
+  audited if needed.
 - radarODE long-assembly not faithfully reproducible → compare in Shape-200 space,
   labeled adapted.
 - Robust sub-50 ms anchor localization under LOSO is unsolved (route C future work).
 
 ## Next Approved Tasks (main line)
 
-1. Build the final morphology table (T1) with fair tier labels.
-2. Build CR_RVS external table (T3) aligned to VMD-CBNeT metrics.
-3. Build reported-literature comparison table (Table D).
+1. Draft the paper Results prose from `docs/RESULTS_SKELETON.md`.
+2. Produce publication-grade T1/T3/Table D LaTeX tables and qualitative figures.
+3. Add the efficiency table (params/FLOPs/latency) if time allows.
 4. Write the route-C discovery/mechanism section from D1–D2 evidence.
 
 ## Do Not Do

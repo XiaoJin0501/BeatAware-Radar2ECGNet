@@ -24,8 +24,8 @@ morphology. See `docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
 
 | Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
 |---|---|---|---|---|
-| M1 | Strong beat-morphology reconstruction on MMECG (Shape-200). | T1, G1 | multi-seed | Shape-200 PCC **0.885 ± 0.002** (3 seeds, final no-align REM-Net) vs radarODE(adapted) 0.728; BeatAware 0.671 is Block B (calibration, not comparable). |
-| M2 | External validation on CR_RVS (CW radar) matches/exceeds published results. | T3, G1 | multi-seed | CW-STFT+REM Shape-200 PCC **0.886 ± 0.001** (3 seeds) vs VMD-CBNeT *reported* 0.856; different-protocol caveat (morphology space). |
+| M1 | Strong beat-morphology reconstruction on MMECG (Shape-200). | T1 final-test, G1 stability | final-test + stable | Shape-200 PCC **0.882 ± 0.061** (seed-42 final-test, 11 folds); G1 stability 0.885 ± 0.002 across 3 seeds; radarODE(adapted) 0.728; BeatAware 0.671 is Block B (calibration, not comparable). |
+| M2 | External validation on CR_RVS (CW radar) matches/exceeds published results. | T3 final-test, G1 stability | final-test + stable | CW-STFT+REM-Net Shape-200 PCC **0.881 ± 0.013** (seed-42 final-test, 5 folds); G1 stability 0.886 ± 0.001; VMD-CBNeT *reported* 0.856; different-protocol caveat (morphology space). |
 | M3 | Compares favorably with published/reproduced baselines under fair, output-formulation-aware protocols. | T1/T2/T3 tiers | partial | Needs final tier-labeled tables; sample-level results kept separate from subject-independent. |
 | M4 | Generalizes across FMCW (MMECG) and CW (CR_RVS) under subject-independent protocols. | T1, T3 | partial | Morphology track; CR_RVS lag-aware refine 5-fold pilot (PCC 0.500 vs TCN 0.438). |
 
@@ -41,9 +41,9 @@ morphology. See `docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
 
 | Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
 |---|---|---|---|---|
-| S1 | Strong beat morphology reconstruction on MMECG and CR_RVS. | T1, T3, G1 | multi-seed | Shape-200 PCC 0.885 ± 0.002 (MMECG), 0.886 ± 0.001 (CR_RVS), 3 seeds; morphology evidence only. |
+| S1 | Strong beat morphology reconstruction on MMECG and CR_RVS. | T1, T3, G1 | final-test + stable | Shape-200 final-test PCC 0.882 ± 0.061 (MMECG), 0.881 ± 0.013 (CR_RVS); 3-seed stability 0.885 ± 0.002 / 0.886 ± 0.001; morphology evidence only. |
 | S2 | Compares favorably with published/reproduced baselines under fair protocols. | T1/T2/T3 tiers | partial | Requires fair-tier labels; sample-level reported results separated from subject-independent main comparison. |
-| S3 | CR_RVS external morphology exceeds VMD-CBNeT reported PCC. | T3 | multi-seed | 0.886 ± 0.001 vs *reported* 0.856; different-protocol/morphology-space caveat required. |
+| S3 | CR_RVS external morphology exceeds VMD-CBNeT reported PCC. | T3 | final-test + stable | 0.881 ± 0.013 final-test vs *reported* 0.856; different-protocol/morphology-space caveat required. |
 
 ## Forbidden / caution
 

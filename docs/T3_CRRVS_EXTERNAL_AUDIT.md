@@ -21,15 +21,19 @@ No new experiments; evidence-chain consolidation only.
 Morphology (Shape-200, beat-normalized):
 | Method | PCC (mean±std) | RMSE | MAE | R² |
 |---|---|---|---|---|
-| CW-STFT + REM-AlignNet-MTL (proposed) | 0.887 ± 0.023 | 0.104 | 0.088 | 0.26 |
+| CW-STFT + REM-Net (proposed, seed-42 final-test) | 0.881 ± 0.013 | 0.108 | 0.091 | 0.210 |
 | CW-STFT + TCN (local baseline) | 0.550 ± 0.075 | 0.174 | 0.124 | −0.99 |
+
+**Final-test source:** `q1_final_remnet_incumbent_crrvs_seed42`, 5-fold
+subject-independent, commit `ebb726a`, aggregated in
+`experiments_mmecg/q1_final_remnet_incumbent/final_summary.csv`.
 
 **Multi-seed confirmation (G1, 2026-08-11):** final no-alignment REM-Net, 3 seeds
 (42/123/2024), CR_RVS Shape-200 fold-macro PCC 0.8874 / 0.8865 / 0.8849 →
-**across-seed mean 0.886 ± 0.001** (0.023 above is the across-fold std). Confirms the
-external morphology result is seed-robust. Claim language unchanged (§ "Allowed
-claim language": exceeds *reported* VMD-CBNeT PCC under our morphology protocol,
-protocol caveat).
+**across-seed mean 0.886 ± 0.001**. This is a stability check; the seed-42 final
+run is the main protocol row. Claim language remains caveated (§ "Allowed claim
+language": exceeds *reported* VMD-CBNeT PCC under our morphology protocol,
+reported-only/different-protocol caveat).
 
 Full-window (8-s continuous, diagnostic; NeuroKit delineation on reconstructed ECG):
 | Method | PCC | RR ms | PR ms | QRS ms | QT ms | F1@150 |
@@ -59,7 +63,7 @@ never used to claim QT superiority.
 
 - **VMD-CBNeT / CNN+LSTM = reported-only, DIFFERENT PROTOCOL** (their leave-one-out,
   their preprocessing/segmentation; not reproduced here). Block B only.
-- **PCC space mismatch:** our headline 0.887 is **Shape-200 beat-normalized
+- **PCC space mismatch:** our headline 0.881 is **Shape-200 beat-normalized
   morphology** (an easier target); VMD-CBNeT's 0.856 is their reconstructed-ECG
   waveform PCC under their own heartbeat/template/sequence protocol. These are
   **NOT the same quantity** — do not place in one comparable cell. Our closest
@@ -73,7 +77,7 @@ never used to claim QT superiority.
 ## Allowed claim language (locked)
 
 - ALLOWED: "Under our subject-independent 5-fold CR_RVS **morphology** protocol, the
-  proposed model reaches PCC 0.887 / RMSE 0.104, **exceeding the reported** VMD-CBNeT
+  proposed model reaches PCC 0.881 / RMSE 0.108, **exceeding the reported** VMD-CBNeT
   PCC 0.856 / RMSE 0.112 (reported-only, different protocol; not a same-protocol
   comparison)."
 - FORBIDDEN: "strictly outperforms VMD-CBNeT under identical protocol"; any claim of

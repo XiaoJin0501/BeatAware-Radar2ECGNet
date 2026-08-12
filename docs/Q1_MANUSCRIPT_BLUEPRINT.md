@@ -33,11 +33,12 @@ decoder** (the component that carries the Shape-200 strength).
 
 ## 3. Contributions (each mapped to evidence)
 
-- **C1 (M1):** SOTA MMECG beat morphology — Shape-200 PCC 0.890 vs radarODE(adapted)
+- **C1 (M1):** SOTA MMECG beat morphology — Shape-200 PCC 0.882 ± 0.061
+  (seed-42 final-test; 3-seed stability 0.885 ± 0.002) vs radarODE(adapted)
   0.728, under 11-fold strict LOSO, fold-macro. [T1 Block A]
 - **C2 (M2/M4):** Cross-modality external validation on CW CR_RVS — morphology PCC
-  0.887, exceeding reported VMD-CBNeT 0.856 *under our morphology protocol* (caveat).
-  [T3 Block A + Block B]
+  0.881 ± 0.013 (3-seed stability 0.886 ± 0.001), exceeding reported VMD-CBNeT
+  0.856 *under our morphology protocol* (caveat). [T3 Block A + Block B]
 - **C3 (D1/D2):** Mechanistic discovery — the continuous-ECG gap is governed by
   beat-anchor localization: with oracle anchors, learned morphology assembles to
   0.93–0.98, but predicted anchor **precision** does not generalize under LOSO.
@@ -91,9 +92,13 @@ continuous evidence; route C as the main continuous model; any different-dataset
 Must-have for a credible Q1 submission:
 - **G1 Multi-seed (≥3) — DONE (2026-08-11):** final no-alignment REM-Net, seeds
   42/123/2024. MMECG Shape-200 **0.885 ± 0.002**, CR_RVS **0.886 ± 0.001**
-  (across-seed). Seed-robust; confirms M1/M2 and the G5 alignment drop.
-- **G2 Publication-quality T1/T3 figures** (current are report-style).
-- **G3 Naming/positioning cleanup** across code/docs/paper (Section 1).
+  (across-seed). Seed-robust; confirms M1/M2 and the G5 alignment drop. The
+  main table uses the locked seed-42 final-test run: MMECG **0.882 ± 0.061**,
+  CR_RVS **0.881 ± 0.013**.
+- **G2 Publication-quality T1/T3 figures — DONE as report figures; needs visual
+  polishing only.**
+- **G3 Naming/positioning cleanup — DONE:** paper model name is REM-Net; code
+  class may remain `REMAlignMTLNet`.
 
 Should-have:
 - **G4 Efficiency table (T5)** — params/FLOPs/latency (model vs preprocessing).
@@ -115,10 +120,10 @@ Optional / decide:
 
 Two usable main results (MMECG morphology; CR_RVS morphology/external), one valuable
 but negative continuous mechanism analysis (route C), and now a locked evidence chain
-(T1/T3/Table D) with fairness audits. Not yet done: final model name/positioning
-lock, multi-seed statistics, publication figures, and a small set of should-have
-ablations. The next decision is which gaps (G1–G9) are in-scope for the first
-submission — recommended minimum: **G1 + G2 + G3 (+ G5)**.
+(T1/T3/Table D) with fairness audits. The supervised final baseline is fixed as
+REM-Net with alignment disabled. The remaining work for a three-day draft is not
+large-scale model redesign; it is paper assembly: final tables, publication-quality
+qualitative figures, Results prose, and optional efficiency reporting.
 
 ## 9. Target journals (order)
 

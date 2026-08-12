@@ -20,8 +20,8 @@ ICONIP BeatAware model. The intended framing is:
 
 ```text
 radar-to-ECG reconstruction requires cardiac-informative representation,
-cardiac event structure, dynamic electromechanical alignment, and clinically
-meaningful continuous ECG evaluation.
+cardiac event structure, morphology-aware supervision, and clinically meaningful
+continuous ECG evaluation.
 ```
 
 ## Single Research Question
@@ -35,7 +35,7 @@ questions:
 
 - representation analysis explains why the model works;
 - event/morphology supervision supports the model mechanism;
-- long-term ECG assembly makes comparison with radarODE-MTL fair;
+- long-term ECG assembly explains the remaining continuous-reconstruction gap;
 - CR_RVS validation demonstrates cross-radar-modality robustness.
 
 ## Dataset Roles
@@ -70,7 +70,8 @@ model. Do not introduce other names without a separate naming decision.
 Shape-200 results are beat morphology evidence only. They must not be described
 as final long-term continuous ECG reconstruction results.
 
-Current high Shape-200 numbers are pilot evidence for RQ1. They become
-manuscript support only after the paper defines exactly whether the final table
-uses Shape-200 morphology, 8-second continuous ECG, long-term assembled ECG, or
-multiple complementary protocols.
+The current locked RQ1 main evidence uses Shape-200 beat morphology as the
+primary supervised output formulation: MMECG seed-42 final-test PCC 0.882 ±
+0.061 with 3-seed stability 0.885 ± 0.002, and CR_RVS seed-42 final-test PCC
+0.881 ± 0.013 with 3-seed stability 0.886 ± 0.001. Continuous ECG assembly is
+reported as a diagnostic/mechanism analysis, not as the main performance claim.
