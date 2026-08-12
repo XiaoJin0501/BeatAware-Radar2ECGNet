@@ -193,6 +193,8 @@ Table~\ref{tab:mmecg} reports MMECG \shape\ results under strict 11-fold LOSO. \
 
 The gap to radarODE-MTL is important because radarODE-MTL is a strong structured baseline rather than a weak generic regressor. Its adapted morphology result confirms that dynamic or multi-task formulations alone do not guarantee high beat-shape fidelity under our strict LOSO \shape\ protocol. Conversely, the low WSST-TCN result shows that the representation layer alone is insufficient. The main empirical message is therefore the combination: cardiac representation plus explicit event-structured supervision plus a morphology-specific decoder.
 
+The improvement over radarODE-MTL is consistent and statistically significant. \remnet\ achieves a higher per-fold \shape\ PCC on all 11 held-out subjects (mean difference $+0.154$; paired $t$-test $p=9.8\times10^{-5}$, Wilcoxon signed-rank $p=9.8\times10^{-4}$). The margin is in fact largest on the two hardest subjects (folds~5 and~9), where \remnet\ reaches $\approx0.76$ against $\approx0.48$ for radarODE-MTL, indicating that the advantage is not driven by easy subjects.
+
 \begin{table}[!t]
 \centering
 \caption{MMECG \shape\ Morphology Reconstruction under 11-Fold Strict LOSO. Comparators
