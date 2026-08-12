@@ -44,7 +44,9 @@ decoder** (the component that carries the Shape-200 strength).
   0.93–0.98, but predicted anchor **precision** does not generalize under LOSO.
   [route-C evidence chain]
 - **C4:** Output-formulation-aware, fairness-audited evaluation (strict-LOSO fair
-  block vs calibrated/reported-only blocks; documented negative results).
+  block vs calibrated/reported-only/original-protocol blocks; documented negative
+  results). External papers may be reproduced in their original protocol, but only
+  common-protocol reproductions enter the fair main tables.
 
 ## 4. Figure / table list
 
@@ -68,6 +70,9 @@ Secondary/appendix:
 - **Intro:** contactless ECG motivation; morphology vs continuous; gap statement.
 - **Related work:** radar-to-ECG (radarODE, VMD-CBNeT, AirECG, RSSRNet, …) via
   Table D tiers; position ours as morphology-first + the discovery.
+- **Baseline reproduction policy:** briefly define the two-lane comparison rule:
+  original-protocol reproduction for faithfulness, common-protocol reproduction for
+  fair head-to-head.
 - **Method:** representation encoder, event head, morphology multi-task decoder;
   (alignment module described honestly as ablated/optional).
 - **Datasets & protocol:** MMECG 11-fold strict LOSO; CR_RVS 5-fold
@@ -115,6 +120,10 @@ Optional / decide:
 - **G8 CR_RVS +event ablation** (CW-STFT: TCN → +event → +morphology) to mirror T4.
 - **G9 Audit selected R4 papers** into Table D (radarODE variants, Radar2ECG,
   SS-S2SA, LifWavNet, WaveGRU) if reviewers would expect them.
+- **G10 Reproduced external baseline:** optional but valuable. Recommended first
+  target: MultiResLinkNet on CR_RVS. Run original-protocol smoke only as a
+  faithfulness check; run our 5-fold subject-independent protocol for the fair
+  comparison.
 
 ## 8. Honest current position (one paragraph)
 

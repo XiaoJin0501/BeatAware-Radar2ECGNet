@@ -68,6 +68,13 @@ Forbidden: "strictly outperforms VMD-CBNeT under identical protocol"; any PR/QRS
 interval superiority (our full-window interval errors are worse); using the reported
 RR==QT value as independent QT evidence.
 
+If an additional external baseline is reproduced, split the text into two
+paragraphs:
+- Original-protocol reproduction: reports whether the implementation matches the
+  paper's own numbers, clearly labeled as not a fair head-to-head.
+- Common-protocol reproduction: reports the same CR_RVS 5-fold subject-independent
+  metrics as REM-Net and may enter the fair comparison.
+
 ## 5.3 Mechanistic Analysis of the Continuous Gap (discovery)
 
 Reports: Fig F4 (oracle-vs-predicted anchor bound; 3-fold generalization) + the

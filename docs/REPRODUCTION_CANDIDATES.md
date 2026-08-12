@@ -3,6 +3,9 @@
 Purpose: identify which published radar-to-ECG models are worth reproducing under
 our controlled protocols. This is not a training launch plan. Each candidate must
 receive an experiment spec, registry row, and pre-train commit before any run.
+See `docs/BASELINE_REPRODUCTION_POLICY.md` for the two-lane rule:
+original-protocol reproduction is allowed, but only common-protocol reproduction
+can enter the fair main tables.
 
 ## Priority A: High Value
 
@@ -83,3 +86,9 @@ If we need one extra reproduced baseline for the Q1 draft, start with
 **MultiResLinkNet on CR_RVS** because it is simple and fast. If time allows and
 code details are manageable, reproduce **LifWavNet** next. Do not start
 Attention-DCGAN unless the experiment spec explicitly enforces strict LOSO.
+
+Recommended sequence:
+1. Original-protocol smoke reproduction for MultiResLinkNet to verify the
+   implementation.
+2. Common-protocol CR_RVS 5-fold reproduction for MultiResLinkNet.
+3. Decide LifWavNet only after MultiResLinkNet is audited.
