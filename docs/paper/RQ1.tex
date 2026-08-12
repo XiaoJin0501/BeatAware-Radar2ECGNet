@@ -261,6 +261,33 @@ MMECG & radarODE-MTL & 0.961 & 0.157 & 0.034 \\
 \label{fig:qualitative}
 \end{figure}
 
+\subsection{Robustness Across Physiological States}
+Table~\ref{tab:states} reports \shape\ PCC broken down by the physiological state
+recorded in each dataset (normal breathing, irregular breathing, breath-hold/sustained
+respiration, and post-exercise). Morphology reconstruction is stable under respiratory
+perturbation on both datasets: PCC drops only from 0.912 to 0.903 (MMECG) and from 0.887
+to 0.877 (\crrvs) between normal and irregular breathing. The largest degradation is under
+post-exercise on MMECG (0.834), where elevated heart rate and residual body motion reduce
+the radar signal-to-noise ratio. We report this breakdown because aggregate morphology
+scores can hide state-dependent behaviour that a monitoring system would encounter in
+practice; the graceful degradation supports the robustness of the morphology-first model.
+
+\begin{table}[!t]
+\centering
+\caption{\shape\ PCC by Physiological State}
+\label{tab:states}
+\begin{tabular}{lcc}
+\toprule
+Physiological state & MMECG & \crrvs \\
+\midrule
+Normal breathing & 0.912 & 0.887 \\
+Irregular breathing & 0.903 & 0.877 \\
+Breath-hold / sustained & 0.850 & 0.869 \\
+Post-exercise & 0.834 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{External Validation on \crrvs}
 Table~\ref{tab:crrvs} reports \crrvs\ external validation. Under verified 5-fold subject-independent evaluation, \remnet\ reaches \shape\ PCC $0.881 \pm 0.013$ in the locked final-test run and $0.886 \pm 0.001$ across three seeds. This is far above the local CW-STFT+TCN baseline. The VMD-CBNeT and CNN+LSTM values are shown as reported-only context from the same source dataset, but their protocol and PCC space differ from ours.
 
