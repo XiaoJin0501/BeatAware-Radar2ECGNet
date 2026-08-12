@@ -194,7 +194,11 @@ The gap to radarODE-MTL is important because radarODE-MTL is a strong structured
 
 \begin{table}[!t]
 \centering
-\caption{MMECG \shape\ Morphology Reconstruction under 11-Fold Strict LOSO}
+\caption{MMECG \shape\ Morphology Reconstruction under 11-Fold Strict LOSO. Comparators
+are restricted to methods that produce a credible morphology result under our common
+protocol. Baselines whose public code was designed for a different dataset/output space
+(e.g., RSSRNet, AirECG) are not forced into this table; their original reported numbers
+are quoted as different-dataset context in Table~\ref{tab:reported}.}
 \label{tab:mmecg}
 \begin{tabular}{llccc}
 \toprule
@@ -204,12 +208,14 @@ Method & Tier & PCC & RMSE & MAE \\
 radarODE-MTL & Adapted & $0.728 \pm 0.133$ & 0.139 & 0.106 \\
 REM-Event & Ablation & $0.279 \pm 0.151$ & 0.258 & 0.183 \\
 WSST-TCN & Representation & $0.273 \pm 0.151$ & 0.258 & 0.183 \\
-RSSRNet & Adapted & $0.262 \pm 0.107$ & 0.290 & 0.226 \\
-AirECG & Adapted & $0.180 \pm 0.062$ & 0.245 & 0.173 \\
 \midrule
-BeatAware & Calibration prior & $0.671 \pm 0.159$ & 0.195 & 0.145 \\
+BeatAware & Calibration prior$^\dagger$ & $0.671 \pm 0.159$ & 0.195 & 0.145 \\
 \bottomrule
 \end{tabular}
+
+\vspace{2pt}
+\footnotesize $^\dagger$BeatAware uses LOSO with target-subject calibration and is
+therefore not a strict subject-independent comparator; it is shown for reference only.
 \end{table}
 
 \subsection{Morphology Is Not Only a Global PCC Effect}
@@ -282,8 +288,8 @@ VMD-CBNeT \cite{xu2025vmdcbnet} & VMD-CBNeT & Same source \crrvs & Different pro
 MultiResLinkNet \cite{chowdhury2024multireslinknet} & 1-D CNN & Same source \crrvs & Different metric space & Reports temporal/spectral correlation on Resting/Valsalva/Apnea segments. \\
 LifWavNet \cite{lifwavnet} & Lifting wavelet net & Same source \crrvs & Different split/target & Reports CR\_RVS waveform metrics; candidate for future reproduction. \\
 Radar2ECG \cite{radar2ecg} & Semantic distillation & Same source subset & Resting/sample split & Radar heart-sound to ECG generation; not our subject-independent morphology protocol. \\
-RSSRNet \cite{rssrnet} & RSSRNet & Different dataset & Private/custom & Official PCC not numerically compared; our adapted row is in Table~\ref{tab:mmecg}. \\
-AirECG \cite{airecg} & Diffusion & Different dataset & Private/custom & Official disease-monitoring numbers are context only; our adapted row is in Table~\ref{tab:mmecg}. \\
+RSSRNet \cite{rssrnet} & RSSRNet & Different dataset & Private/custom & Reports median ECG PCC $\approx$0.96 on its own mmWave dataset; different dataset, not numerically comparable to our protocol. \\
+AirECG \cite{airecg} & Diffusion & Different dataset & Private/custom & Reports PCC $\approx$0.96 (normal)/0.86 (abnormal) on its own arrhythmia dataset; context only, not numerically comparable. \\
 \bottomrule
 \end{tabular}
 \end{table*}

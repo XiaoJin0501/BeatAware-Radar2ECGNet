@@ -209,13 +209,18 @@ consistent with the multi-seed result.
 
 | Method | Tier | PCC | RMSE | R² |
 |---|---|---|---|---|
-| **REM-Net (proposed)** | proposed | **0.885 ± 0.002** | 0.110 | 0.556 |
+| **REM-Net (proposed)** | proposed | **0.882 ± 0.061** | 0.112 | 0.556 |
 | radarODE-MTL | adapted (ECG_shape) | 0.728 ± 0.133 | 0.139 | 0.344 |
 | REM-Event | ablation | 0.279 | 0.258 | −1.48 |
 | WSST-TCN | representation | 0.273 | 0.258 | −1.47 |
-| RSSRNet | adapted | 0.262 | 0.290 | −2.15 |
-| AirECG | adapted | 0.180 | 0.245 | −1.14 |
 | *ICONIP BeatAware* | *prior + calibration (not comparable)* | *0.671* | *0.195* | *−0.63* |
+
+*Comparators restricted to methods that yield a credible morphology result under our
+common protocol. RSSRNet/AirECG (public code designed for a different dataset/output
+space) are quoted with their original numbers as different-dataset context in the
+reported-literature table, not forced into this comparison. The headline uses the
+seed-42 final-test (0.882 ± 0.061 across 11 folds; the ± is subject variability);
+3-seed stability is 0.885 ± 0.002.*
 
 **Region-wise morphology (Table II).** REM-Net attains QRS-edge PCC 0.962 and ST/T PCC
 0.787, whereas radarODE-MTL is competitive at the QRS-edge (0.961) but collapses in ST/T
