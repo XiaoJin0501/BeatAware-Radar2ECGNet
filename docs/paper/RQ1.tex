@@ -10,7 +10,7 @@
 \usepackage{textcomp}
 \usepackage{url}
 \usepackage{xcolor}
-\graphicspath{{../../experiments_mmecg/q1_paper_figures/}}
+\graphicspath{{figures/}{../../experiments_mmecg/q1_paper_figures/}}
 
 \hyphenation{op-tical net-works semi-conduc-tor radarODE radarODE-MTL REM-Net}
 
@@ -99,11 +99,23 @@ This design reflects the paper's central decomposition. The representation encod
 
 \begin{figure}[!t]
 \centering
-\fbox{\parbox{0.92\linewidth}{\centering
-Draft schematic: radar time-frequency representation $\rightarrow$ multi-scale encoder $\rightarrow$ event auxiliary head $\rightarrow$ morphology multi-task decoder. The removed alignment module should not appear as a final-model block.}}
+\includegraphics[width=\linewidth]{F0_remnet_overview.pdf}
 \caption{Overview of \remnet. The final model uses representation encoding, event supervision, and a morphology multi-task decoder. Alignment is excluded from the final model after ablation.}
 \label{fig:overview}
 \end{figure}
+
+\subsection{Representation Encoder}
+The encoder first processes the radar representation through two parallel two-dimensional convolution branches with $3 \times 3$ and $5 \times 5$ kernels. Their outputs are concatenated and fused by additional convolution, normalization, nonlinear activation, dropout, and frequency pooling. The frequency dimension is then globally pooled and the temporal dimension is interpolated to 400 latent steps. A $1 \times 1$ temporal projection produces $h \in \mathbb{R}^{128 \times 400}$. This encoder is shared by MMECG and \crrvs; only the number of input channels differs.
+
+\subsection{Cardiac Event Structure Head}
+The event head upsamples $h$ to the ECG sampling grid and predicts two soft masks:
+\begin{equation}
+    (\hat{m}_R, \hat{m}_Q) = g_\psi(h),
+\end{equation}
+where $\hat{m}_R$ represents R-peak likelihood and $\hat{m}_Q$ represents a broader QRS-region likelihood. The two masks are downsampled back to the latent resolution, projected to 128 channels, and added to $h$ as a residual cardiac-structure conditioning term. This design differs from hard peak post-processing: event predictions are learned jointly and shape the latent representation during training.
+
+\subsection{Morphology Multi-Task Decoder}
+The event-conditioned latent is refined by a residual dilated TCN with dilation rates 1, 2, 4, 8, and 16. The decoder then splits into two heads. The full-window head upsamples the latent sequence to 1600 samples and predicts $\hat{y}$. The morphology head upsamples the same latent sequence to 200 samples and predicts $\hat{s}$. Both heads use one-dimensional convolutional layers with sigmoid output because the training targets are normalized. The full-window head provides auxiliary temporal supervision, while the \shape\ head is the final evaluation target.
 
 \subsection{Training Objective}
 The final supervised loss is
