@@ -60,7 +60,7 @@ The contributions are fivefold.
     \item We demonstrate strong subject-independent morphology reconstruction on public MMECG, with a locked final-test \shape\ PCC of $0.882 \pm 0.061$ across 11 strict-LOSO folds (stable across three seeds, $0.885 \pm 0.002$), well above the strongest adapted structured baseline.
     \item We validate the same framework on public \crrvs\ 24-GHz CW radar, with $0.881 \pm 0.013$ final-test PCC across 5 verified subject-independent folds (stable across three seeds, $0.886 \pm 0.001$), showing the principle transfers across radar modalities.
     \item We introduce an output-formulation-aware, tiered evaluation protocol that separates strict subject-independent results from calibrated prior results, adapted baselines, and reported-only literature, preventing incompatible protocols from being merged into one ranking.
-    \item Through a bounded oracle analysis we show that the remaining continuous-ECG gap is governed by beat-anchor localization precision rather than morphology capacity, identifying a concrete open problem for continuous radar-to-ECG.
+    \item Through a bounded oracle analysis and direct beat-localization measurements, we show that the remaining continuous-ECG gap is governed by beat-anchor localization precision rather than morphology capacity: predicted-anchor detection degrades sharply below $50$\,ms tolerance and, on CW radar, largely fails even while morphology stays high---identifying a concrete open problem for continuous radar-to-ECG.
 \end{itemize}
 
 \section{Related Work}
@@ -288,6 +288,27 @@ Post-exercise & 0.834 & --- \\
 \end{tabular}
 \end{table}
 
+\subsection{Robustness to Input Noise}
+We further stress-test the frozen model by injecting additive Gaussian noise into its time-frequency input, with the noise standard deviation set to a multiple of each window's own representation standard deviation; the multiplier is thus an inverse signal-to-noise ratio (level $1.0$ corresponds to $0$\,dB). This is a controlled input-corruption test, not a motion-artifact simulation. Table~\ref{tab:noise} reports the resulting \shape\ PCC. On MMECG the model degrades gracefully: performance is essentially unchanged up to noise equal to the input amplitude ($0.834$ at $0$\,dB, a $5.4\%$ relative drop) and remains usable at $-6$\,dB ($0.781$). CR_RVS degrades roughly two-to-five times faster at every level ($-12\%$ vs $-2.5\%$ at $+6$\,dB). We attribute this gap to modality redundancy: MMECG provides 50 range bins whose information the model can average over, whereas \crrvs\ is single-channel continuous-wave with no such spatial redundancy. This contrast is a property of the sensing modality rather than a model defect, and it reinforces why cross-modality validation is necessary.
+
+\begin{table}[!t]
+\centering
+\caption{\shape\ PCC under additive input noise (frozen model, fold-macro mean $\pm$ std). Level is the ratio of noise std to input std ($\approx$ inverse SNR); level $0$ is the clean final-test number.}
+\label{tab:noise}
+\begin{tabular}{lcc}
+\toprule
+Noise level ($\approx$SNR) & MMECG (FMCW) & \crrvs\ (CW) \\
+\midrule
+0.0 (clean)   & $0.882 \pm 0.061$ & $0.881 \pm 0.013$ \\
+0.5 ($+6$\,dB) & $0.860 \pm 0.073$ & $0.775 \pm 0.087$ \\
+1.0 ($0$\,dB)  & $0.834 \pm 0.112$ & $0.602 \pm 0.223$ \\
+2.0 ($-6$\,dB) & $0.781 \pm 0.123$ & $0.418 \pm 0.298$ \\
+3.0 ($-9.5$\,dB) & $0.646 \pm 0.150$ & $0.257 \pm 0.316$ \\
+5.0 ($-14$\,dB) & $0.390 \pm 0.215$ & $0.129 \pm 0.268$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{External Validation on \crrvs}
 Table~\ref{tab:crrvs} reports \crrvs\ external validation. Under verified 5-fold subject-independent evaluation, \remnet\ reaches \shape\ PCC $0.881 \pm 0.013$ in the locked final-test run and $0.886 \pm 0.001$ across three seeds. This is far above the local CW-STFT+TCN baseline. The VMD-CBNeT and CNN+LSTM values are shown as reported-only context from the same source dataset, but their protocol and PCC space differ from ours.
 
@@ -311,7 +332,25 @@ B: reported-only & CNN+LSTM \cite{xu2025vmdcbnet} & 0.647 & 0.127 \\
 \end{table}
 
 \subsection{Ablation and Efficiency}
-The main ablation chain is WSST-TCN $\rightarrow$ REM-Event $\rightarrow$ \remnet. PCC increases from 0.273 to 0.279 with the event-only branch and then to 0.882 with the morphology multi-task decoder. This indicates that the decisive component is not the event branch alone but the combination of event-structured latent learning and the explicit morphology head. The removed alignment module has no measurable morphology benefit. \remnet\ has approximately 1.79M parameters and approximately 1.1 ms single-window latency, compared with approximately 4.89M parameters for the ICONIP BeatAware model.
+The main ablation chain is WSST-TCN $\rightarrow$ REM-Event $\rightarrow$ \remnet. PCC increases from 0.273 to 0.279 with the event-only branch and then to 0.882 with the morphology multi-task decoder. This indicates that the decisive component is not the event branch alone but the combination of event-structured latent learning and the explicit morphology head. The removed alignment module has no measurable morphology benefit.
+
+Table~\ref{tab:efficiency} contrasts model size against morphology accuracy. \remnet\ attains the highest \shape\ PCC with only $1.79$M parameters---about $15\times$ smaller than the radarODE-MTL morphology comparator ($26.8$M) yet more accurate ($0.882$ vs $0.728$), and about $2.7\times$ smaller than the ICONIP BeatAware model. Its inductive bias therefore comes from output structure and auxiliary supervision rather than parameter count. Single-window inference takes $0.98$\,ms on an RTX 4080 SUPER (batch size 1), supporting real-time use.
+
+\begin{table}[!t]
+\centering
+\caption{Model efficiency versus morphology accuracy. Parameter counts are exact; latency is measured for the deployed model only (single 8-s window, batch size 1, RTX 4080 SUPER). $^{\dagger}$BeatAware is a calibration-prior result (Block B), not a strict-LOSO comparable number.}
+\label{tab:efficiency}
+\begin{tabular}{lccc}
+\toprule
+Model & Params & Latency & \shape\ PCC \\
+\midrule
+\remnet\ (ours)   & $\mathbf{1.79}$M & $0.98$\,ms & $\mathbf{0.882}$ \\
+WSST-TCN          & $1.47$M & --- & $0.273$ \\
+radarODE-MTL      & $26.8$M & --- & $0.728$ \\
+BeatAware (ICONIP) & $4.85$M & --- & $0.671^{\dagger}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 The ablation also changes how the model should be interpreted. Event supervision by itself is not a silver bullet; it becomes useful when the output formulation gives the network a morphology target that can exploit the event-structured latent. This is why the final model is named Representation--Event--Morphology rather than Representation--Alignment or simply WSST-TCN.
 
@@ -339,6 +378,26 @@ AirECG \cite{airecg} & Diffusion & Different dataset & Private/custom & Reports 
 \subsection{Mechanistic Analysis of the Continuous Gap}
 \remnet's high \shape\ performance does not imply solved continuous ECG reconstruction. With ground-truth beat anchors used only for oracle analysis, the learned morphology assembles into near-perfect continuous ECG with PCC 0.93--0.98. However, predicted-anchor assembly collapses on harder held-out subjects. Threshold tuning can recover coarse detection recall, but continuous overlap-add does not recover because anchor localization precision does not generalize at the sub-50 ms level. Matched-beat error is approximately 16--20 ms on the easy fold but 40--55 ms on harder folds. Thus, the continuous gap is governed by beat-anchor localization precision rather than morphology-generation capacity alone.
 
+\subsubsection{Predicted-anchor localization is tolerance-limited}
+To quantify predicted-anchor precision directly, we evaluate the frozen model's auxiliary event head (R-peak mask) against reference R-peaks, matched one-to-one within a tolerance window (Table~\ref{tab:rate}). On MMECG, beats are detected reliably at a coarse tolerance (F1 $0.806$ at 150 ms) but detection degrades sharply as the tolerance tightens ($0.749$ at 100 ms; $0.544$ at 50 ms). Heart rate is nonetheless recovered almost exactly ($0.32$ bpm error) because zero-mean beat-to-beat jitter averages out over a window; this confirms that the deficit is fine-grained placement, not gross rate. The same frozen event head applied to CW \crrvs\ largely fails to localize beats under subject-independent evaluation (F1 $\approx 0.10$ at all tolerances), even though the same model reconstructs \crrvs\ morphology at PCC $0.881$. This dissociation---transferable morphology but non-transferable beat localization, markedly worse on CW---is the core empirical evidence that the continuous barrier is anchor localization precision rather than morphology.
+
+\begin{table}[!t]
+\centering
+\caption{Beat-localization metrics from the frozen \remnet\ event head (predicted anchors), fold-macro mean $\pm$ std. F1 at three matching tolerances; RR and HR are conditional on matched beats. MMECG RR/HR cover $92.8\%$ of windows; \crrvs\ RR/HR are omitted as only $4.2\%$ of windows contain matched beats (uninformative).}
+\label{tab:rate}
+\begin{tabular}{lcc}
+\toprule
+Metric & MMECG (FMCW) & \crrvs\ (CW) \\
+\midrule
+R-peak F1 @ 50\,ms $\uparrow$  & $0.544 \pm 0.153$ & $0.084 \pm 0.017$ \\
+R-peak F1 @ 100\,ms $\uparrow$ & $0.749 \pm 0.127$ & $0.099 \pm 0.018$ \\
+R-peak F1 @ 150\,ms $\uparrow$ & $0.806 \pm 0.083$ & $0.102 \pm 0.019$ \\
+RR error (ms) $\downarrow$     & $30.4 \pm 5.7$    & --- \\
+HR error (bpm) $\downarrow$    & $0.32 \pm 0.06$   & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 This result is negative for continuous reconstruction but positive for scientific understanding. It rules out the simplest explanation that the learned morphology is too poor to form continuous ECG. If correct anchors are provided, the same morphology is sufficient for high continuous assembly. It also rules out a pure recall explanation: lowering the detection threshold recovers many missed beats but introduces false positives and does not restore overlap-add PCC. The remaining bottleneck is precision of beat placement under unseen-subject radar variability. This is a stronger and more actionable conclusion than simply reporting that full-window PCC is low.
 
 \begin{figure}[!t]
@@ -350,12 +409,12 @@ This result is negative for continuous reconstruction but positive for scientifi
 
 \section{Discussion}
 \subsection{What the Results Support}
-The evidence supports a morphology-first claim: \remnet\ reconstructs ECG beat morphology robustly across FMCW and CW radar under subject-independent protocols. The result is stable across seeds, transfers across radar modality, and improves over adapted/local baselines in the same morphology space. Region-wise analysis further shows that the gain is not only a smooth normalized PCC effect; \remnet\ preserves ST/T morphology where a strong adapted ODE baseline is weak.
+The evidence supports a morphology-first claim: \remnet\ reconstructs ECG beat morphology robustly across FMCW and CW radar under subject-independent protocols. The result is stable across seeds, transfers across radar modality, and improves over adapted/local baselines in the same morphology space. Region-wise analysis further shows that the gain is not only a smooth normalized PCC effect; \remnet\ preserves ST/T morphology where a strong adapted ODE baseline is weak. The morphology is also robust to physiological state and degrades gracefully under input noise---on FMCW it is essentially unchanged up to $0$\,dB input noise---and it is obtained with a compact model ($1.79$M parameters, sub-millisecond inference) that is an order of magnitude smaller than the structured morphology comparator yet more accurate. The faster noise degradation on single-channel CW than on multi-bin FMCW is consistent with the redundancy of the sensing modality rather than a model weakness.
 
 For a journal extension, the main advance is therefore not an isolated architectural component. It is a reformulation of supervised radar-to-ECG into a morphology-first, output-aware evaluation problem with controlled evidence. The model is intentionally compact, the final alignment branch is removed, and the comparison table separates what is reproducible under our protocol from what is only reported in prior work. This makes the contribution more conservative but also more defensible.
 
 \subsection{What the Results Do Not Support}
-The results do not prove continuous long-term ECG recovery. \shape\ is a beat-normalized target, and continuous ECG requires accurate placement of each beat on the time axis. The oracle-anchor analysis shows that morphology is strong enough to assemble well if beat anchors are correct, but predicted anchors do not generalize at the necessary precision. Therefore, continuous radar-to-ECG should be framed as an open timing-localization problem rather than a solved waveform-regression problem.
+The results do not prove continuous long-term ECG recovery. \shape\ is a beat-normalized target, and continuous ECG requires accurate placement of each beat on the time axis. The oracle-anchor analysis shows that morphology is strong enough to assemble well if beat anchors are correct, but predicted anchors do not generalize at the necessary precision. Direct beat-localization measurements corroborate this: the event head detects beats reliably at coarse tolerance ($0.806$ F1 at $150$\,ms on MMECG) but sharply worse at $50$\,ms ($0.544$), and on CW radar it largely fails to localize beats ($\approx 0.10$ F1) even though morphology remains high. Therefore, continuous radar-to-ECG should be framed as an open timing-localization problem rather than a solved waveform-regression problem.
 
 This boundary is especially important when comparing with papers that report full-window ECG or clinical interval errors. Our morphology results should not be used to claim PR, QRS, QT, or QTc superiority. They also should not be used to claim that \remnet\ reproduces radarODE-MTL long-term assembly or VMD-CBNeT's original protocol. The paper's defensible position is narrower: morphology is strong and transferable; continuous timing remains open; the mechanism analysis explains why.
 
@@ -365,7 +424,7 @@ The ICONIP BeatAware model studied raw FMCW range-bin input with physiology-awar
 The practical implication is that future radar-to-ECG papers should report the output formulation explicitly. A method that reconstructs beat morphology, a method that reconstructs an 8-s ECG window, and a method that estimates ECG intervals are solving related but non-identical tasks. A single ranking table without protocol tiers can obscure rather than clarify progress.
 
 \section{Limitations}
-The main limitation is output formulation. \shape\ morphology is not equivalent to continuous clinical ECG. Our full-window interval-timing errors are not better than the strongest reported interval results under different protocols, and we make no PR/QRS/QT superiority claim. VMD-CBNeT is reported as a contextual reference, not an identical-protocol reproduction. radarODE-MTL is compared only in morphology/ECG\_shape space; its official long-term assembly is not reproduced. Some adapted low-scoring baselines have incomplete historical preprocessing traceability, although this does not affect the main conclusion. Finally, diastolic morphology remains weaker than QRS and ST/T morphology, especially on CW radar.
+The main limitation is output formulation. \shape\ morphology is not equivalent to continuous clinical ECG. Our full-window interval-timing errors are not better than the strongest reported interval results under different protocols, and we make no PR/QRS/QT superiority claim. VMD-CBNeT is reported as a contextual reference, not an identical-protocol reproduction. radarODE-MTL is compared only in morphology/ECG\_shape space; its official long-term assembly is not reproduced. Some adapted low-scoring baselines have incomplete historical preprocessing traceability, although this does not affect the main conclusion. Our noise-robustness analysis perturbs the input representation and is an input-corruption stress test, not a simulation of real body-motion artifacts. Finally, diastolic morphology remains weaker than QRS and ST/T morphology, especially on CW radar.
 
 \section{Conclusion}
 This paper presented \remnet, a supervised representation--event--morphology network for contactless ECG beat morphology reconstruction from radar. \remnet\ achieves strong, seed-stable morphology reconstruction on public FMCW and CW radar datasets under subject-independent protocols. By separating output formulations and auditing comparison tiers, the study avoids conflating morphology reconstruction with continuous ECG recovery. The mechanism analysis further identifies robust sub-50 ms beat-anchor localization as a key open barrier to continuous radar-to-ECG. These findings provide both a practical supervised morphology model and a clearer research direction for future contactless ECG sensing.

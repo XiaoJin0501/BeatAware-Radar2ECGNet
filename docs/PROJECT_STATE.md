@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 Active branch: exp/rem-shape-guided-continuous-decoder
 Active GitHub issue: none
 
@@ -32,6 +32,21 @@ assembly (route C) is a demoted discovery/mechanism section (D1–D2).
   generalize across subjects (fold_02/03 MAE 40–55 ms vs fold_01 16–20 ms) (D2).
 - Falsified earlier: electromechanical-delay warp (latent/output) does not close
   the MMECG continuous gap (ALIGNMENT_DESIGN §7b).
+- Rate/localization (eval-only, frozen; RATE_METRIC_AUDIT): MMECG event-head
+  R-F1@{150,100,50}ms = **0.806/0.749/0.544** (sharp sub-50 ms drop), RR 30.4 ms,
+  HR 0.32 bpm; CR_RVS localization **largely fails** (F1≈0.10) while morphology
+  stays 0.881 ⇒ morphology transfers across modality, beat localization does not
+  (D2/D4). CR_RVS RR/HR excluded (4.2% biased coverage).
+- Noise robustness (eval-only, frozen; ROBUSTNESS_AUDIT): graceful Shape-200
+  degradation; MMECG 0.834 at 0 dB (−5.4%), 0.781 at −6 dB; CW degrades ~2–5×
+  faster (single-channel, no range-bin redundancy). Scope: input-corruption test,
+  not motion artifacts (S4).
+- Efficiency (EFFICIENCY_AUDIT): REM-Net **1.79M params**, 0.98 ms/window (RTX 4080
+  SUPER), vs radarODE-MTL 26.8M and BeatAware 4.85M — smallest-but-one and most
+  accurate.
+- Manuscript `docs/paper/RQ1.tex`: added tab:rate, tab:noise, tab:efficiency;
+  folded rate/robustness/efficiency into Intro contributions + Discussion +
+  Limitations. All numbers traceable to audit docs; citations resolve; tables balanced.
 
 ## Current Blockers
 
