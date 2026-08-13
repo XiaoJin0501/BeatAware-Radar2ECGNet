@@ -86,6 +86,30 @@ Let $m_R \in [0,1]^{1600}$ and $m_Q \in [0,1]^{1600}$ denote soft R-peak and QRS
 \end{equation}
 where $\phi(\cdot)$ is the radar representation transform and $f_\theta$ is \remnet.
 
+\subsection{Morphology--Anchor--Assembly Decomposition}
+We use a simple decomposition to clarify why beat morphology and continuous ECG should not be treated as identical endpoints. Let a continuous ECG segment be represented as a sequence of beat morphologies $\{s_k\}_{k=1}^{K}$ placed at beat anchors $\{a_k\}_{k=1}^{K}$, where $a_k$ denotes the R-peak time or an equivalent cardiac-cycle anchor. A generic overlap-add assembly operator can be written as
+\begin{equation}
+    y(t) \approx \mathcal{A}(\{s_k\},\{a_k\})(t)
+    = \sum_{k=1}^{K} w_k(t-a_k)\,s_k(\tau_k(t-a_k)),
+    \label{eq:assembly}
+\end{equation}
+where $w_k$ is a local window and $\tau_k(\cdot)$ maps physical time within a beat to the normalized morphology coordinate. This expression is not meant to impose a specific clinical delineation algorithm; it formalizes the dependence of continuous ECG reconstruction on two separable quantities: the morphology assigned to each beat and the temporal anchor at which that morphology is placed.
+
+Under this view, the continuous reconstruction error can be separated into a morphology term and an anchor term. If the assembly operator is locally Lipschitz with respect to beat shape and anchor location, then for predicted morphologies $\{\hat{s}_k\}$ and anchors $\{\hat{a}_k\}$,
+\begin{equation}
+\begin{split}
+    \| \mathcal{A}(\{\hat{s}_k\},\{\hat{a}_k\}) -
+    \mathcal{A}(\{s_k\},\{a_k\}) \| \\
+    \leq C_s \sum_k \|\hat{s}_k-s_k\|
+    + C_a \sum_k |\hat{a}_k-a_k|
+    + \epsilon_{\mathrm{asm}},
+\end{split}
+\label{eq:error_decomp}
+\end{equation}
+where $C_s$ and $C_a$ depend on the local beat slope and windowing function, and $\epsilon_{\mathrm{asm}}$ contains residual effects such as beat overlap, amplitude normalization, and delineation error. The key implication is that a model can have a small morphology error but a large continuous error if the anchor error is comparable to the width of sharp ECG components such as the QRS complex. In that regime, improving the shape decoder alone cannot guarantee better continuous ECG.
+
+This decomposition motivates the paper's evaluation design. The \shape\ target estimates the first term in (\ref{eq:error_decomp}) by asking whether radar contains enough information to reconstruct beat morphology under subject-independent supervision. Oracle-anchor assembly estimates the achievable continuous upper bound when the second term is removed. Predicted-anchor assembly and R-peak F1 then measure whether the learned event branch can control the second term under the same subject-independent setting. The final model is therefore evaluated primarily as a morphology reconstructor, while continuous ECG is analyzed as a morphology-plus-anchor problem.
+
 \subsection{Radar Representation}
 \remnet\ receives a cardiac-informative time-frequency representation rather than raw range-bin or I/Q samples. For MMECG, the 50 FMCW range bins are transformed into a WSST/STFT-like time-frequency representation over 8-s windows, producing a multi-bin tensor. For \crrvs, complex I/Q signals are demodulated to phase/displacement-like motion and transformed into a single-channel time-frequency representation. The two datasets therefore differ in radar modality and input-channel count, but share the same downstream modeling principle.
 
@@ -375,6 +399,7 @@ AirECG \cite{airecg} & Diffusion & Different dataset & Private/custom & Reports 
 
 \subsection{Mechanistic Analysis of the Continuous Gap}
 The high \shape performance of \remnet should not be read as evidence of reliable continuous ECG reconstruction. With ground-truth beat anchors used only for oracle analysis, the learned morphology assembles into near-perfect continuous ECG with PCC 0.93--0.98. Predicted-anchor assembly, however, collapses on harder held-out subjects. Threshold tuning can recover coarse detection recall, but continuous overlap-add does not recover because anchor localization precision does not generalize at the sub-50 ms level. Matched-beat error is approximately 16--20 ms on the easy fold but 40--55 ms on harder folds. The continuous gap is therefore governed by beat-anchor localization precision rather than morphology-generation capacity alone.
+This observation is consistent with the decomposition in (\ref{eq:error_decomp}): once morphology error is small, the anchor term becomes the dominant contributor to continuous waveform mismatch, especially around the high-slope QRS region.
 
 \subsubsection{Predicted-anchor localization is tolerance-limited}
 To quantify predicted-anchor precision directly, we evaluate the final model's auxiliary event head (R-peak mask) against reference R-peaks, matched one-to-one within a tolerance window (Table~\ref{tab:rate}). On MMECG, beats are detected reliably at a coarse tolerance (F1 $0.806$ at 150 ms) but detection degrades sharply as the tolerance tightens ($0.749$ at 100 ms; $0.544$ at 50 ms). Heart rate is nonetheless recovered almost exactly ($0.32$ bpm error) because zero-mean beat-to-beat jitter averages out over a window; the deficit is fine-grained placement, not gross rate. The same event head applied to CW \crrvs\ largely fails to localize beats under subject-independent evaluation (F1 $\approx 0.10$ at all tolerances), even though the same model reconstructs \crrvs\ morphology at PCC $0.881$. This dissociation---transferable morphology but non-transferable beat localization, markedly worse on CW---is the main empirical evidence that the continuous barrier is anchor localization precision rather than morphology.
