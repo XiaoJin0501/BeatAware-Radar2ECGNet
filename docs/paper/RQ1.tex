@@ -10,13 +10,14 @@
 \usepackage{textcomp}
 \usepackage{url}
 \usepackage{xcolor}
+\usepackage{xspace}
 \graphicspath{{figures/}{../../experiments_mmecg/q1_paper_figures/}}
 
 \hyphenation{op-tical net-works semi-conduc-tor radarODE radarODE-MTL REM-Net}
 
-\newcommand{\remnet}{REM-Net}
-\newcommand{\shape}{Shape-200}
-\newcommand{\crrvs}{CR\_RVS}
+\newcommand{\remnet}{REM-Net\xspace}
+\newcommand{\shape}{Shape-200\xspace}
+\newcommand{\crrvs}{CR\_RVS\xspace}
 
 \begin{document}
 
@@ -289,7 +290,7 @@ Post-exercise & 0.834 & --- \\
 \end{table}
 
 \subsection{Robustness to Input Noise}
-We further stress-test the frozen model by injecting additive Gaussian noise into its time-frequency input. The noise standard deviation is set to a multiple of each window's representation standard deviation, so the multiplier is an inverse signal-to-noise ratio (level $1.0$ corresponds to $0$\,dB). This is a controlled input-corruption test, not a motion-artifact simulation. Table~\ref{tab:noise} reports the resulting \shape\ PCC. On MMECG, performance changes modestly up to noise equal to the input amplitude ($0.834$ at $0$\,dB, a $5.4\%$ relative drop) and remains usable at $-6$\,dB ($0.781$). CR_RVS degrades roughly two-to-five times faster at every level ($-12\%$ vs $-2.5\%$ at $+6$\,dB). This difference is consistent with modality redundancy: MMECG provides 50 range bins whose information the model can average over, whereas \crrvs\ is single-channel continuous-wave with no comparable spatial redundancy. The contrast reinforces why cross-modality validation is necessary.
+We further stress-test the frozen model by injecting additive Gaussian noise into its time-frequency input. The noise standard deviation is set to a multiple of each window's representation standard deviation, so the multiplier is an inverse signal-to-noise ratio (level $1.0$ corresponds to $0$\,dB). This is a controlled input-corruption test, not a motion-artifact simulation. Table~\ref{tab:noise} reports the resulting \shape\ PCC. On MMECG, performance changes modestly up to noise equal to the input amplitude ($0.834$ at $0$\,dB, a $5.4\%$ relative drop) and remains usable at $-6$\,dB ($0.781$). The \crrvs dataset degrades roughly two-to-five times faster at every level ($-12\%$ vs $-2.5\%$ at $+6$\,dB). This difference is consistent with modality redundancy: MMECG provides 50 range bins whose information the model can average over, whereas \crrvs is single-channel continuous-wave with no comparable spatial redundancy. The contrast reinforces why cross-modality validation is necessary.
 
 \begin{table}[!t]
 \centering
@@ -376,7 +377,7 @@ AirECG \cite{airecg} & Diffusion & Different dataset & Private/custom & Reports 
 \end{table*}
 
 \subsection{Mechanistic Analysis of the Continuous Gap}
-\remnet's high \shape\ performance should not be read as evidence of reliable continuous ECG reconstruction. With ground-truth beat anchors used only for oracle analysis, the learned morphology assembles into near-perfect continuous ECG with PCC 0.93--0.98. Predicted-anchor assembly, however, collapses on harder held-out subjects. Threshold tuning can recover coarse detection recall, but continuous overlap-add does not recover because anchor localization precision does not generalize at the sub-50 ms level. Matched-beat error is approximately 16--20 ms on the easy fold but 40--55 ms on harder folds. The continuous gap is therefore governed by beat-anchor localization precision rather than morphology-generation capacity alone.
+The high \shape performance of \remnet should not be read as evidence of reliable continuous ECG reconstruction. With ground-truth beat anchors used only for oracle analysis, the learned morphology assembles into near-perfect continuous ECG with PCC 0.93--0.98. Predicted-anchor assembly, however, collapses on harder held-out subjects. Threshold tuning can recover coarse detection recall, but continuous overlap-add does not recover because anchor localization precision does not generalize at the sub-50 ms level. Matched-beat error is approximately 16--20 ms on the easy fold but 40--55 ms on harder folds. The continuous gap is therefore governed by beat-anchor localization precision rather than morphology-generation capacity alone.
 
 \subsubsection{Predicted-anchor localization is tolerance-limited}
 To quantify predicted-anchor precision directly, we evaluate the frozen model's auxiliary event head (R-peak mask) against reference R-peaks, matched one-to-one within a tolerance window (Table~\ref{tab:rate}). On MMECG, beats are detected reliably at a coarse tolerance (F1 $0.806$ at 150 ms) but detection degrades sharply as the tolerance tightens ($0.749$ at 100 ms; $0.544$ at 50 ms). Heart rate is nonetheless recovered almost exactly ($0.32$ bpm error) because zero-mean beat-to-beat jitter averages out over a window; the deficit is fine-grained placement, not gross rate. The same frozen event head applied to CW \crrvs\ largely fails to localize beats under subject-independent evaluation (F1 $\approx 0.10$ at all tolerances), even though the same model reconstructs \crrvs\ morphology at PCC $0.881$. This dissociation---transferable morphology but non-transferable beat localization, markedly worse on CW---is the main empirical evidence that the continuous barrier is anchor localization precision rather than morphology.
