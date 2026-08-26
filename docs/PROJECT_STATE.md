@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-08-13
+Last updated: 2026-08-27
 Active branch: exp/rem-shape-guided-continuous-decoder
 Active GitHub issue: none
 
@@ -51,7 +51,12 @@ assembly (route C) is a demoted discovery/mechanism section (D1–D2).
 ## Current Blockers
 
 - Final-test evidence chain is locked for the supervised morphology-first model,
-  but final manuscript tables/figures still need publication-grade formatting.
+  but advisor feedback requires that the next claims not rely on PCC alone.
+- Controlled ablations are required before stating that event structure,
+  morphology supervision, Shape-200 PCC loss, or alignment causes the observed
+  improvements.
+- Final manuscript tables/figures still need publication-grade formatting after
+  the ablation results are known.
 - Reported-literature table is design-locked but selected R4 papers can still be
   audited if needed.
 - radarODE long-assembly not faithfully reproducible → compare in Shape-200 space,
@@ -60,14 +65,19 @@ assembly (route C) is a demoted discovery/mechanism section (D1–D2).
 
 ## Next Approved Tasks (main line)
 
-1. Draft the paper Results prose from `docs/RESULTS_SKELETON.md`.
-2. Produce publication-grade T1/T3/Table D LaTeX tables and qualitative figures.
-3. Add the efficiency table (params/FLOPs/latency) if time allows.
-4. Write the route-C discovery/mechanism section from D1–D2 evidence.
+1. Run eval-only expansion on frozen outputs using the ICONIP-style metric spirit:
+   PCC/RMSE plus QMR, R-F1, RR/HR, coverage, and reliable fiducial/region metrics.
+2. Run the `q1_remnet_multimetric_ablation_gate` 3-fold pilot before making causal
+   module claims.
+3. Promote only supported ablation arms to final all-fold experiments.
+4. After ablation audit, update `docs/paper/RQ1.tex` and publication figures.
 
 ## Do Not Do
 
 - Do not promote pilots.
+- Do not claim component causality before `docs/RQ1_ABLATION_AND_METRIC_PLAN.md`
+  is satisfied.
+- Do not optimize or narrate RQ1 around PCC alone.
 - Do not present route C as the Q1 main continuous model (demoted).
 - Do not scale route C to 11-fold or Stage 2 unless anchor precision generalization
   is solved first.

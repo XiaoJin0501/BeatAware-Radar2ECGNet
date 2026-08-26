@@ -31,6 +31,10 @@ decoder** (the component that carries the Shape-200 strength).
 > radar under subject-independent protocols; and we show the remaining barrier to
 > continuous ECG is **beat-anchor localization precision**, not morphology.
 
+Advisor-feedback lock (2026-08-27): the paper must not be optimized or narrated
+around PCC alone. The final claims require multi-metric reporting and controlled
+ablation evidence following `docs/RQ1_ABLATION_AND_METRIC_PLAN.md`.
+
 ## 3. Contributions (each mapped to evidence)
 
 - **C1 (M1):** SOTA MMECG beat morphology — Shape-200 PCC 0.882 ± 0.061
@@ -104,6 +108,10 @@ Must-have for a credible Q1 submission:
   polishing only.**
 - **G3 Naming/positioning cleanup — DONE:** paper model name is REM-Net; code
   class may remain `REMAlignMTLNet`.
+- **G11 Multi-metric ablation before causal claims — REQUIRED:** run controlled
+  architecture/loss ablations before stating that event structure, morphology
+  supervision, or any loss term causes the performance gain. Report morphology,
+  timing, QMR/coverage, and efficiency where applicable; PCC alone is insufficient.
 
 Should-have:
 - **G4 Efficiency table (T5)** — params/FLOPs/latency (model vs preprocessing).

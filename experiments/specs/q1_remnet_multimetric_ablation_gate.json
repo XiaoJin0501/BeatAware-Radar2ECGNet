@@ -1,0 +1,95 @@
+{
+  "experiment_id": "q1_remnet_multimetric_ablation_gate",
+  "research_question": "RQ1 supervised radar-to-ECG: which REM-Net components improve morphology, timing, and monitoring reliability beyond PCC?",
+  "hypothesis": "The final REM-Net configuration should improve beat-normalized morphology over WSST-TCN and event-only variants while maintaining or improving R-peak timing, RR consistency, and QMR. If the gain appears only in Shape-200 PCC, the manuscript must restrict the claim to morphology rather than clinical monitoring.",
+  "dataset": "MMECG primary; CR_RVS mirror only after MMECG gate passes",
+  "protocol": "Representative 3-fold strict LOSO gate followed by all-fold promotion only if the multi-metric pattern is stable. All checkpoints are selected by validation criteria only.",
+  "tier": "pilot",
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "commit_id": "5053251",
+  "publishable": false,
+  "baseline": "A0 WSST-TCN representation-only temporal decoder",
+  "changed_variable": "One REM-Net component or loss term per ablation arm: event supervision, morphology auxiliary loss, Shape-200 PCC term, or optional alignment module.",
+  "controlled_variables": [
+    "Same subject split per fold",
+    "Same input H5/WSST preprocessing",
+    "Same final-test protocol and no test-based checkpoint selection",
+    "Same optimizer, learning rate, weight decay, batch size, early stopping rule, and random seed unless a multi-seed stability run is explicitly declared",
+    "Same metric scripts and fold-macro aggregation",
+    "Same output naming convention under experiments_mmecg with tier=pilot until promotion"
+  ],
+  "ablation_arms": [
+    {
+      "arm": "A0",
+      "model_arch": "wsst_tcn",
+      "purpose": "Representation-only baseline"
+    },
+    {
+      "arm": "A1",
+      "model_arch": "rem_event",
+      "purpose": "Event-structured model without morphology MTL decoder"
+    },
+    {
+      "arm": "A2",
+      "model_arch": "rem_align_mtl",
+      "overrides": {
+        "use_alignment": false,
+        "beta_peak": 0.0,
+        "use_shape200_loss": true,
+        "lambda_shape200": 0.8,
+        "shape200_pcc_weight": 0.5
+      },
+      "purpose": "Same morphology-capable architecture without event supervision"
+    },
+    {
+      "arm": "A3",
+      "model_arch": "rem_align_mtl",
+      "overrides": {
+        "use_alignment": false,
+        "beta_peak": 0.3,
+        "use_shape200_loss": true,
+        "lambda_shape200": 0.8,
+        "shape200_pcc_weight": 0.0
+      },
+      "purpose": "Shape auxiliary loss without PCC component"
+    },
+    {
+      "arm": "A4",
+      "model_arch": "rem_align_mtl",
+      "overrides": {
+        "use_alignment": false,
+        "beta_peak": 0.3,
+        "use_shape200_loss": true,
+        "lambda_shape200": 0.8,
+        "shape200_pcc_weight": 0.5
+      },
+      "purpose": "Frozen final REM-Net configuration"
+    },
+    {
+      "arm": "A5",
+      "model_arch": "rem_align_mtl",
+      "overrides": {
+        "use_alignment": true
+      },
+      "purpose": "Optional alignment check; retain only if multi-metric improvement is reproducible"
+    }
+  ],
+  "success_criteria": [
+    "A4 beats A0/A1 on Shape-200 PCC, RMSE, MAE, and/or R2 under fold-macro aggregation",
+    "A4 does not degrade QMR, R-F1@150/100/50 ms, RR error, or coverage relative to simpler event-aware arms",
+    "A2 vs A4 isolates whether event supervision matters; no event claim is allowed if beta_peak=0 matches A4",
+    "A3 vs A4 isolates whether the Shape-200 PCC term matters; no PCC-loss claim is allowed if they are equivalent",
+    "A5 is dropped unless it improves more than noise on morphology and timing metrics"
+  ],
+  "checkpoint_selection": "Validation-best only; never select models by test PCC, R-F1, QMR, or qualitative appearance.",
+  "expected_outputs": [
+    "Per-fold predictions",
+    "Per-fold metric JSON/CSV with morphology, event/timing, QMR/coverage, and efficiency where available",
+    "Aggregated 3-fold ablation table",
+    "Failure notes for arms that do not pass promotion",
+    "Updated PAPER_CLAIM_LEDGER entries before any manuscript causal language"
+  ],
+  "estimated_compute": "3-fold gate first. Do not promote to all 11 MMECG folds or CR_RVS mirror until the gate supports at least one causal claim beyond PCC.",
+  "failure_interpretation": "If final REM-Net only wins on global Shape-200 PCC, reposition the paper around beat-morphology fidelity and remove or weaken claims about event structure, timing reliability, or clinical monitoring.",
+  "notes": "This spec was created after advisor feedback that PCC alone is insufficient. It imports the earlier BeatAware metric philosophy without using the conference paper as a manuscript framing device."
+}

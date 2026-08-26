@@ -61,4 +61,8 @@ morphology. See `docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
 - Every quantitative conclusion traces to an experiment ID + manifest.
 - `δ` must be self-emergent in the main model; pseudo-GT delay is analysis-only.
 - No causal claim without the controlled B0→B4 ablation.
+- No RQ1 performance claim may rely on PCC alone. Morphology claims require
+  RMSE/MAE/R² support where available; monitoring claims require QMR/R-F1/RR or
+  documented coverage; component claims require the ablation plan in
+  `docs/RQ1_ABLATION_AND_METRIC_PLAN.md`.
 - Promotion from pilot→final only via the result-promotion workflow.

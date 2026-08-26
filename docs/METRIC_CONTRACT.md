@@ -54,6 +54,29 @@ experiments must include a manifest that records the aggregation contract.
   checkpoints or models.
 - NaN handling: metrics use `nanmean`; report the count of NaN/failed segments.
 
+## RQ1 Multi-Metric Requirement
+
+RQ1 conclusions must not be based on PCC alone. The minimum reportable metric set is:
+
+- **Morphology:** PCC, RMSE, MAE, R², and where available region-level fidelity
+  around QRS/ST-T/non-QRS morphology.
+- **Event/timing:** R-F1 at 150/100/50 ms, RR-interval error, HR error, and
+  Q/QRS/S/T fiducial timing only when delineation coverage is audited.
+- **Monitoring reliability:** QMR, matched-beat coverage, and failure rate.
+- **Engineering:** parameters and latency; FLOPs if the profiler is stable.
+
+The earlier BeatAware evaluation used PCC/RMSE plus QMR, R-F1, and fiducial timing;
+RQ1 keeps that principle but explicitly separates Shape-200 morphology from
+full-window continuous ECG.
+
+## Ablation Requirement
+
+No manuscript sentence may claim that a component, representation, or loss term is
+responsible for an improvement unless a controlled ablation supports it. A valid
+ablation must keep data split, preprocessing, training budget, checkpoint rule, and
+evaluation script fixed, changing only the declared independent variable. See
+`docs/RQ1_ABLATION_AND_METRIC_PLAN.md`.
+
 ## Continuous ECG Metric (dual)
 
 The continuous target is reported with two complementary definitions:
