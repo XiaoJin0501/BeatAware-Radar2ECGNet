@@ -276,9 +276,9 @@ def aggregate(folds: list[int]) -> None:
                     "tag": tag,
                     "fold": fold,
                     "eval_mode": arm.eval_mode,
-                    "pcc": read_metric(path, ("pcc_mean", "pcc")),
-                    "rmse": read_metric(path, ("rmse_mean", "rmse")),
-                    "mae": read_metric(path, ("mae_mean", "mae")),
+                    "pcc": read_metric(path, ("pcc_mean", "pcc_raw_mean", "pcc")),
+                    "rmse": read_metric(path, ("rmse_mean", "rmse_norm_mean", "rmse")),
+                    "mae": read_metric(path, ("mae_mean", "mae_norm_mean", "mae")),
                     "r2": read_metric(path, ("r2_mean", "r2")),
                     "summary_path": str(path.relative_to(ROOT)),
                 }
