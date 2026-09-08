@@ -1,5 +1,11 @@
 # Current Project State
 
+> **PROTOCOL-CONFOUNDED (2026-09-09).** All MMECG full-window / continuous /
+> assembly / R-peak-timing results on this page were produced with a 4 s radar
+> input against an 8 s ECG target, so 50% of each window had no input support.
+> They are excluded from model-quality claims. Shape-200 results and all CR_RVS
+> results are NOT affected. See `docs/PROTOCOL_CONFOUND_4S_INPUT.md`.
+
 Last updated: 2026-08-27
 Active branch: exp/rem-shape-guided-continuous-decoder
 Active GitHub issue: none
