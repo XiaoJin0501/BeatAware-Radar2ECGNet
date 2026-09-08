@@ -20,5 +20,6 @@
   "decision": "Advance only if B1 improves both datasets without a material amplitude/timing regression and adds evidence beyond B2; otherwise reject or revise the candidate.",
   "seed": 42,
   "branch": "exp/rem-shape-guided-continuous-decoder",
-  "implementation_commit": "5f379f5d6e725af8cfb1121ade4575d87c8692bb"
+  "implementation_commit": "5f379f5d6e725af8cfb1121ade4575d87c8692bb",
+  "runner_commit": "a509ef78a6be4c0e654bf4cd7d28e3bbdbb4c370"
 }
