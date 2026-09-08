@@ -40,6 +40,8 @@ class MMECGConfig:
     use_shape200_loss: bool = False
     lambda_shape200: float = 0.2
     shape200_pcc_weight: float = 0.2
+    lambda_morphology_consistency: float = 0.0
+    morphology_consistency_target: str = "head"
 
     # Output.
     exp_dir: str = "experiments_mmecg"

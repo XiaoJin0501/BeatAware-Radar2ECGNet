@@ -33,6 +33,7 @@ from src.data.mmecg_dataset import (
     build_samplewise_loaders_h5,
 )
 from src.losses.losses import DiffusionLoss, TotalLoss
+from src.losses.morphology_consistency import morphology_consistency_loss
 from src.models.model_factory import build_mmecg_model
 from src.utils.logger import ExperimentLogger
 from src.utils.metrics import compute_all_metrics
@@ -288,7 +289,9 @@ def train_one_run(
                         "freq": 0.0, "peak": 0.0,
                         "lag_pcc": 0.0, "lag_l1": 0.0,
                         "zero_pcc": 0.0, "lag_penalty": 0.0,
-                        "output_lag_l1": 0.0, "shape200": 0.0}
+                        "output_lag_l1": 0.0, "shape200": 0.0,
+                        "morphology_consistency": 0.0,
+                        "morphology_consistency_coverage": 0.0}
         t0 = time.time()
 
         for batch in train_loader:
@@ -333,6 +336,23 @@ def train_one_run(
                     )
                 losses["total"] = losses["total"] + cfg.lambda_shape200 * shape200_penalty
             losses["shape200"] = shape200_penalty.detach()
+            consistency = ecg_gt.new_tensor(0.0)
+            consistency_coverage = 0.0
+            if cfg.lambda_morphology_consistency > 0:
+                if cfg.use_diffusion or not hasattr(model_out, "shape200_pred"):
+                    raise ValueError("Morphology consistency requires an explicit shape head")
+                if not cfg.use_shape200_loss or cfg.lambda_shape200 <= 0:
+                    raise ValueError("Morphology consistency requires supervised shape targets")
+                if "cycle_bounds" not in batch:
+                    raise ValueError("Morphology consistency requires training cycle_bounds")
+                consistency, valid_cycles = morphology_consistency_loss(
+                    model_out, model_out.shape200_pred, ecg_gt, batch["cycle_bounds"],
+                    target_mode=cfg.morphology_consistency_target,
+                )
+                consistency_coverage = valid_cycles / ecg_gt.shape[0]
+                losses["total"] = losses["total"] + cfg.lambda_morphology_consistency * consistency
+            losses["morphology_consistency"] = consistency.detach()
+            losses["morphology_consistency_coverage"] = ecg_gt.new_tensor(consistency_coverage)
             output_lag_penalty = torch.tensor(0.0, device=device)
             if (
                 cfg.use_output_lag_align
@@ -688,6 +708,10 @@ def main():
                         help="Weight for shape-200 auxiliary loss.")
     parser.add_argument("--shape200_pcc_weight", type=float, default=None,
                         help="PCC component weight inside shape-200 auxiliary loss.")
+    parser.add_argument("--lambda_morphology_consistency", type=float, default=None,
+                        help="Training-only morphology-to-waveform consistency weight (default off).")
+    parser.add_argument("--morphology_consistency_target", choices=["head", "reference"], default=None,
+                        help="Detached shape-head target, or direct reference-cycle control.")
     parser.add_argument("--fmcw_selector", type=str, default=None,
                         choices=["se", "gumbel_topk"],
                         help="FMCWRangeEncoder selector mode.")
@@ -742,6 +766,12 @@ def main():
     if args.use_shape200_loss is not None: cfg.use_shape200_loss = args.use_shape200_loss
     if args.lambda_shape200   is not None: cfg.lambda_shape200   = args.lambda_shape200
     if args.shape200_pcc_weight is not None: cfg.shape200_pcc_weight = args.shape200_pcc_weight
+    if args.lambda_morphology_consistency is not None:
+        if not math.isfinite(args.lambda_morphology_consistency) or args.lambda_morphology_consistency < 0:
+            raise ValueError("lambda_morphology_consistency must be finite and nonnegative")
+        cfg.lambda_morphology_consistency = args.lambda_morphology_consistency
+    if args.morphology_consistency_target is not None:
+        cfg.morphology_consistency_target = args.morphology_consistency_target
     if args.use_delta_sys      is not None: cfg.use_delta_sys      = args.use_delta_sys
     if args.use_delta_residual is not None: cfg.use_delta_residual = args.use_delta_residual
     if args.delta_sys_knots    is not None: cfg.delta_sys_knots    = args.delta_sys_knots
