@@ -39,10 +39,11 @@ protocol. These results support strong cross-modality beat-morphology
 reconstruction, but they do not imply solved long-term continuous ECG recovery.
 
 To clarify this boundary, we further analyze continuous ECG assembly from learned
-beat morphology. Oracle beat anchors yield near-perfect assembled ECG
-(PCC 0.93-0.98), whereas predicted anchors fail to generalize at sub-50 ms
-precision under LOSO despite recoverable detection recall. This reveals that the
-remaining continuous radar-to-ECG gap is governed by beat-anchor localization
+beat morphology. Scored against the original ECG, a dense full-window decoder reaches only
+PCC 0.394; predicted anchors additionally fail to generalize at sub-50 ms
+precision under LOSO despite recoverable detection recall. We decompose the
+remaining continuous radar-to-ECG gap into morphology, beat-timing and per-cycle
+amplitude/baseline components rather than attributing it to beat-anchor localization
 precision rather than morphology capacity. The resulting contribution is therefore
 twofold: a robust supervised morphology reconstruction framework across FMCW and
 CW radar, and an evidence-based characterization of why continuous radar-to-ECG
@@ -107,9 +108,9 @@ they come from a different protocol; we do not claim an identical-protocol
 comparison.
 
 Finally, we use the learned morphology model to probe why full-window continuous
-ECG reconstruction remains weak. When ground-truth beat anchors are used only for
-oracle analysis, the learned morphology assembles into near-perfect continuous
-ECG. When anchors are predicted from radar under LOSO, detection recall can be
+ECG reconstruction remains weak. A previously reported oracle-anchor assembly result is
+withdrawn: it was scored against beat-normalized morphology targets rather than
+the original ECG, at partial cycle coverage. When anchors are predicted from radar under LOSO, detection recall can be
 recovered by threshold calibration, but sub-50 ms localization precision does not
 generalize to harder unseen subjects, causing continuous assembly to collapse.
 This negative result is not presented as a failed main model. Instead, it is a
@@ -141,11 +142,12 @@ continuous ECG.
    results, adapted baselines, and reported-only literature numbers are separated
    into explicit tiers, reducing the risk of unfair SOTA claims.
 
-5. We identify the key bottleneck separating beat morphology from continuous ECG:
-   beat-anchor localization precision. Oracle-anchor assembly reaches
-   0.93-0.98 PCC, but predicted-anchor assembly fails under LOSO when sub-50 ms
-   precision does not generalize. This finding frames continuous radar-to-ECG as
-   an open timing-localization problem rather than a solved waveform-decoding
+5. We separate the components that stand between beat morphology and continuous
+   ECG: morphology fidelity, beat-anchor timing, and per-cycle amplitude/baseline,
+   the last of which a beat-normalized target cannot supply by construction.
+   Predicted-anchor assembly additionally fails under LOSO when sub-50 ms
+   precision does not generalize. This frames continuous radar-to-ECG as
+   an open problem rather than a solved waveform-decoding
    problem.
 
 ## Claim Boundaries

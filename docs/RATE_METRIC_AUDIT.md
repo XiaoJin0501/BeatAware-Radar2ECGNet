@@ -73,4 +73,10 @@ precision, not morphology.
   uninformative.
 - These are event-head (predicted-anchor) numbers; keep consistent with the route-C
   oracle-vs-predicted anchor evidence (oracle OLA 0.93–0.98 vs predicted-anchor collapse).
+
+> **RETRACTED 2026-09-09 (audit C):** this oracle-cycle OLA figure is not raw
+> continuous-ECG evidence — scored against per-cycle min-max normalized
+> `_shape200_targets`, not the original ECG, at ~44% coverage; reproduces the
+> Shape-200 score to within 0.002. See `docs/PAPER_CLAIM_LEDGER.md` (D1 / D1').
+
 - No retraining; frozen seed-42 checkpoints only.

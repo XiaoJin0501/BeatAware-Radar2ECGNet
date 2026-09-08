@@ -35,9 +35,8 @@ reaches 0.886 ± 0.001 across three seeds under verified 5-fold subject-independ
 evaluation, versus a local CW-STFT+TCN baseline of 0.550 ± 0.075 and a reported
 VMD-CBNeT PCC of 0.856 under a different published protocol. These results support
 strong cross-modality beat-morphology reconstruction but do not imply solved
-continuous ECG recovery. Using oracle analysis, we show that with correct beat anchors
-the learned morphology assembles into near-perfect continuous ECG (PCC 0.93–0.98),
-whereas predicted anchors fail to generalize at sub-50 ms precision under
+continuous ECG recovery. Scored against the original ECG, a dense full-window decoder reaches only
+PCC 0.394; predicted anchors additionally fail to generalize at sub-50 ms precision under
 leave-one-subject-out evaluation despite recoverable detection recall. This identifies
 beat-anchor localization precision — not morphology capacity — as the governing barrier
 to continuous radar-to-ECG.
@@ -272,9 +271,11 @@ superiority claim.
 | ICONIP BeatAware | 4.89 M | — |
 
 ### C. Mechanistic analysis of the continuous gap
-With ground-truth beat anchors used only for oracle analysis, the learned morphology
-assembles into near-perfect continuous ECG (PCC 0.93–0.98), while a dense full-window
-decoder floor is ≈0.39. With predicted anchors, per-window assembly reaches 0.22–0.51 on
+Scored against the original ECG, a dense full-window decoder reaches PCC 0.394 at
+full coverage. A previously reported oracle-anchor figure of 0.93–0.98 is withdrawn
+(audit C, 2026-09-09): it was scored against per-cycle min-max normalized morphology
+targets rather than raw ECG, at ~44% coverage, and reproduces the Shape-200 score to
+within 0.002. With predicted anchors, per-window assembly reaches 0.22–0.51 on
 the easiest fold but collapses on held-out subjects (folds 2–3, ≈0.02). Beat detection
 recall can be recovered by threshold calibration (≈88% of beats), yet the continuous metric
 does not recover because sub-50 ms localization precision does not transfer across subjects

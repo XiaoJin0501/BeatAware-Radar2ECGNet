@@ -10,6 +10,12 @@ morphology + external-validation track (see `docs/Q1_EXPERIMENT_MATRIX.md`,
 
 ### Route-C evidence chain (fold_01 → 3-fold, all committed)
 - Oracle-cycle OLA 0.93–0.98, morphology ≈0.96 → gap is localization, not shape (D1).
+
+> **RETRACTED 2026-09-09 (audit C):** this oracle-cycle OLA figure is not raw
+> continuous-ECG evidence — scored against per-cycle min-max normalized
+> `_shape200_targets`, not the original ECG, at ~44% coverage; reproduces the
+> Shape-200 score to within 0.002. See `docs/PAPER_CLAIM_LEDGER.md` (D1 / D1').
+
 - fold_01 PoC: fusion (WSST detect + rcg timing) F1@50 0.82, MAE 16 ms, OLA 0.51.
 - 3-fold: mean F1@50 0.56, MAE 38 ms, OLA 0.17; folds 02/03 collapse (OLA ~0.02).
 - Diagnosis: recall collapse was largely a threshold artifact (model fires at ~88%

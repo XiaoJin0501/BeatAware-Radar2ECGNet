@@ -1,0 +1,89 @@
+{
+  "experiment_id": "q1_continuous_gap_decomposition_audit",
+  "research_question": "When a beat-normalized morphology prediction is assembled into a continuous trace and scored against the ORIGINAL ECG, how large is the residual gap under each combination of anchor source and amplitude restoration, measured on common support?",
+  "hypothesis": "Registered before running: supplying an oracle per-cycle affine will raise continuous PCC substantially above a train-fitted fixed affine even when GT anchors are used, showing that per-cycle amplitude/baseline is a material contributor that no beat-normalized target can supply.",
+
+  "category": "phase-1 smoke, then phase-2 final",
+  "publishable": false,
+  "publishable_note": "Phase-2 results become publishable only through the result-promotion workflow. This spec does not grant that.",
+
+  "supersedes": "Retracted claim D1 (oracle-cycle OLA 0.93-0.98). That figure was scored against `_shape200_targets`, which min-max normalizes every cycle of BOTH prediction and ground truth, at ~44% coverage, and reproduces the Shape-200 score to within 0.002 (shape_head 0.9420 vs OLA 0.9436, q1_remalign_mtl_shapefirst_loso fold_01).",
+
+  "scope_restriction": "MMECG ONLY. This mechanism analysis must not be run on, extended to, or generalized to CR_RVS. No cross-modality statement may be derived from it.",
+
+  "phases": {
+    "phase_1_validation_smoke": {
+      "purpose": "Verify the evaluator runs, that global cycle mapping and deduplication behave, and that coverage accounting is sane. NOT for drawing conclusions.",
+      "split": "MMECG fold_01 VALIDATION only",
+      "tier": "smoke",
+      "outputs_are_reportable": false
+    },
+    "phase_2_frozen_final": {
+      "purpose": "Single protocol-locked run producing the reported diagnostic.",
+      "precondition": "Evaluator code committed and FROZEN; commit hash recorded below before the run starts.",
+      "split": "MMECG final test, ALL 11 strict-LOSO folds",
+      "execution": "ONE run. After it completes the protocol is closed: no metric added, no rule changed, no re-run for a better-looking result.",
+      "tier": "final",
+      "bug_policy": "If a genuine implementation defect is found after the run, the run is marked INVALID in the registry and a new spec is registered. It is never silently patched and re-run."
+    }
+  },
+
+  "model": "Frozen REM-Net incumbent (q1_final_remnet_incumbent_mmecg_seed42). No training, no architecture change, no checkpoint reselection.",
+  "scoring_target": "The ORIGINAL ECG from the H5 (`ecg`), in its native amplitude. `_shape200_targets` and `normalize_01` MUST NOT be applied to the ground truth anywhere in this audit.",
+
+  "arms": {
+    "C0": "Dense full-window decoder output vs raw ECG, native amplitude. Reference floor.",
+    "C1": "Shape morphology at GT cycle bounds + FIXED affine (train-fold-fitted).",
+    "C2": "Shape morphology at GT cycle bounds + ORACLE per-cycle affine.",
+    "C3": "Shape morphology at PREDICTED anchors (event-head R-mask) + FIXED affine.",
+    "C4": "Shape morphology at PREDICTED anchors + ORACLE per-cycle affine."
+  },
+  "coverage_conditions": {
+    "K1": "One centre cycle per window, deduplicated.",
+    "K2": "Maximum genuinely matchable coverage: the union of GT cycles for which at least one window supplies a GENUINE CENTRE-CYCLE prediction. A cycle that is never any window's centre cycle is NOT in K2. K2 differs from K1 only by recovering centre-cycle predictions that deduplication or window-edge truncation would otherwise discard; it never introduces a non-centre-cycle prediction."
+  },
+
+  "coverage_reporting": {
+    "requirement": "EVERY reported figure carries two coverage numbers: (a) native coverage, the samples that arm actually covers; and (b) common support, the intersection of covered samples across ALL arms being compared in that table or statement.",
+    "comparison_rule": "Any cross-arm comparison, difference, or ranking is computed ON COMMON SUPPORT ONLY. Comparing arms on their own native coverage is FORBIDDEN because the arms cover different samples.",
+    "both_always": "Native-coverage metrics are still reported alongside, so that a reader can see how much of the record each arm reaches. Neither number may be reported without the other."
+  },
+
+  "diagnostic_contrasts": {
+    "framing": "NOT AN ADDITIVE DECOMPOSITION. These are pairwise contrasts between conditions on common support. They are non-orthogonal, may interact, and DO NOT sum to the C0-to-C2 gap. Any phrasing of the form 'X accounts for N of the gap', 'the gap splits into', or 'component sizes are' is FORBIDDEN in the manuscript, the ledger, and this experiment's outputs.",
+    "amplitude_baseline_contrast": "C2 vs C1, and C4 vs C3. Reports what oracle per-cycle amplitude restoration is worth under each anchor source.",
+    "localization_detection_penalty": "C1 vs C3, and C2 vs C4. The cost of using predicted rather than GT anchors. Named a PENALTY, not a timing component: it conflates missed/spurious beat detection with sub-beat placement error and does not isolate either.",
+    "morphology_ceiling": "C2, the best attainable when both anchors and per-cycle affine are oracle. An upper bound consuming oracle information, never an achievable performance number."
+  },
+
+  "assembly_rules": {
+    "mapping": "Map each window prediction to a GLOBAL GT cycle index using record_id + start_idx + the window's cycle bounds. Window-local assembly is forbidden.",
+    "deduplication": "When several windows map to the same GT cycle, keep the single prediction from the window whose centre is nearest the cycle midpoint. Averaging across windows is FORBIDDEN (ensembling gain the deployed model does not have). Report the candidates-per-cycle histogram.",
+    "no_manufactured_coverage": "GT cycles with no genuine centre-cycle prediction are left UNCOVERED. Copying, repeating, interpolating or nearest-neighbour-filling a predicted morphology into an unpredicted beat is FORBIDDEN.",
+    "fixed_affine_estimation": "Gain and offset for C1/C3 are fitted on TRAINING FOLDS ONLY. Validation and test data must never enter the estimate, in any phase, including phase 1."
+  },
+
+  "metrics": ["PCC", "RMSE", "NRMSE", "MAE", "native_coverage_ratio", "common_support_ratio", "covered_samples", "common_support_samples", "total_samples", "n_cycles_matched", "n_cycles_total", "candidates_per_cycle_histogram"],
+  "nrmse_definition": "RMSE divided by the peak-to-peak range (max - min) of the ORIGINAL ECG over the sample set being scored. Pinned here because METRIC_CONTRACT does not fix NRMSE.",
+  "aggregation": "Per record, then fold-macro mean +/- std; folds reported separately, never pooled into a single headline number.",
+
+  "decision": "DIAGNOSTIC ONLY. Outputs may be used to restate the continuous-gap claim as a set of measured conditions and pairwise contrasts. They must not appear as a model contribution, must not enter the abstract as a performance result, and must not reselect any checkpoint or hyperparameter.",
+
+  "prohibitions": [
+    "No training of any kind.",
+    "No CR_RVS.",
+    "No additive-decomposition language.",
+    "No cross-arm comparison off common support.",
+    "No promotion of C2/C4 as achievable performance; they consume oracle information.",
+    "No filling of unpredicted beats to inflate coverage.",
+    "No affine fitted on validation or test data.",
+    "No protocol change after the phase-2 run begins.",
+    "No revival of retracted claim D1 in any form."
+  ],
+
+  "seed": 42,
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "spec_commit": "4454a58673fd5d4a9c1951984e45deb514803a22",
+  "evaluator_frozen_commit": "pending — recorded before phase 2 starts",
+  "registry_row": "added at implementation time per EXPERIMENT_POLICY"
+}

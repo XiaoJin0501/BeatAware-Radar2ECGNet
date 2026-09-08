@@ -46,6 +46,12 @@ ablation evidence following `docs/RQ1_ABLATION_AND_METRIC_PLAN.md`.
 - **C3 (D1/D2):** Mechanistic discovery — the continuous-ECG gap is governed by
   beat-anchor localization: with oracle anchors, learned morphology assembles to
   0.93–0.98, but predicted anchor **precision** does not generalize under LOSO.
+
+> **RETRACTED 2026-09-09 (audit C):** this oracle-cycle OLA figure is not raw
+> continuous-ECG evidence — scored against per-cycle min-max normalized
+> `_shape200_targets`, not the original ECG, at ~44% coverage; reproduces the
+> Shape-200 score to within 0.002. See `docs/PAPER_CLAIM_LEDGER.md` (D1 / D1').
+
   [route-C evidence chain]
 - **C4:** Output-formulation-aware, fairness-audited evaluation (strict-LOSO fair
   block vs calibrated/reported-only/original-protocol blocks; documented negative

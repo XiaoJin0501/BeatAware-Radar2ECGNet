@@ -23,8 +23,13 @@ assembly (route C) is a demoted discovery/mechanism section (D1–D2).
   over 5 subject-independent folds; G1 stability **0.886 ± 0.001** across 3
   seeds. This exceeds VMD-CBNeT reported PCC 0.856 only under our morphology
   protocol, with the reported-only/different-protocol caveat.
-- Discovery (route C): oracle-cycle OLA 0.93–0.98 with morphology ≈0.96 ⇒
-  continuous gap is beat-anchor localization, not morphology (D1).
+- **RETRACTED 2026-09-09 (audit C):** the route-C "oracle-cycle OLA 0.93–0.98 ⇒
+  continuous gap is beat-anchor localization" claim (D1) is withdrawn. That OLA was
+  scored against per-cycle min-max normalized `_shape200_targets` rather than raw
+  ECG, at ~44% coverage, and reproduces the Shape-200 score to within 0.002. Only
+  the dense full-window OLA vs raw ECG (0.394 @ 100% coverage) is valid. A
+  validation-only decomposition audit (morphology / timing / amplitude) is
+  registered; see `docs/PAPER_CLAIM_LEDGER.md` D1'.
 - Route C robustness FAILED under 3-fold LOSO: fold_01 fusion F1@50 0.82 / OLA
   0.51 was a non-representative easy fold; 3-fold mean F1@50 0.56 / OLA 0.17,
   folds 02/03 OLA ~0. Diagnosis: recall collapse was mostly a threshold artifact,

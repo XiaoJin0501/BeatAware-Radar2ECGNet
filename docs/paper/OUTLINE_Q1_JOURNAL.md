@@ -19,9 +19,10 @@ Morphology Reconstruction from Radar**
 5. On MMECG, REM-Net reaches Shape-200 PCC 0.882 +/- 0.061 under 11-fold strict
    LOSO; on CR_RVS, it reaches 0.881 +/- 0.013 under 5-fold subject-independent
    validation. Multi-seed stability is 0.885 +/- 0.002 and 0.886 +/- 0.001.
-6. We also show that the unsolved continuous-ECG gap is mainly beat-anchor
-   localization precision: oracle anchor assembly reaches 0.93-0.98, whereas
-   predicted anchors do not generalize at sub-50 ms precision.
+6. We separate the unsolved continuous-ECG gap into morphology, beat-timing and
+   per-cycle amplitude/baseline components, without ranking them: predicted anchors
+   do not generalize at sub-50 ms precision, and a beat-normalized target cannot
+   supply per-cycle amplitude by construction.
 7. The paper contributes a strong supervised morphology model, cross-modality
    validation, and a fairness-audited evaluation framework that separates
    morphology, continuous reconstruction, adapted baselines, and reported-only

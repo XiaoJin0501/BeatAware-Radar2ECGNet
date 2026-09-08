@@ -4,13 +4,24 @@ This ledger maps manuscript claims to verified experimental evidence. Do not
 write paper claims that cannot be traced here.
 
 ## Main thesis (revised 2026-08-10, after route-C demotion)
+> **RETRACTED 2026-09-09 (audit C).** The oracle-cycle OLA figure of 0.93-0.98 is
+> NOT raw continuous-ECG evidence. `evaluate_mmecg_long_assembly.py:373` scores it
+> against `_shape200_targets`, which min-max normalizes **every cycle of both the
+> prediction and the ground truth**, and it covers only ~44% of samples (one center
+> cycle per 400-sample hop). On the same run/fold it reproduces the Shape-200 score
+> to within 0.002 (shape_head 0.9420 vs OLA 0.9436), i.e. it re-expresses the
+> beat-normalized morphology metric on a time axis. The only raw-ECG, full-coverage
+> number is the dense full-window OLA at PCC 0.394. A validation-only decomposition
+> audit is registered; no claim may rest on 0.93-0.98 until it completes.
+
 
 A new representation-aware radar-to-ECG model achieves strong **beat-morphology**
 reconstruction on two radar modalities (FMCW MMECG, CW CR_RVS) under
 subject-independent protocols, compares favorably with published/reproduced
-baselines, and — as a mechanistic **discovery** — shows that the remaining
-continuous-ECG gap is governed by **beat-anchor localization precision**, not by
-morphology. See `docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
+baselines. The continuous-ECG gap is reported as a **bounded diagnostic** with at
+least three components — morphology, beat timing, and per-cycle amplitude/baseline —
+and no component is currently claimed as dominant. See
+`docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
 
 > Demoted (2026-08-10): "anchor-guided assembly as the main continuous model" is
 > NOT the main claim. 3-fold LOSO showed anchor detection recall generalizes but
@@ -33,7 +44,8 @@ morphology. See `docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
 
 | Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
 |---|---|---|---|---|
-| D1 | The radar→ECG continuous gap is governed by beat-anchor localization, not morphology: with oracle anchors, learned morphology assembles into near-oracle continuous ECG. | oracle-cycle OLA 0.93–0.98; morphology ≈0.96 | supported (fold-level) | Strong upper-bound evidence. |
+| D1 | ~~The radar→ECG continuous gap is governed by beat-anchor localization, not morphology.~~ | ~~oracle-cycle OLA 0.93–0.98~~ | **RETRACTED 2026-09-09** | Evidence invalid: scored against per-cycle min-max normalized `_shape200_targets`, not raw ECG, at ~44% coverage; reproduces the Shape-200 score to within 0.002. Superseded by D1' pending audit. |
+| D1' | The continuous-ECG gap decomposes into morphology, beat-timing, and per-cycle amplitude/baseline components; a beat-normalized target cannot supply the amplitude component. | dense full-window OLA vs raw ECG = 0.394 @ 100% coverage; `_shape200_targets` discards per-cycle gain/offset by construction | **pending** — validation-only decomposition audit registered | Diagnostic only. Not a model contribution. |
 | D2 | Robust sub-50 ms anchor localization under LOSO is the open bottleneck: detection recall generalizes across subjects but precision does not. | 3-fold anchor validation + failure diagnosis + threshold re-eval; frozen event-head R-F1 (RATE_METRIC_AUDIT) | supported | fold_02/03 MAE 40–55 ms; OLA ~0; recovering recall does not recover OLA. MMECG frozen event head: F1@150/100/50 ms = **0.806/0.749/0.544** (sharp tolerance drop), RR 30.4 ms, HR 0.32 bpm (92.8% coverage). Frame as finding + future direction. |
 | D3 (side) | A per-beat electromechanical offset (predicted anchor vs GT R) is observable but subject-dependent. | anchor signed-bias analysis | optional | Interpretability side-note; not globally correctable (LOSO val→test offset does not transfer). |
 | D4 | Morphology transfers across radar modality but beat localization does not; CW localization largely fails while morphology stays high. | frozen event-head R-F1 (RATE_METRIC_AUDIT) | supported | CR_RVS (CW) event head F1@{50,100,150} ms ≈ 0.08/0.10/0.10 vs Shape-200 PCC 0.881; MMECG (FMCW) F1@150 ms 0.806. Do NOT report CR_RVS RR/HR (4.2% biased coverage). |

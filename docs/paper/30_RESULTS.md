@@ -64,18 +64,18 @@ errors are in fact worse and are discussed as a limitation.
 ### 5.3 Mechanistic analysis of the continuous gap
 
 To explain why full-window continuous ECG remains weak, we probe continuous
-assembly from the learned morphology (Fig. F4). With ground-truth beat anchors used
-only for oracle analysis, the learned morphology assembles into near-perfect
-continuous ECG (PCC 0.93–0.98), while a dense full-window decoder floor sits near
-0.39. When anchors are predicted from radar, per-window assembly reaches 0.22–0.51
+assembly from the learned morphology (Fig. F4). Scored against the original ECG, a dense full-window decoder
+sits at PCC 0.394 at full coverage. A previously reported oracle-anchor assembly
+figure of 0.93–0.98 is withdrawn (audit C, 2026-09-09): it was scored against
+per-cycle min-max normalized morphology targets rather than raw ECG, at ~44%
+coverage, and reproduces the Shape-200 score to within 0.002. When anchors are predicted from radar, per-window assembly reaches 0.22–0.51
 on the easiest fold but does not generalize: on held-out subjects (folds 2–3) it
 collapses to ≈0.02. A diagnosis shows that beat detection recall can be recovered by
 threshold calibration (the model fires at ≈88% of beats), yet the continuous metric
 does not recover, because sub-50 ms localization precision does not transfer across
 subjects (matched-beat error 40–55 ms on hard folds vs 16–20 ms on the easy fold).
 
-This triangulates the hard part of radar-to-ECG: morphology is high, oracle-anchor
-continuous assembly is high, but predicted-anchor precision fails under LOSO. We
-therefore identify **beat-anchor localization precision**, not morphology capacity,
-as the governing barrier to continuous radar-to-ECG. We present this as a bounded
+Morphology is high and predicted-anchor precision fails under LOSO, but the
+relative size of the timing and amplitude/baseline contributions is **not yet
+measured**; a validation-only decomposition audit is registered. We present this as a bounded
 mechanistic discovery and an open direction, not as a solved continuous model.

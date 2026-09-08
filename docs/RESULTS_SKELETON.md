@@ -82,6 +82,12 @@ route-C evidence chain.
 
 Key numbers (fold-level):
 - Morphology ≈0.96; **oracle-anchor cycle assembly 0.93–0.98**; predicted-anchor
+
+> **RETRACTED 2026-09-09 (audit C):** this oracle-cycle OLA figure is not raw
+> continuous-ECG evidence — scored against per-cycle min-max normalized
+> `_shape200_targets`, not the original ECG, at ~44% coverage; reproduces the
+> Shape-200 score to within 0.002. See `docs/PAPER_CLAIM_LEDGER.md` (D1 / D1').
+
   assembly 0.22–0.51 (fold-01); dense full-window floor ≈0.39.
 - 3-fold: predicted-anchor OLA collapses on unseen subjects (fold_02/03 ≈0.02);
   recall recovers with threshold tuning but OLA does not (anchor **precision** MAE
