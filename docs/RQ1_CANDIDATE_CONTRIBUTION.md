@@ -90,6 +90,8 @@ formulation and controlled empirical benefit must carry any eventual claim.
 - scripts/train_mmecg.py: optional loss plus head/reference control and logging.
 - tests/test_morphology_consistency.py: numerical, gradient and model smoke checks.
 
-Only engineering checks have been run. Dataset training, checkpoint-policy audit,
-canonical experiment registration and performance comparison remain pending.
+Engineering checks include registered train-only fixed-batch runs on both real
+datasets, at 80 and 800 updates. They do not establish efficacy. See
+MORPHOLOGY_CONSISTENCY_SMOKE_AUDIT.md and MORPHOLOGY_CONSISTENCY_THEORY.md.
+Dataset-level training, checkpoint-policy audit and validation comparison remain pending.
 No current manuscript result or frozen checkpoint is replaced by this candidate.

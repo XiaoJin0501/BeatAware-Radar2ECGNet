@@ -10,5 +10,8 @@ cycles are skipped and coverage is logged. The loss preserves amplitude errors
 by using a shared reference affine normalization for both predictions.
 
 Candidate rationale and rejection criteria: docs/RQ1_CANDIDATE_CONTRIBUTION.md.
-Training studies are not yet launched or promoted. New training runs must retain
+Two train-only fixed-batch smoke runs (80 and 800 steps) are completed and
+registered. The WSST loader now exposes cycle_valid so fallback intervals do
+not enter the new consistency objective. See MORPHOLOGY_CONSISTENCY_SMOKE_AUDIT.md.
+No dataset-level efficacy study has been completed or promoted. New training runs must retain
 the existing manifest, registration and commit-before-train requirements.

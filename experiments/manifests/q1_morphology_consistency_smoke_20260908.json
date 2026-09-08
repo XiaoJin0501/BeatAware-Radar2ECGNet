@@ -1,0 +1,21 @@
+{
+  "category": "smoke",
+  "publishable": false,
+  "commit_id": "5f379f5d6e725af8cfb1121ade4575d87c8692bb",
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "experiments": [
+    "q1_morphology_consistency_smoke_20260908",
+    "q1_morphology_consistency_overfit_smoke_20260908"
+  ],
+  "reports": [
+    "experiments_mmecg/q1_morphology_consistency_smoke_20260908/report.json",
+    "experiments_mmecg/q1_morphology_consistency_overfit_smoke_20260908/report.json"
+  ],
+  "audit": "docs/MORPHOLOGY_CONSISTENCY_SMOKE_AUDIT.md",
+  "data_provenance": "Each report records source file size/mtime and selected training indices/subjects; full H5 content hashes were not computed",
+  "validation_test_access": false,
+  "checkpoints_saved": false,
+  "prediction_artifacts": null,
+  "status": "completed",
+  "limitation": "Fixed-batch fitting only; does not establish generalization, convergence or novelty"
+}
