@@ -1,0 +1,18 @@
+{
+  "experiment_id": "q1_morphology_consistency_smoke_20260908",
+  "category": "smoke",
+  "publishable": false,
+  "purpose": "Verify valid-cycle coverage, finite gradients and fixed-batch optimization for a candidate supervised coupling on both datasets",
+  "datasets": ["MMECG", "CR_RVS"],
+  "fold": 1,
+  "split": "train only; no validation or test access",
+  "seed": 42,
+  "steps": 80,
+  "sample_selection": "First occurrence per sorted subject, up to eight subjects",
+  "arms": {"B0": "lambda=0", "B1": "lambda=0.05, detached head", "B2": "lambda=0.05, reference control"},
+  "controls": "Identical initialization, fixed batch, AdamW settings, dropout seed and step count within each dataset",
+  "checkpoint_policy": "No checkpoint selection or saved model; before/after engineering diagnostics only",
+  "acceptance": "Finite losses and gradients, valid-cycle coverage reported, both channel layouts run; no generalization or method-superiority claim",
+  "script": "scripts/smoke_morphology_consistency.py",
+  "output": "experiments_mmecg/q1_morphology_consistency_smoke_20260908"
+}

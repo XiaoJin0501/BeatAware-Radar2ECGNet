@@ -45,6 +45,20 @@ class MorphologyConsistencyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             morphology_consistency_loss(self.gt, self.shape, self.gt[..., :-1], self.bounds)
 
+    def test_loader_fallback_is_excluded(self):
+        import numpy as np
+        from src.data.mmecg_dataset import _has_valid_cycle
+
+        self.assertFalse(_has_valid_cycle(np.array([800])))
+        self.assertFalse(_has_valid_cycle(np.array([-3, 800, 1601])))
+        self.assertTrue(_has_valid_cycle(np.array([700, 900])))
+        loss, count = morphology_consistency_loss(
+            self.gt + 0.1, self.shape, self.gt, self.bounds,
+            cycle_valid=torch.tensor([False]),
+        )
+        self.assertEqual(count, 0)
+        self.assertEqual(loss.item(), 0)
+
     def test_real_remnet_forward_backward_for_both_channel_counts(self):
         from src.models.remalign.rem_align_net import REMAlignMTLNet
 

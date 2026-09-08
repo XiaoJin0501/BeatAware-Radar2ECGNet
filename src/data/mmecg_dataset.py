@@ -73,6 +73,12 @@ def _decode_physistatus(raw) -> str:
     return str(raw)
 
 
+def _has_valid_cycle(indices: np.ndarray, length: int = 1600) -> bool:
+    peaks = np.sort(np.unique(np.asarray(indices, dtype=np.int64)))
+    peaks = peaks[(peaks >= 0) & (peaks < length)]
+    return bool(np.any(np.diff(peaks) > 10))
+
+
 def _center_cycle_bounds_from_rpeaks(indices: np.ndarray, length: int = 1600) -> np.ndarray:
     """Return [start, end] bounds for the cardiac cycle closest to window center."""
     rpeaks = np.sort(np.unique(np.asarray(indices, dtype=np.int64)))
@@ -129,7 +135,7 @@ def _collate_with_peaks(batch: list[dict]) -> dict:
     test DataLoader 전용 collate_fn.
     Tensor 배열은 stack, int 스칼라는 LongTensor, vlen peak 인덱스는 list 유지.
     """
-    keys_tensor = {"radar", "ecg", "rpeak", "delin_valid", "cycle_bounds"}
+    keys_tensor = {"radar", "ecg", "rpeak", "delin_valid", "cycle_bounds", "cycle_valid"}
     keys_int    = {"subject", "state"}
     keys_list   = {"r_idx", "q_idx", "s_idx", "t_idx"}
 
@@ -403,6 +409,10 @@ class MMECGWindowedWSSTH5Dataset(Dataset):
                 self._t_idx = [t_ds[i].astype(np.int32) for i in range(N)]
                 self._delin = hf["delineation_valid"][:].astype(np.uint8)
 
+            self._cycle_valid = np.asarray(
+                [_has_valid_cycle(rpeak_ds[i]) for i in range(N)], dtype=bool
+            )
+
         self._ecg = ecg_norm
         self._rpeak = rpeak
         self._cycle_bounds = cycle_bounds
@@ -421,6 +431,7 @@ class MMECGWindowedWSSTH5Dataset(Dataset):
             "ecg": torch.from_numpy(self._ecg[idx]),     # [ 1, 1600]
             "rpeak": torch.from_numpy(self._rpeak[idx]), # [ 1, 1600]
             "cycle_bounds": torch.from_numpy(self._cycle_bounds[idx]), # [2]
+            "cycle_valid": torch.tensor(self._cycle_valid[idx], dtype=torch.bool),
             "subject": int(self._subj[idx]),
             "state": int(self._state[idx]),
         }

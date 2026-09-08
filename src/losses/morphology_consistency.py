@@ -10,6 +10,7 @@ def morphology_consistency_loss(
     reference: torch.Tensor,
     cycle_bounds: torch.Tensor,
     target_mode: str = "head",
+    cycle_valid: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, int]:
     """Use reference cycle coordinates only in training; return loss and coverage.
 
@@ -28,9 +29,13 @@ def morphology_consistency_loss(
         raise ValueError("shape must have shape (batch, 1, morphology_time)")
     if shape.shape[-1] < 2 or cycle_bounds.shape != (waveform.shape[0], 2):
         raise ValueError("invalid morphology length or cycle_bounds")
+    if cycle_valid is not None and cycle_valid.shape != (waveform.shape[0],):
+        raise ValueError("cycle_valid must have one flag per waveform")
 
     terms = []
     for i, (start, end) in enumerate(cycle_bounds.detach().cpu().tolist()):
+        if cycle_valid is not None and not bool(cycle_valid[i]):
+            continue
         if int(start) != start or int(end) != end:
             raise ValueError("cycle boundaries must be integer sample indices")
         start, end = int(start), int(end)

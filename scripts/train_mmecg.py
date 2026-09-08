@@ -345,9 +345,12 @@ def train_one_run(
                     raise ValueError("Morphology consistency requires supervised shape targets")
                 if "cycle_bounds" not in batch:
                     raise ValueError("Morphology consistency requires training cycle_bounds")
+                if "cycle_valid" not in batch:
+                    raise ValueError("Morphology consistency requires annotated-cycle validity")
                 consistency, valid_cycles = morphology_consistency_loss(
                     model_out, model_out.shape200_pred, ecg_gt, batch["cycle_bounds"],
                     target_mode=cfg.morphology_consistency_target,
+                    cycle_valid=batch["cycle_valid"],
                 )
                 consistency_coverage = valid_cycles / ecg_gt.shape[0]
                 losses["total"] = losses["total"] + cfg.lambda_morphology_consistency * consistency
