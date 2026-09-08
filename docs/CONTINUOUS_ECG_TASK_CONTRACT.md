@@ -8,7 +8,11 @@ Reconstruct the **complete, continuous ECG waveform** from radar under strict
 subject-independent evaluation, on MMECG (77 GHz FMCW) and CR_RVS (24 GHz CW).
 
 Shape-200 is **auxiliary morphology analysis only**. It may not define the primary
-result, drive checkpoint selection, or carry the paper's headline claim.
+result, drive checkpoint selection, or carry the paper's headline claim. This holds
+even though Shape-200 survived the 4 s input confound that invalidated the continuous
+numbers (`docs/PROTOCOL_CONFOUND_4S_INPUT.md`): surviving an audit does not promote a
+secondary endpoint to a primary one, and the withdrawal of continuous results is not a
+reason to fall back on morphology as the headline.
 
 ## 2. Task definition
 

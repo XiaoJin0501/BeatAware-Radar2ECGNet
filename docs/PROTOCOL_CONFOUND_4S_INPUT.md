@@ -32,13 +32,16 @@ mechanism attribution. They remain valid as records of what the *old pipeline* d
 ## Scope — what is NOT confounded
 
 - **Shape-200 morphology results.** The centre cycle lies inside samples 400–1200 in
-  170/170 fold-01 test windows, so the morphology target is fully supported. The
-  headline `0.882 ± 0.061` (MMECG) is unaffected by this defect.
+  170/170 fold-01 test windows, so the morphology target is fully supported, and
+  `0.882 ± 0.061` (MMECG) is unaffected by this defect. **This is survival, not
+  promotion.** Under `docs/CONTINUOUS_ECG_TASK_CONTRACT.md` Shape-200 is auxiliary
+  morphology evidence and is no longer the revised paper's main result; it may not be
+  reported as the headline merely because the continuous numbers were withdrawn.
 - **All CR_RVS results.** CR_RVS's `wsst` field is produced by `_stft_map` over the
   **full** window (`build_crrvs_wsst_shape_h5.py:169`), 93 bins across 1600 samples.
   It has no crop and therefore no support asymmetry. Its time resolution is coarser
   (86 ms/bin vs MMECG's 33.3 ms), which is a separate matter, not this confound.
-  The `0.881 ± 0.013` headline is unaffected.
+  `0.881 ± 0.013` is unaffected — again auxiliary morphology evidence, not a headline.
 
 ## Consequence for the mechanism narrative
 

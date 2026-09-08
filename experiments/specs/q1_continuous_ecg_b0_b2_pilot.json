@@ -86,5 +86,28 @@
       "narrow_bandpass is False for the rcg path",
       "input wsst attrs support == 'full_window_samples_0_1600'"
     ]
+  },
+  "shape200_status": "AUXILIARY MORPHOLOGY EVIDENCE ONLY. Shape-200 survives the 4 s confound (docs/PROTOCOL_CONFOUND_4S_INPUT.md) but that survival does NOT restore it as a headline result. Under docs/CONTINUOUS_ECG_TASK_CONTRACT.md the revised paper's main result is continuous full-window ECG. Shape-200 is reported as a secondary morphology diagnostic, never as the primary endpoint, and never for checkpoint selection.",
+  "arm_parity": {
+    "requirement": "B2a and B2b MUST share, byte-for-byte in configuration: the continuous decoder (dual-scale rhythm/morphology branches, fusion, upsampling stack, linear output head), the loss and all its weights, the training budget (epochs, patience, optimizer, lr, batch size, seed), the checkpoint selection rule, the folds, and the evaluator.",
+    "only_permitted_difference": "B2b adds a native-rate rcg input stem and widens the first fusion projection to accept it. Nothing downstream of that fusion point may differ.",
+    "why": "Without this parity a B2b gain could be attributed to added decoder capacity rather than to native-rate radar information, which is the only thing the contrast is meant to test.",
+    "parameter_reporting": "MANDATORY. Every arm reports total trainable parameters and a per-module breakdown. B2b additionally reports the parameter delta over B2a, split into (i) the rcg stem and (ii) the widened fusion projection.",
+    "capacity_control_trigger": "If params(B2b) - params(B2a) exceeds 15% of params(B2a), a width-matched control B2a-wide is REQUIRED before any B2b claim: B2a with its WSST stem widened to match B2b's total parameter count. A B2b gain over B2a that does not survive B2a-wide is a capacity effect, not an information effect.",
+    "estimated_delta": "Planned rcg stem is two strided Conv1d layers (50->128 k7 s2, 128->128 k7 s2) ~160k params, plus ~25k for the widened fusion projection: roughly 185k against a trunk on the order of 1.5M, i.e. ~12%, below the trigger. To be confirmed from the built models, not assumed."
+  },
+  "preflight_gate": {
+    "requirement": "A COMPLETE validation-only preflight must be produced and approved BEFORE any training launches.",
+    "must_report": [
+      "input attrs of every consumed WSST file: support, supported_fraction_of_target, hop_samples, hop_ms, n_time_bins",
+      "assertion results: topk_method != 'corr'; narrow_bandpass False on the rcg path; full-window support",
+      "per-arm total and per-module parameter counts, and the B2b-B2a delta against the 15% trigger",
+      "identical-budget confirmation across arms (epochs, patience, optimizer, lr, batch, seed)",
+      "the frozen checkpoint composite formula and confirmation it reads no Shape-200 quantity",
+      "fold and split inventory with window counts, confirming no test file is opened",
+      "a forward-pass shape trace per arm from input to the 1600-sample output",
+      "disk and runtime estimate"
+    ],
+    "status": "NOT YET PRODUCED"
   }
 }
