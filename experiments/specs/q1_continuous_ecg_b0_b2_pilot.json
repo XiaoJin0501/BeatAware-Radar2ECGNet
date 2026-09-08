@@ -108,6 +108,27 @@
       "a forward-pass shape trace per arm from input to the 1600-sample output",
       "disk and runtime estimate"
     ],
-    "status": "NOT YET PRODUCED"
-  }
+    "status": "PRODUCED AND PASSED 2026-09-09; artifact experiments_mmecg/q1_continuous_ecg_b0_b2_pilot/preflight.json",
+    "result": {
+      "input_provenance": "6/6 files full_window_samples_0_1600, frac=1.0, hop 33.33 ms, (N,50,71,240)",
+      "test_files_present": 0,
+      "enforcement": "4/4 pass",
+      "params": {
+        "B0": 1438019,
+        "B1": 1438019,
+        "B2a": 1303091,
+        "B2b": 1487667,
+        "b2b_minus_b2a": 184576,
+        "pct": 14.16,
+        "rcg_stem": 160000,
+        "fusion_delta": 24576,
+        "trigger_15pct": "not tripped, but only by 0.84 pp"
+      },
+      "decoder_parity": "B2a == B2b == 1,072,947 params",
+      "shapes": "all arms -> (B,1,1600); B1 head linear",
+      "disk_free_gib": 26.1
+    }
+  },
+  "open_recommendation": "B2b exceeds B2a by 14.16%, just 0.84 pp under the 15% trigger I set. The threshold is arbitrary and this margin is not comfortable. RECOMMEND running B2a-wide (WSST stem widened to B2b's parameter count) as a standing control rather than relying on the trigger not firing. Awaiting user ruling.",
+  "note_b1_to_b2a": "B2a has FEWER parameters than B0/B1 (1,303,091 vs 1,438,019). B1->B2a is therefore a structural change at reduced capacity, not a capacity increase; a B2a gain cannot be attributed to added size."
 }
