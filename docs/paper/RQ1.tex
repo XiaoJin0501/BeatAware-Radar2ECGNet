@@ -547,7 +547,42 @@ AirECG \cite{airecg} & Diffusion & Different dataset & Private/custom & Reports 
 \subsection{Mechanistic Analysis of the Continuous Gap}
 \label{sec:continuous}
 The high \shape performance of \remnet should not be read as evidence of reliable continuous ECG reconstruction. Scored against the original ECG, a dense full-window decoder reaches PCC $0.394$ at full coverage on the analysed fold, against a \shape\ score above $0.94$ on the same run. Predicted-anchor assembly collapses on harder held-out subjects. Threshold tuning can recover coarse detection recall, but continuous overlap-add does not recover because anchor localization precision does not generalize at the sub-50 ms level. Matched-beat error is approximately 16--20 ms on the easy fold but 40--55 ms on harder folds. Within this assembly pipeline the continuous gap is therefore dominated by beat-anchor localization precision rather than by morphology-generation capacity. This statement is about the anchors supplied to the assembly operator; Section~\ref{sec:timing_readouts} separates it from the distinct question of how well any particular timing readout performs.
-This observation is consistent with the decomposition in (\ref{eq:error_decomp}): once morphology error is small, the anchor term becomes the dominant contributor to continuous waveform mismatch, especially around the high-slope QRS region.
+\subsubsection{A controlled counterfactual on the original ECG}
+\label{sec:cgd}
+To replace the retracted analysis we ran a pre-registered audit whose evaluator was frozen before the run and executed once over all 11 folds. Predicted beat morphology is assembled onto the record time axis and scored \emph{against the original ECG in native amplitude}; no per-cycle normalization is applied to either side. Because a beat-normalized morphology carries no gain or offset, every arm must be given an amplitude mapping, and we vary that jointly with the cycle-boundary source. Arms C1--C4 cross two factors---boundaries from reference R-peaks versus from the event head, and a \emph{fixed} affine fitted on the training folds versus an \emph{oracle} per-cycle affine---while C0 is the dense full-window decoder with the same fixed affine. All four assembled arms use an identical set of contributing windows, so C1 versus C3 varies only the boundary source. Cycles that no window predicts are left uncovered and never filled, which caps assembled coverage at $0.405$; every comparison is therefore computed on the common support of all five arms ($0.351 \pm 0.039$), with native coverage reported alongside. Table~\ref{tab:cgd} and Fig.~\ref{fig:cgd} give the result.
+
+Two contrasts are reported, and they are \emph{not} additive components: they are non-orthogonal and interact, as the numbers below show directly. Replacing reference boundaries with predicted ones costs $\Delta$PCC $0.643\pm0.149$ (95\,\% CI $[0.558, 0.726]$; Wilcoxon $p = 9.8\times10^{-4}$, the floor at $n=11$, all folds agreeing in sign), and degrades RMSE and MAE by similar margins. An oracle per-cycle affine is worth only $+0.016$ PCC when boundaries are correct, but $+0.151$ when they are predicted---an interaction of $+0.135$ (95\,\% CI $[0.110, 0.158]$, 11/11 folds). Amplitude recovery therefore matters most exactly when boundary estimation has already failed, and summing the two contrasts would misstate both.
+
+\emph{What the boundary contrast actually varies.} We characterized the predicted bounds against the reference cycles over $7{,}619$ matched cycles. They differ in duration as well as position: reference cycles average $826$\,ms against $953$\,ms predicted, only $48\,\%$ of cycles fall within $5\,\%$ of the reference duration ($66\,\%$ within $10\,\%$), and the duration ratio has a heavy upper tail (95th percentile $2.71$). Because the morphology is resampled to the predicted duration, C3 and C4 both displace and \emph{time-warp} each beat. We therefore describe C1 versus C3 as a \textbf{boundary localization/warping contrast} rather than as a timing error. The shape of the tail is also informative: ratios near two and near one half indicate merged and split cycles, that is missed and spurious detections, rather than sub-beat jitter. This supersedes any reading of the continuous gap as a sub-$50$\,ms precision limit; at this operating point the dominant failure is miscounted beats.
+
+\emph{Deployment behaviour.} Arms C1--C4 all consume reference information---C1 and C2 through the boundaries, and all four through a window set selected using reference cycles---so none is an achievable operating point. As a separate descriptive arm, C5 runs the fully autonomous pipeline: predicted cycles iterated directly, no reference-derived window selection, train-fitted affine, and the same standing peak rule used elsewhere in this paper with no threshold tuning. On its own native coverage of $0.466$ it reaches PCC $0.186\pm0.117$ (per-fold $-0.01$ to $0.39$). Autonomous continuous reconstruction from this model does not work, and C5 is never differenced against C0--C4.
+
+\begin{table}[!t]
+\centering
+\caption{Continuous-gap audit on MMECG, 11-fold strict LOSO final test, 91 records, frozen evaluator. All arms are scored against the \emph{original} ECG. C0--C4 are reported on the common support of all five arms ($0.351 \pm 0.039$); C5 is descriptive and reported on its own native coverage. C2 and C4 consume oracle information and are upper bounds, not achievable performance.}
+\label{tab:cgd}
+\begin{tabular}{llcccc}
+\toprule
+Arm & Boundaries / amplitude & Nat.\ cov. & PCC $\uparrow$ & NRMSE $\downarrow$ & MAE $\downarrow$ \\
+\midrule
+C0 & dense full-window, fixed & 1.000 & $0.323 \pm 0.160$ & 0.128 & 0.502 \\
+C1 & reference, fixed         & 0.405 & $0.853 \pm 0.066$ & 0.074 & 0.329 \\
+C2 & reference, oracle        & 0.405 & $0.870 \pm 0.064$ & 0.065 & 0.276 \\
+C3 & predicted, fixed         & 0.466 & $0.211 \pm 0.129$ & 0.155 & 0.615 \\
+C4 & predicted, oracle        & 0.466 & $0.362 \pm 0.096$ & 0.123 & 0.513 \\
+\midrule
+\multicolumn{6}{l}{\emph{Descriptive, native coverage only --- not part of the contrast}} \\
+C5 & autonomous, fixed        & 0.466 & $0.186 \pm 0.117$ & 0.168 & 0.686 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{F11_continuous_gap_decomposition.pdf}
+\caption{Continuous-gap audit, MMECG 11-fold final test. (a) Per-fold paired slopes for the boundary localization/warping contrast at each amplitude condition; every fold moves in the same direction. (b) Fold spread by condition on common support. (c) The oracle per-cycle affine is worth far more when boundaries are predicted than when they are correct, so the two contrasts interact and cannot be summed.}
+\label{fig:cgd}
+\end{figure}
 
 \subsubsection{Three timing readouts must be distinguished}
 \label{sec:timing_readouts}
@@ -586,7 +621,7 @@ This result is negative for continuous reconstruction but useful scientifically.
 \begin{figure}[!t]
 \centering
 \includegraphics[width=\linewidth]{F4_route_c_mechanism.pdf}
-\caption{Discovery-tier diagnostic of the continuous gap on MMECG fold~01. Predicted anchors fail to generalize with sub-50\,ms precision. The oracle-anchor bar is withheld pending the audit described in the text: the quantity previously plotted there was scored against beat-normalized morphology targets rather than the original ECG, and at partial cycle coverage, so it does not measure continuous-ECG overlap.}
+\caption{Early discovery-tier diagnostic on MMECG fold~01, retained for provenance and superseded by the 11-fold audit of Section~\ref{sec:cgd} (Table~\ref{tab:cgd}, Fig.~\ref{fig:cgd}). Its oracle-anchor bar is withheld: that quantity was scored against beat-normalized morphology targets rather than the original ECG and at partial coverage. Its ``sub-$50$\,ms precision'' reading is also superseded---the boundary characterization shows duration errors with a heavy tail, indicating miscounted beats rather than sub-beat jitter.}
 \label{fig:continuous_gap}
 \end{figure}
 
@@ -602,6 +637,8 @@ The results do not prove continuous long-term ECG recovery. \shape\ is a beat-no
 This boundary is especially important when comparing with papers that report full-window ECG or clinical interval errors. Our morphology results should not be used to claim superior PR, QRS, QT, or QTc interval estimation. They also should not be used to claim that \remnet\ reproduces radarODE-MTL long-term assembly or VMD-CBNeT's original protocol. The paper's defensible position is narrower: morphology is accurate and transferable; continuous timing remains open; the mechanism analysis explains why.
 
 \subsection{Implications for Radar-to-ECG Evaluation}
+\emph{Correlation and absolute error answer different questions.} PCC is invariant to an affine transform of either signal, so it is by construction blind to precisely the quantity a beat-normalized morphology discards: per-cycle gain and offset. The audit makes the consequence concrete. Supplying an oracle per-cycle affine under correct boundaries moves PCC by $+0.016$ while reducing RMSE by $12\,\%$ and MAE by $16\,\%$---a change that a PCC-only report would render nearly invisible. Conversely, the boundary contrast is large in every metric, so it is not an artifact of any one of them. Neither family is sufficient alone: correlation alone cannot see amplitude failure, and error metrics alone confound amplitude with shape. We therefore report PCC, RMSE, NRMSE and MAE together throughout, and we would encourage the same of comparisons in this literature, where single-correlation reporting remains common.
+
 The practical implication is that future radar-to-ECG studies should report the output formulation explicitly. A method that reconstructs beat morphology, a method that reconstructs an 8-s ECG window, and a method that estimates ECG intervals are solving related but non-identical tasks. A single ranking table without protocol tiers can obscure rather than clarify progress.
 
 \section{Limitations and Follow-Up Work}
@@ -621,10 +658,12 @@ reportable test-tier measurement, and is the single most informative addition to
 timing analysis. Until that measurement exists, the CW timing capability of the
 reconstruction is best described as unquantified rather than as absent.
 
+Four limitations bound the continuous-gap audit specifically. It covers \emph{MMECG only} and no claim from it may be carried to CW radar. Assembled coverage is low---$0.405$ native, $0.351$ common support---because a cycle is only reconstructed when some window predicts it and unpredicted beats are never filled; the audit therefore describes the beats the model does emit, not a whole record. Arms C1--C4 are \emph{reference-assisted counterfactuals}: they consume ground-truth boundaries, or a window set chosen using ground-truth cycles, and are upper bounds rather than operating points, with C5 the only autonomous figure. And the C0-versus-C1 difference varies decoder head and boundary source at once, so it is not attributable to either; only C1 versus C3 is single-factor.
+
 The main limitation is output formulation. \shape\ morphology is not equivalent to continuous clinical ECG. Our full-window interval-timing errors are not better than the strongest reported interval results under different protocols, and we do not claim better PR/QRS/QT interval estimation. VMD-CBNeT is reported as a contextual reference, not an identical-protocol reproduction. radarODE-MTL is compared only in morphology/ECG\_shape space; its official long-term assembly is not reproduced. Some adapted low-scoring baselines have incomplete historical preprocessing traceability, although this does not affect the main conclusion. The noise analysis perturbs the input representation and should be read as an input-corruption stress test, not as a simulation of real body-motion artifacts. Finally, diastolic morphology remains weaker than QRS and ST/T morphology, especially on CW radar.
 
 \section{Conclusion}
-This paper presented \remnet, a supervised representation--event--morphology network for contactless ECG beat morphology reconstruction from radar. Across public FMCW and CW radar datasets, \remnet\ gives seed-stable subject-independent morphology reconstruction while remaining compact. By separating output formulations and auditing comparison tiers, the study avoids conflating beat morphology with continuous ECG recovery. The accompanying diagnostic identifies robust sub-50\,ms beat-anchor localization as one open barrier to continuous radar-to-ECG, and per-cycle amplitude recovery---absent by construction from any beat-normalized formulation---as a second. These findings provide a practical supervised morphology baseline and a more precise research target for future contactless ECG sensing.
+This paper presented \remnet, a supervised representation--event--morphology network for contactless ECG beat morphology reconstruction from radar. Across public FMCW and CW radar datasets, \remnet\ gives seed-stable subject-independent morphology reconstruction while remaining compact. By separating output formulations and auditing comparison tiers, the study avoids conflating beat morphology with continuous ECG recovery. A frozen 11-fold counterfactual on the original ECG identifies cycle-boundary localization and warping as the dominant barrier to continuous radar-to-ECG, with per-cycle amplitude recovery---absent by construction from any beat-normalized formulation---mattering most precisely where boundary estimation has already failed. Fully autonomous continuous reconstruction remains unattained (PCC $0.186\pm0.117$). These findings provide a practical supervised morphology baseline and a more precise research target for future contactless ECG sensing.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
