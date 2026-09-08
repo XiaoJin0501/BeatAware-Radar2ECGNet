@@ -11,15 +11,19 @@ Measured 2026-09-09 on the current pipeline:
 | quantity | value |
 |---|---|
 | WSST input | `(50, 71, 120)` per 8 s window |
-| WSST effective rate | 15 Hz (one bin = 66.7 ms) |
+| WSST span | centre 4 s only of the 8 s window |
+| WSST effective rate | 30 Hz (one bin = 33.3 ms) |
+| **output with no radar support** | **50 % of every window** |
 | ECG target | 1600 samples @ 200 Hz |
 | upsampling performed by the waveform path | **13.3x** |
-| QRS width in WSST bins | **1.2** |
+| QRS width in WSST bins | **~2.4** |
 | `rcg` raw radar, same H5, **unused by waveform path** | `(50, 1600)` @ 200 Hz |
 
-The current model cannot resolve a QRS from its input. Adding decoder capacity on top
-of a 15 Hz representation cannot fix this. **The first architectural move is to give
-the high-frequency path an input that actually contains high frequencies.**
+Two separate problems. (i) A **severe temporal-resolution bottleneck**: ~2.4 WSST bins
+per QRS makes sharp onset placement hard, though not provably impossible. (ii) A
+**support asymmetry**: half of every output window has no radar input at all. (ii) is
+first-order and must be settled before (i) can be attributed anything. Neither is fixed
+by adding decoder capacity, which is why B2a exists as the capacity-only control.
 
 ## 2. Structure
 
@@ -97,7 +101,8 @@ disabled (`docs/RADARODE_REPRODUCTION_AUDIT.md` A1).
 
 B0 existing REM-Net full-window branch (frozen baseline) ->
 B1 linear output + train-fold robust normalization ->
-B2 dual-scale rhythm/morphology decoder (incl. the `rcg` native-rate path) ->
+B2a dual-scale decoder, WSST only (decoder-capacity control) ->
+B2b B2a + native-rate `rcg` dual path ->
 B3 event-conditioned soft fusion ->
 B4 multi-task gradient balancing ->
 B5 final continuous model.

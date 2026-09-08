@@ -59,15 +59,14 @@ Results from different datasets, different splits, or reported-only literature g
 
 ## 7. Known input-representation constraint (measured 2026-09-09)
 
-The WSST tensor the current model consumes is `(50, 71, 120)` for an 8 s window:
-**120 time bins, i.e. 15 Hz effective, against a 200 Hz target.**
+The WSST tensor the current model consumes is `(50, 71, 120)`, and it spans only the
+**centre 4 s** of the 8 s window (`crop = center_4s_samples_400_1200`).
 
-- one WSST time bin = **66.7 ms**
-- a QRS complex (~80 ms) is **1.2 time bins** wide
-- the waveform path therefore performs a **13.3x** temporal upsampling from an input
-  that cannot resolve the structure it is asked to produce
+- 120 bins over 4.0 s = **30 Hz effective**, one bin = **33.3 ms**
+- a ~80 ms QRS spans **~2.4 bins** — a **severe temporal-resolution bottleneck**
+  relative to a 200 Hz target, not a demonstration that QRS recovery is impossible
+- **50 % of every output window has no radar input support**: the ECG target covers
+  1600 samples while the radar covers samples 400-1200 only
 
-This is an information ceiling, not a training failure, and it bounds any sub-50 ms
-timing claim *a priori*. The raw `rcg` tensor `(50, 1600)` at native 200 Hz is present
-in the same H5 files and is **unused by the waveform path**. Any new continuous
-architecture must address this before module-level tuning is meaningful.
+The support asymmetry is the more serious of the two and is the first-order suspect for
+the continuous-reconstruction failure. See `docs/RCG_PROVENANCE_AUDIT.md`.
