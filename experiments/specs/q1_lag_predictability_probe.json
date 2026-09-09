@@ -100,7 +100,7 @@
         0.437
       ]
     },
-    "reading": "The headroom is large and real, but no radar-only predictor captures any of it: every deployable arm achieves a lag MAE indistinguishable from predicting zero, and two of three are worse than zero on some subjects. Combined with L4 = 0 (the model's own event head is perfectly co-aligned with its waveform, so it carries no internal signal about the offset), there is currently no measured route from radar alone to the per-subject timing offset.",
+    "reading": "The headroom is large and real, and none of it was captured by any deployable arm tested here: every one achieved a lag MAE indistinguishable from predicting zero. SCOPE CORRECTION: this bounds LINEAR AND RIDGE READOUTS of handcrafted radar features and of the frozen WSST-derived encoder latent. It does NOT establish that the offset is unidentifiable from radar, and it does NOT establish that the deficit is a deployment constraint rather than a modelling shortfall. Both of those were overstated in the first write-up and are withdrawn. In particular the probe never tested a phase-preserving native-rate representation, since WSST is a magnitude transform (|CWT|) that discards phase.",
     "scope": "Tested linear/ridge readouts of handcrafted radar features and of the frozen encoder latent, as the spec required. A deep nonlinear predictor was NOT tested; that is the alignment network the spec excluded, and the pre-registered rule is that failure here terminates the route rather than escalating to a larger model. n = 3 validation subjects."
   }
 }

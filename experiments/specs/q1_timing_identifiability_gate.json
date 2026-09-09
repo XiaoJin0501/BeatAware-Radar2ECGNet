@@ -1,0 +1,40 @@
+{
+  "experiment_id": "q1_timing_identifiability_gate",
+  "research_question": "Does a phase-preserving native-rate raw-RCG encoder recover beat timing that the magnitude-only WSST representation does not?",
+  "framing": "This tests whether the TIMING INFORMATION EXISTS in a representation the pipeline has never used, rather than continuing to interpret failures of the existing one. WSST is np.abs(tx): a magnitude transform that discards phase, at 240 bins (33.3 ms) for a 1600-sample target. Raw rcg is the native 200 Hz time-domain signal with phase intact.",
+  "final_opportunity": "This is the last continuous-route gate. Failure terminates the absolute-time continuous line and pivots the paper to a morphology-first task formulation.",
+
+  "category": "pilot",
+  "publishable": false,
+  "task": "R-peak heatmap ONLY: 1600-sample logits. NO ECG waveform reconstruction, no morphology head, no assembly.",
+
+  "arms": {
+    "T0a_frozen_b1_event_head": "The literal current baseline: event-head output of the frozen B1. Reported for continuity.",
+    "T0b_wsst_event_only": "CONTROL THAT ISOLATES THE VARIABLE. Same training recipe, budget, seed and output head as T1, but consuming WSST. Without this, a T1 gain would confound input representation with single-task-versus-multi-task training.",
+    "T1_rcg_native_rate": "Phase-preserving native-rate encoder over raw rcg (B,50,1600), stride-1 dilated stack, no early temporal downsampling, emitting 1600-sample logits."
+  },
+  "why_T0b_matters": "T0a was trained multi-task with a waveform loss; T1 is single-task. Comparing T1 only against T0a would not isolate the input representation.",
+
+  "protocol": {
+    "split": "repaired loso_v2, folds 1/5/9, validation subjects S2/S13/S29",
+    "supervision": "TRAIN split only, Gaussian R-peak mask (sigma 4), BCE with logits",
+    "validation": "inference consumes radar only; the validation ECG is opened solely to SCORE, and no validation lag is fitted on",
+    "budget": "identical across T0b and T1: 80 epochs, patience 20, AdamW lr 1e-4 wd 1e-4, batch 16, seed 42+fold",
+    "selection": "best validation F1@50"
+  },
+
+  "metrics": ["F1@25ms", "F1@50ms", "F1@100ms", "signed peak error (median)", "absolute error MAE and IQR", "failure rate = fraction of windows with no detected peak or F1 = 0", "per-subject breakdown, no cross-subject mean beyond the required mean delta"],
+
+  "GATE": {
+    "must_all_hold": [
+      "all 3 validation subjects improve in F1@50 relative to T0b",
+      "mean delta-F1@50 across the three subjects >= 0.10",
+      "absolute timing MAE <= 20 ms",
+      "S2's systematic offset disappears: its median signed error must fall to near zero rather than remaining a consistent ~65 ms shift"
+    ],
+    "on_pass": "Authorises T2 fusion and, subsequently, a continuous decoder. Each still needs its own spec.",
+    "on_fail": "TERMINATE the absolute-time continuous route. Pivot the manuscript to a morphology-first task formulation. Do not propose further continuous-reconstruction architectures."
+  },
+  "prohibitions": ["no loss ablation", "no ECG reconstruction in this experiment", "no validation-fitted quantity", "no tuning after seeing validation numbers"],
+  "status": "REGISTERED"
+}
