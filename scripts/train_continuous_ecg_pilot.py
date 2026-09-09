@@ -27,7 +27,7 @@ from scripts.train_anchor_head import match_counts, peaks_from_heatmap  # noqa: 
 
 DATA = Path("/home/qhh2237/Datasets/MMECG/processed/loso")
 FS = 200
-BUDGET = dict(epochs=30, patience=8, lr=1e-4, weight_decay=1e-4, batch_size=16, seed=42)
+BUDGET = dict(epochs=80, patience=20, lr=1e-4, weight_decay=1e-4, batch_size=16, seed=42)
 LEGACY_TARGET_ARMS = ("B0",)
 COMPOSITE_W = dict(pcc=0.40, nrmse=0.25, r2=0.20, f1=0.15)
 EVENT_W = 0.20                       # fixed, IDENTICAL across arms (not an ablated factor)
@@ -264,10 +264,15 @@ def main():
 
     model = CENet(a.arm).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=BUDGET["lr"], weight_decay=BUDGET["weight_decay"])
+    # The commit that last touched EXECUTABLE code, not bare HEAD: later
+    # spec/registry-only commits must not appear to change the implementation.
+    CODE_PATHS = ["src/", "scripts/", "tests/", "configs/"]
     try:
-        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        commit = subprocess.check_output(
+            ["git", "log", "-1", "--format=%H", "--"] + CODE_PATHS, text=True).strip()
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     except Exception:
-        commit = "unknown"
+        commit = head = "unknown"
     (out / "config.json").write_text(json.dumps({
         "arm": a.arm, "fold": a.fold, "mode": "smoke" if a.smoke else "formal",
         "epochs": epochs, "limit": limit, "effective_seed": seed,
@@ -281,7 +286,9 @@ def main():
         "region_definitions": REGION_DEF, "rpeak_readout": "waveform-derived",
         "metric_space": "raw ECG units for ALL arms (per-arm inverse applied)",
         "b0_inverse_is_oracle": a.arm in LEGACY_TARGET_ARMS,
-        "wsst": "full_window_samples_0_1600", "code_commit": commit,
+        "wsst": "full_window_samples_0_1600",
+        "code_commit": commit, "code_commit_is": "last commit touching src/scripts/tests/configs",
+        "runtime_head": head,
     }, indent=2, default=str) + "\n")
 
     best, best_ep, bad, hist = -1e9, -1, 0, []
@@ -312,6 +319,9 @@ def main():
     (out / "best.json").write_text(json.dumps({
         "arm": a.arm, "fold": a.fold, "mode": "smoke" if a.smoke else "formal",
         "best_epoch": best_ep, "best_composite": best, "code_commit": commit,
+        "runtime_head": head, "max_epochs": epochs, "patience": BUDGET["patience"],
+        "hit_epoch_cap": best_ep == epochs, "stopped_at_epoch": len(hist),
+        "early_stopped": len(hist) < epochs,
         "selected_by": "full-waveform validation composite (Shape-200 excluded)",
         "metrics": hist[best_ep - 1] if best_ep > 0 else None}, indent=2) + "\n")
     print(f"[done] {a.arm} fold{a.fold} ({'smoke' if a.smoke else 'formal'}): "

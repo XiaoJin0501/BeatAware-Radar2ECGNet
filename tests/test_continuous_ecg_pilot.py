@@ -174,7 +174,7 @@ def test_legacy_arm_set_is_b0_only():
 
 
 def test_budget_is_shared_and_frozen():
-    assert T.BUDGET == dict(epochs=30, patience=8, lr=1e-4, weight_decay=1e-4,
+    assert T.BUDGET == dict(epochs=80, patience=20, lr=1e-4, weight_decay=1e-4,
                             batch_size=16, seed=42)
 
 
@@ -192,3 +192,18 @@ def test_input_is_ram_preloaded_not_hdf5_per_item():
     assert "self.wsst = np.asarray" in src, "WSST must be preloaded into RAM"
     assert "num_workers=0" in src, "workers are unnecessary once data is in RAM"
     assert "_open(self)" not in src, "the lazy per-item HDF5 path must be gone"
+
+
+def test_code_commit_tracks_executable_paths_not_head():
+    """Spec/registry-only commits must not look like implementation changes."""
+    src = Path(T.__file__).read_text()
+    assert '"log", "-1", "--format=%H", "--"' in src
+    assert 'CODE_PATHS = ["src/", "scripts/", "tests/", "configs/"]' in src
+    assert '"runtime_head": head' in src
+
+
+def test_best_json_records_budget_binding_fields():
+    src = Path(T.__file__).read_text()
+    for k in ('"hit_epoch_cap"', '"stopped_at_epoch"', '"early_stopped"',
+              '"max_epochs"', '"patience"'):
+        assert k in src, f"best.json must record {k}"

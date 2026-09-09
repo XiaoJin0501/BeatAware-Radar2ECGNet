@@ -68,7 +68,7 @@
   "branch": "exp/rem-shape-guided-continuous-decoder",
   "spec_commit": "fea1a12ccc1e2d59c9186755431b8d4b1b218252",
   "implementation_commit": "ad26603ec926e3ebc6104310c875778981576b55",
-  "status": "APPROVED \u2014 launching 15 validation-only runs",
+  "status": "APPROVED \u2014 budget restored to 80/20, relaunching 15 validation-only runs",
   "input_requirement": {
     "wsst_suffix": "_wsst8s.h5",
     "required_attrs": {
@@ -148,20 +148,20 @@
     "recorded_as": "effective_seed in every run config.json"
   },
   "budget": {
-    "max_epochs": 30,
-    "patience": 8,
+    "max_epochs": 80,
+    "patience": 20,
     "optimizer": "AdamW",
     "lr": 0.0001,
     "weight_decay": 0.0001,
     "batch_size": 16,
-    "applies_to": "ALL arms identically. No arm may run a different budget.",
-    "changed": "2026-09-09, BEFORE any complete run result existed. Previous 80/20 was abandoned when the HDF5 input pipeline proved to be the bottleneck (~269 s/epoch at 0% GPU). The only output produced under 80/20 was a 4-epoch B0 fold-01 run, marked ABORTED/INVALID and excluded from all comparisons."
+    "applies_to": "ALL 5 arms x 3 folds identically. No arm may run a different budget.",
+    "history": "Originally 80/20. Reduced to 30/8 on 2026-09-09 when the HDF5 pipeline made 80 epochs impractical (~269 s/epoch). RESTORED to 80/20 the same day once the RAM preload cut this to ~11-12 s/epoch, making 80 epochs cost ~16 min/run. The restoration happened BEFORE the restart and BEFORE any complete formal run result existed: the only outputs ever produced were two truncated B0 fold-01 attempts (4 epochs under 80/20-HDF5, 11 epochs under 30/8), both marked ABORTED_INVALID and excluded from all comparison."
   },
   "input_pipeline": {
-    "mode": "RAM preload per fold",
-    "reason": "HDF5+lzf decompression saturated the DataLoader workers at 0% GPU utilisation",
-    "footprint": "~4 GiB per fold as float16 against >100 GiB available",
-    "num_workers": 0
+    "mode": "RAM preload per fold (RETAINED unchanged)",
+    "measured": "11 s/epoch B0, 12 s/epoch B2b, versus 269 s/epoch on the HDF5 path",
+    "num_workers": 0,
+    "footprint": "~4 GiB per fold float16"
   },
   "benchmark": {
     "date": "2026-09-09",
@@ -186,9 +186,9 @@
     "equivalence_check": "B0 epoch-1 composite 0.1729 under RAM preload vs 0.1730 in the aborted HDF5 run; the residual difference is RNG consumption order from num_workers 2 -> 0, so the preload did not change training semantics."
   },
   "code_provenance": {
-    "executable_commit": "ad26603ec926e3ebc6104310c875778981576b55",
-    "note": "Runs stamp code_commit = git HEAD at runtime, which is d4feea1e0e5990c298af0c38606626027feb64b9 \u2014 the CSV-only registry correction that follows ad26603. `git diff --quiet ad26603 HEAD -- src/ scripts/ tests/ configs/` is clean, so the executable tree the runs use IS ad26603's. Editing the trainer to emit the literal ad26603 would change the trainer and thereby stop ad26603 from being the code state, so both hashes are recorded instead.",
-    "verify": "git diff --quiet ad26603 <code_commit> -- src/ scripts/ tests/ configs/"
+    "rule": "code_commit = last commit touching src/ scripts/ tests/ configs/",
+    "runtime_head_also_recorded": true,
+    "supersedes": "e6aeed0 and ad26603 must NOT be recorded for these runs"
   },
-  "reporting_requirement": "On completion, report best epoch for every run. If several runs hit best_epoch = 30 (the cap), flag the pilot as BUDGET-BINDING and draw no model-quality conclusion from the arm contrasts: a capped run has not demonstrated convergence and its composite is a lower bound."
+  "reporting_requirement": "On completion report, for every run: best epoch, stopped-at epoch, whether it early-stopped, whether it hit the 80-epoch cap, and the final metrics. If several runs hit the cap, flag BUDGET-BINDING and draw no model-quality conclusion from the arm contrasts."
 }
