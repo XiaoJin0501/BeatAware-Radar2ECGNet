@@ -127,13 +127,14 @@ def main() -> None:
     ap.add_argument("--fs", type=int, default=200)
     ap.add_argument("--nv", type=int, default=16)
     ap.add_argument("--allow_test", action="store_true", help="explicit opt-in; off by default")
+    ap.add_argument("--split_root", default="loso", help="subdirectory under processed/ (e.g. loso_v2)")
     a = ap.parse_args()
     splits = [s.strip() for s in a.splits.split(",")]
     if "test" in splits and not a.allow_test:
         raise SystemExit("Refusing to precompute the test split without --allow_test.")
     for f in [int(x) for x in a.folds.split(",")]:
         for s in splits:
-            _precompute(DATA_ROOT / "loso" / f"fold_{f:02d}" / f"{s}.h5",
+            _precompute(DATA_ROOT / a.split_root / f"fold_{f:02d}" / f"{s}.h5",
                         a.overwrite, a.batch_size, a.fs, a.nv)
 
 
