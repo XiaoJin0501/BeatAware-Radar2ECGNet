@@ -264,14 +264,17 @@ def main():
     ap.add_argument("--smoke_limit", type=int, default=48)
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--split_root", default="loso_v2")
+    ap.add_argument("--exp_tag", default=None,
+                    help="output tree name; defaults to the pilot tag, or <tag>_smoke in smoke mode")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
 
     # ---- formal / smoke parameter isolation: a formal run CANNOT be shrunk ----
+    base_tag = a.exp_tag or "q1_continuous_ecg_b0_b2_pilot"
     if a.smoke:
-        epochs, limit, tag = a.smoke_epochs, a.smoke_limit, "q1_continuous_ecg_b0_b2_pilot_smoke"
+        epochs, limit, tag = a.smoke_epochs, a.smoke_limit, base_tag + "_smoke"
     else:
-        epochs, limit, tag = BUDGET["epochs"], None, "q1_continuous_ecg_b0_b2_pilot"
+        epochs, limit, tag = BUDGET["epochs"], None, base_tag
 
     out = ROOT / "experiments_mmecg" / tag / a.arm / f"fold_{a.fold:02d}"
     if (out / "best.json").exists() and not a.overwrite:

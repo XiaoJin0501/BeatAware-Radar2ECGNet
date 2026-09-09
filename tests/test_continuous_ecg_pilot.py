@@ -102,6 +102,12 @@ def test_scaler_uses_entire_train_fold_only(monkeypatch):
     assert not any("val" in p or "test" in p for p in opened)
 
 
+def test_exp_tag_is_available_and_smoke_suffixes_it():
+    src = Path(T.__file__).read_text()
+    assert '"--exp_tag"' in src, "runs must be routable to a separate output tree"
+    assert 'base_tag + "_smoke"' in src, "smoke must write to a separate tree from formal"
+
+
 def test_formal_run_cannot_use_smoke_parameters():
     """A formal run must not be silently shrunk: epochs/limit are not CLI-settable."""
     import argparse, contextlib, io
@@ -110,12 +116,12 @@ def test_formal_run_cannot_use_smoke_parameters():
         "formal epochs/limit must not be overridable from the CLI"
     assert '--smoke_epochs' in src and '--smoke_limit' in src
     # formal branch pins the frozen budget and no limit
-    assert 'epochs, limit, tag = BUDGET["epochs"], None, "q1_continuous_ecg_b0_b2_pilot"' in src
+    assert 'epochs, limit, tag = BUDGET["epochs"], None, base_tag' in src
 
 
 def test_smoke_and_formal_write_to_separate_trees():
     src = Path(T.__file__).read_text()
-    assert '"q1_continuous_ecg_b0_b2_pilot_smoke"' in src and '"q1_continuous_ecg_b0_b2_pilot"' in src
+    assert 'base_tag + "_smoke"' in src and '"q1_continuous_ecg_b0_b2_pilot"' in src
 
 
 def test_overwrite_protection_present():
@@ -181,7 +187,7 @@ def test_budget_is_shared_and_frozen():
 def test_all_arms_share_one_budget():
     """No arm may run a different budget: the trainer reads BUDGET, never a per-arm value."""
     src = Path(T.__file__).read_text()
-    assert 'epochs, limit, tag = BUDGET["epochs"], None, "q1_continuous_ecg_b0_b2_pilot"' in src
+    assert 'epochs, limit, tag = BUDGET["epochs"], None, base_tag' in src
     for arm in ARMS:
         assert f'"{arm}":' not in src.split("BUDGET =")[1].split("\n")[0], "budget must not be per-arm"
 
