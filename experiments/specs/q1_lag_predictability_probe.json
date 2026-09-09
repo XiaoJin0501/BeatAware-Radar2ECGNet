@@ -1,0 +1,106 @@
+{
+  "experiment_id": "q1_lag_predictability_probe",
+  "research_question": "Can the per-window timing offset of a FROZEN B1 reconstruction be predicted from radar-derived information alone, well enough to recover a material part of the oracle-alignment gain on held-out subjects?",
+  "why": "The lag provenance audit showed the offset is a cross-subject generalization failure (TRAIN L3 median -5 ms IQR 10 vs VAL +20 ms IQR 55), that oracle per-record correction lifts the three validation subjects to 0.537/0.616/0.602 from -0.064/0.515/0.218, and that the obvious deployable routes fail: the event head is perfectly co-aligned with the waveform (L4 = 0), a train-derived fixed-global shift is worse than nothing, and state/HR/radar-anchor predictors do not transfer. This probe is the decisive test of whether ANY radar-only route exists before an alignment architecture is contemplated.",
+  "category": "pilot",
+  "publishable": false,
+  "type": "evaluation + lightweight probe fitting; B1 is FROZEN and never retrained",
+  "hard_constraints": {
+    "frozen_model": "B1 checkpoints from q1_continuous_ecg_b1_lososv2_baseline are loaded read-only. No gradient reaches B1.",
+    "no_ecg_at_validation": "Validation-time inference and lag prediction may consume ONLY the radar input (WSST, rcg) and B1's own outputs (waveform, event mask). The validation ECG is opened solely to SCORE the result, never to produce it.",
+    "labels_from_train_only": "Lag labels are constructed exclusively from TRAIN-split B1 predictions against TRAIN GT. No validation label is ever fitted on.",
+    "no_alignment_network": "No end-to-end alignment module is implemented here. Predictors are a constant, handcrafted radar features, or a linear/ridge readout of frozen features."
+  },
+  "arms": {
+    "A0_zero": "No correction. The current baseline.",
+    "A1_train_median": "Single constant lag = median TRAIN lag label. Deployable, already known to be worse than nothing; retained as the honest floor.",
+    "A2_handcrafted": "Ridge regression on handcrafted radar features: dominant-bin index and variance, band-energy ratios (0.8-3.5 / 3.5-10 / 10-20 Hz), mechanical-envelope autocorrelation peak, cross-correlation lag between the mechanical envelope and B1's OWN predicted R-peak train (radar-to-prediction, needs no GT), and HR estimated from B1's own waveform peaks.",
+    "A3_frozen_feature_ridge": "Ridge regression on the pooled frozen B1 encoder latent (mean and std over time), i.e. a linear readout of representations the model already computes.",
+    "U1_oracle_record": "UPPER BOUND ONLY. Per-record oracle lag. Not deployable, never counted as a result.",
+    "U2_oracle_window": "UPPER BOUND ONLY. Per-window oracle lag."
+  },
+  "metrics": [
+    "lag MAE on held-out windows (ms)",
+    "PCC",
+    "R2",
+    "NRMSE",
+    "F1@50ms"
+  ],
+  "aggregation": "Per validation subject, records pooled within subject. NO cross-subject mean is used for the gate beyond the explicitly required mean delta-PCC.",
+  "GATE": {
+    "must_all_hold": [
+      "all three validation subjects (S2, S13, S29) improve on PCC relative to A0",
+      "mean delta-PCC across the three subjects >= 0.08",
+      "no subject degrades on R2 or NRMSE",
+      "F1@50 does not degrade"
+    ],
+    "on_pass": "Submit an end-to-end architecture spec for review. Implementation still requires separate approval.",
+    "on_fail": "TERMINATE the alignment route. Record it as a measured negative result and do not propose alignment-based architectures again without new evidence."
+  },
+  "no_tuning_after_seeing_val": "Ridge alpha is selected by cross-validation on TRAIN windows only, before any validation number is computed.",
+  "status": "COMPLETED \u2014 GATE FAILED \u2014 alignment route TERMINATED",
+  "result": {
+    "gate": "FAILED on all three deployable arms",
+    "A1_train_median": {
+      "dPCC": [
+        0.0,
+        -0.027,
+        0.0
+      ],
+      "mean": -0.009
+    },
+    "A2_handcrafted": {
+      "dPCC": [
+        -0.001,
+        0.006,
+        0.021
+      ],
+      "mean": 0.009
+    },
+    "A3_frozen_feature_ridge": {
+      "dPCC": [
+        -0.006,
+        -0.034,
+        0.015
+      ],
+      "mean": -0.008
+    },
+    "required": "all three subjects up AND mean dPCC >= 0.08",
+    "lag_MAE_ms": {
+      "A0_zero": [
+        66.0,
+        22.1,
+        41.0
+      ],
+      "A2_handcrafted": [
+        68.8,
+        21.6,
+        39.1
+      ],
+      "A3_frozen_ridge": [
+        72.1,
+        24.4,
+        39.3
+      ],
+      "U1_oracle_record": [
+        8.4,
+        13.9,
+        13.3
+      ]
+    },
+    "upper_bounds_only": {
+      "U1_oracle_record_dPCC": [
+        0.601,
+        0.101,
+        0.384
+      ],
+      "U2_oracle_window_dPCC": [
+        0.651,
+        0.153,
+        0.437
+      ]
+    },
+    "reading": "The headroom is large and real, but no radar-only predictor captures any of it: every deployable arm achieves a lag MAE indistinguishable from predicting zero, and two of three are worse than zero on some subjects. Combined with L4 = 0 (the model's own event head is perfectly co-aligned with its waveform, so it carries no internal signal about the offset), there is currently no measured route from radar alone to the per-subject timing offset.",
+    "scope": "Tested linear/ridge readouts of handcrafted radar features and of the frozen encoder latent, as the spec required. A deep nonlinear predictor was NOT tested; that is the alignment network the spec excluded, and the pre-registered rule is that failure here terminates the route rather than escalating to a larger model. n = 3 validation subjects."
+  }
+}
