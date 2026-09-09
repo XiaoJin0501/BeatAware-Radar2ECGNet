@@ -90,13 +90,73 @@ def test_wsst_declares_full_support(fold, split):
     assert abs(float(a["hop_ms"]) - 100/3) < 1e-3
 
 
-def test_scaler_uses_train_only(monkeypatch):
+def test_scaler_uses_entire_train_fold_only(monkeypatch):
+    import inspect
+    assert list(inspect.signature(T.fit_scaler).parameters) == ["fold"], \
+        "fit_scaler must take no subsampling cap: the scaler uses the ENTIRE training fold"
     opened = []
     real = h5py.File
     monkeypatch.setattr(h5py, "File", lambda p, *a, **k: (opened.append(str(p)), real(p, *a, **k))[1])
-    T.fit_scaler(1, cap=8)
+    T.fit_scaler(1)
     assert all("train.h5" in p for p in opened), opened
     assert not any("val" in p or "test" in p for p in opened)
+
+
+def test_formal_run_cannot_use_smoke_parameters():
+    """A formal run must not be silently shrunk: epochs/limit are not CLI-settable."""
+    import argparse, contextlib, io
+    src = Path(T.__file__).read_text()
+    assert '"--epochs"' not in src and '"--limit"' not in src, \
+        "formal epochs/limit must not be overridable from the CLI"
+    assert '--smoke_epochs' in src and '--smoke_limit' in src
+    # formal branch pins the frozen budget and no limit
+    assert 'epochs, limit, tag = BUDGET["epochs"], None, "q1_continuous_ecg_b0_b2_pilot"' in src
+
+
+def test_smoke_and_formal_write_to_separate_trees():
+    src = Path(T.__file__).read_text()
+    assert '"q1_continuous_ecg_b0_b2_pilot_smoke"' in src and '"q1_continuous_ecg_b0_b2_pilot"' in src
+
+
+def test_overwrite_protection_present():
+    src = Path(T.__file__).read_text()
+    assert 'Refusing to overwrite a completed run' in src
+    assert '(out / "best.json").exists() and not a.overwrite' in src
+
+
+def test_event_loss_is_fixed_and_shared():
+    assert T.EVENT_W == 0.20
+    src = Path(T.__file__).read_text()
+    assert "binary_cross_entropy_with_logits" in src, "event head must be supervised"
+
+
+def test_seed_is_paired_across_arms_within_fold():
+    assert T.effective_seed(1) == T.effective_seed(1)
+    assert T.effective_seed(1) != T.effective_seed(5)
+    assert T.effective_seed(1) == T.BUDGET["seed"] + 1
+
+
+def test_registered_metric_set_is_complete():
+    """Every metric the spec registers must be produced by evaluate()."""
+    rng = np.random.default_rng(0)
+    pred = rng.normal(size=(4, WIN)); gt = rng.normal(size=(4, WIN))
+    ev = rng.random(size=(4, WIN)); rps = [np.array([300., 700., 1100.])] * 4
+    m = T.waveform_metrics(pred, gt)
+    m.update(T.timing_metrics(pred, ev, rps))
+    m.update(T.region_errors(pred, gt, rps))
+    m["shape200_pcc_auxiliary"] = T.shape200_pcc(pred, gt, rps)
+    required = {"pcc", "rmse", "nrmse", "mae", "r2",
+                "f1_50ms", "f1_100ms", "f1_150ms",
+                "event_f1_50ms", "event_f1_100ms", "event_f1_150ms",
+                "rr_error_ms", "hr_error_bpm", "rr_coverage",
+                "qrs_region_mae", "stt_region_mae", "shape200_pcc_auxiliary"}
+    assert required <= set(m), f"missing: {required - set(m)}"
+
+
+def test_shape200_is_auxiliary_only():
+    src = Path(T.__file__).read_text()
+    assert "shape200_pcc_auxiliary" in src
+    assert "shape200" not in str(T.COMPOSITE_W)
 
 
 def test_metrics_are_affine_consistent():
