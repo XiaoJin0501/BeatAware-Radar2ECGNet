@@ -9,7 +9,7 @@ from src.models.continuous.ce_net import CENet, param_report, WIN  # noqa: E402
 import scripts.train_continuous_ecg_pilot as T  # noqa: E402
 
 ARMS = ["B0", "B1", "B2a", "B2a-wide", "B2b"]
-DATA = Path("/home/qhh2237/Datasets/MMECG/processed/loso")
+DATA = Path("/home/qhh2237/Datasets/MMECG/processed/loso_v2")
 
 
 @pytest.fixture(scope="module")
@@ -207,3 +207,16 @@ def test_best_json_records_budget_binding_fields():
     for k in ('"hit_epoch_cap"', '"stopped_at_epoch"', '"early_stopped"',
               '"max_epochs"', '"patience"'):
         assert k in src, f"best.json must record {k}"
+
+
+def test_broken_split_root_is_refused():
+    """The original loso split has 2 distinct validation subjects and must be unusable."""
+    assert "loso" in T.BROKEN_SPLIT_ROOTS
+    with pytest.raises(SystemExit):
+        T._set_split_root("loso")
+
+
+def test_run_records_validation_file_hash():
+    src = Path(T.__file__).read_text()
+    assert '"val_file_sha256"' in src, "each run must record its validation file hash"
+    assert '"split_root"' in src and '"split_dir"' in src

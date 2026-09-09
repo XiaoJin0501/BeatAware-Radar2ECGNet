@@ -25,7 +25,11 @@ from src.data.mmecg_dataset import _gaussian_mask  # noqa: E402
 from src.utils.metrics import detect_rpeaks  # noqa: E402
 from scripts.train_anchor_head import match_counts, peaks_from_heatmap  # noqa: E402
 
-DATA = Path("/home/qhh2237/Datasets/MMECG/processed/loso")
+PROCESSED = Path("/home/qhh2237/Datasets/MMECG/processed")
+# The original `loso` split is PROTOCOL-INVALID: only 2 distinct validation subjects
+# across 11 folds (docs/MMECG_SPLIT_PROVENANCE_AUDIT.md). loso_v2 is the repaired split.
+BROKEN_SPLIT_ROOTS = {"loso"}
+DATA = PROCESSED / "loso_v2"
 FS = 200
 BUDGET = dict(epochs=80, patience=20, lr=1e-4, weight_decay=1e-4, batch_size=16, seed=42)
 LEGACY_TARGET_ARMS = ("B0",)
@@ -52,6 +56,27 @@ def set_seed(s: int):
 def _worker_init(worker_id: int):
     s = torch.initial_seed() % 2 ** 32
     np.random.seed(s); random.seed(s)
+
+
+def _set_split_root(name: str) -> None:
+    global DATA
+    if name in BROKEN_SPLIT_ROOTS:
+        raise SystemExit(
+            f"Refusing split_root='{name}': it has only 2 distinct validation subjects across 11 folds "
+            "and is marked PROTOCOL-INVALID (docs/MMECG_SPLIT_PROVENANCE_AUDIT.md). Use loso_v2.")
+    DATA = PROCESSED / name
+    if not DATA.exists():
+        raise SystemExit(f"split_root not found: {DATA}")
+
+
+def _val_sha(fold: int) -> str:
+    """Hash of the validation file, recorded per run so duplicate-validation splits
+    can never again go unnoticed."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(DATA / f"fold_{fold:02d}" / "val.h5", "rb") as fh:
+        for c in iter(lambda: fh.read(1 << 22), b""): h.update(c)
+    return h.hexdigest()
 
 
 class Fold(Dataset):
@@ -238,6 +263,7 @@ def main():
     ap.add_argument("--smoke_epochs", type=int, default=1)
     ap.add_argument("--smoke_limit", type=int, default=48)
     ap.add_argument("--overwrite", action="store_true")
+    ap.add_argument("--split_root", default="loso_v2")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
 
@@ -252,6 +278,7 @@ def main():
         raise SystemExit(f"Refusing to overwrite a completed run at {out}. Pass --overwrite to replace it.")
     (out / "checkpoints").mkdir(parents=True, exist_ok=True)
 
+    _set_split_root(a.split_root)
     seed = effective_seed(a.fold)
     set_seed(seed)
     dev = torch.device(a.device)
@@ -287,6 +314,8 @@ def main():
         "metric_space": "raw ECG units for ALL arms (per-arm inverse applied)",
         "b0_inverse_is_oracle": a.arm in LEGACY_TARGET_ARMS,
         "wsst": "full_window_samples_0_1600",
+        "split_root": a.split_root, "split_dir": str(DATA),
+        "val_file_sha256": _val_sha(a.fold),
         "code_commit": commit, "code_commit_is": "last commit touching src/scripts/tests/configs",
         "runtime_head": head,
     }, indent=2, default=str) + "\n")
