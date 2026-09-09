@@ -67,7 +67,7 @@
   ],
   "branch": "exp/rem-shape-guided-continuous-decoder",
   "spec_commit": "fea1a12ccc1e2d59c9186755431b8d4b1b218252",
-  "implementation_commit": "ad26603ec926e3ebc6104310c875778981576b55",
+  "implementation_commit": "2a5b679cff8bd29c6e93e5cd9ebf56cb454da693",
   "status": "APPROVED \u2014 budget restored to 80/20, relaunching 15 validation-only runs",
   "input_requirement": {
     "wsst_suffix": "_wsst8s.h5",
@@ -188,7 +188,8 @@
   "code_provenance": {
     "rule": "code_commit = last commit touching src/ scripts/ tests/ configs/",
     "runtime_head_also_recorded": true,
-    "supersedes": "e6aeed0 and ad26603 must NOT be recorded for these runs"
+    "supersedes": "e6aeed0 and ad26603 must NOT be recorded for these runs",
+    "executable_commit": "2a5b679cff8bd29c6e93e5cd9ebf56cb454da693"
   },
   "reporting_requirement": "On completion report, for every run: best epoch, stopped-at epoch, whether it early-stopped, whether it hit the 80-epoch cap, and the final metrics. If several runs hit the cap, flag BUDGET-BINDING and draw no model-quality conclusion from the arm contrasts."
 }
