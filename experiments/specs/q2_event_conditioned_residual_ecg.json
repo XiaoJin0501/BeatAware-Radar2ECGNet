@@ -1,0 +1,60 @@
+{
+  "experiment_id": "q2_event_conditioned_residual_ecg",
+  "concept": "Event-conditioned multi-resolution residual ECG reconstruction",
+  "thesis": "The core difficulty in continuous radar-to-ECG is that low-frequency rhythm is recoverable while local high-frequency morphology is averaged away. The model therefore decomposes the output explicitly into a rhythm backbone and an event-conditioned morphology residual, supervised at multiple resolutions.",
+
+  "category": "development (not an experiment yet)",
+  "publishable": false,
+  "status": "DESIGN REGISTERED — no implementation, no training",
+
+  "evidence_it_is_built_on": {
+    "rhythm_recoverable": "waveform-derived F1@100 0.834, F1@50 0.721",
+    "morphology_and_amplitude_not": "full-window PCC ~0.43, R2 ~0.10",
+    "output_is_smoothed": "var(pred)/var(gt) 0.544; above-10 Hz energy ratio 0.503",
+    "capacity_is_not_the_issue": "B2a and B2a-wide are within noise of B1",
+    "naive_native_rate_fusion_harms": "B2b worse on 3/3 folds, dPCC -0.102",
+    "assembly_harms": "C3 (0.26) far below C0 (0.45); anchor assembly is worse than dense output",
+    "oracle_boundaries_are_worthless": "C0 == C1 to within 0.001"
+  },
+
+  "architecture": {
+    "1_rhythm_backbone": "low-resolution WSST branch predicts rhythm and the low-frequency ECG backbone",
+    "2_residual_branch": "native-rate radar branch predicts the local high-frequency residual",
+    "3_event_gating": "event representation soft-gates the residual (never hard peak assembly)",
+    "4_fusion": "learnable LOCAL delay-aware fusion, not concatenation",
+    "5_output": "ECG = low-frequency backbone + event-conditioned residual",
+    "6_supervision": "waveform, PCC, derivative and MRSTFT terms constrain amplitude, morphology, slope and spectrum respectively"
+  },
+
+  "design_risks_to_resolve_before_implementation": {
+    "R1_branch_collapse": "If both branches are trained only through a single summed waveform loss, the network can route everything through one branch and the decomposition becomes decorative. Mitigation: supervise the backbone against an explicitly low-pass-filtered ECG, or impose a spectral bottleneck on the backbone branch. Must be decided BEFORE implementation, and the decomposition must be verified post hoc by measuring each branch's spectral content.",
+    "R2_learnable_delay_precedent": "A learnable delay has already failed once in this project: the alignment branch's delta_sys collapsed to a near-constant offset (4.1/2.7/12.6 ms, per-window spread <1 ms) and did not track the pseudo-ground-truth lag. A scalar global delay is therefore known not to work here. The fusion must use a LOCAL, time-varying mechanism (e.g. local cross-correlation alignment or deformable/warped sampling), and its learned displacement must be inspected, not assumed.",
+    "R3_ceiling_interpretation": "The oracle ceiling C2 = 0.534 is a ceiling on the CURRENT model's morphology, not on the task. It does not cap a new model. This must be stated whenever C2 is cited, or the 0.60 target will look like it exceeds a proven bound."
+  },
+
+  "gates": {
+    "gate_1_loss_ceiling": {
+      "what": "Complete L1/L2/L3 of q1_continuous_ecg_loss_ablation",
+      "purpose": "Determine how far the CURRENT architecture can go under a better objective",
+      "stop_if": "best arm PCC < ~0.55 or R2 not clearly > 0.2 -> stop tuning the loss and move to Gate 2"
+    },
+    "gate_2_overfit_then_fold1": {
+      "what": "Implement the residual architecture; first confirm it can OVERFIT a small training subset; then run fold 1 only",
+      "stop_if": "less than +0.08 PCC over B1 on fold 1 -> STOP. Do not run folds 5 and 9.",
+      "rationale": "An architecture that cannot overfit a small subset has a capacity or optimisation bug, not a research result."
+    },
+    "gate_3_three_fold": {
+      "what": "Only if fold 1 clears Gate 2, run folds 5 and 9",
+      "minimum_to_proceed_further": ["PCC >= ~0.60", "R2 clearly positive, preferably > 0.25",
+        "better than B1 on all three folds",
+        "QRS-region AND ST/T-region error improved",
+        "amplitude variance ratio and above-10 Hz energy ratio both moving toward 1",
+        "NOT carried by F1 or the composite alone"]
+    }
+  },
+
+  "explicitly_not_doing": ["beat cropping and re-assembly", "11-fold expansion before Gate 3",
+    "further mechanism audits", "narrative built on 0.01-0.02 differences"],
+
+  "paper_position": "The current honest story is a valuable but negative one: strict LOSO and raw continuous ECG expose protocol differences behind published high PCC; rhythm is recoverable but absolute continuous morphology is not. This design exists to convert that into a strong methods paper by ALSO solving the bottleneck. If the gates are not met, the negative story stands on its own and is written as such."
+}

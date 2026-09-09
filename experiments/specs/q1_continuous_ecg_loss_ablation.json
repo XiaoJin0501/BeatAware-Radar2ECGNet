@@ -2,13 +2,10 @@
   "experiment_id": "q1_continuous_ecg_loss_ablation",
   "research_question": "Is the residual local-morphology error caused by the point-wise Huber objective converging to a smeared conditional mean, and does any single auxiliary loss term correct it?",
   "hypothesis": "Registered before running. A point-wise loss on a jittered quasi-periodic signal converges to the conditional mean, producing an over-smoothed beat: correct rhythm, compressed amplitude, blunted QRS. Predicted amplitude variance and high-frequency spectral energy should therefore sit BELOW ground truth in L0, and any term that penalises smoothing (derivative, MRSTFT) should raise both toward 1.0. If the smoothing diagnostics show no deficit in L0, this hypothesis is wrong and the residual lies elsewhere.",
-
   "category": "pilot",
   "publishable": false,
   "motivation": "q1_cgd_reeval_fullsupport showed the oracle ceiling C2 is only ~0.53 with BOTH oracle boundaries and oracle per-cycle amplitude, so the residual is local morphology fidelity, not placement or scale. The loss is the one component the pilot ladder never varied.",
-
   "fixed_baseline_architecture": "B1 exactly as run in q1_continuous_ecg_b0_b2_pilot. Architecture, stem, decoder and output head are FROZEN across all loss arms; only the objective varies.",
-
   "arms": {
     "L0": "Huber + 0.20 * event BCE. This is byte-identically the existing B1 configuration; results are REUSED rather than re-run, conditional on a config equality check (see reuse_condition).",
     "L1": "L0 + lam_c * (1 - PCC)",
@@ -17,34 +14,54 @@
     "L4": "L0 + all three, RUN ONLY IF at least one single term shows a consistent benefit. Not authorised in advance."
   },
   "no_merged_arms": "L2 and L3 are separate arms and must never be combined into one, because a merged arm cannot attribute the effect to either term.",
-
   "locked_weights": {
-    "lam_c": 0.30, "lam_d": 0.10, "lam_f": 0.50, "event": 0.20,
+    "lam_c": 0.3,
+    "lam_d": 0.1,
+    "lam_f": 0.5,
+    "event": 0.2,
     "locked": "These are fixed NOW, before any run. They may not be adjusted after seeing results; a weight change makes a NEW registered experiment.",
     "basis": "Chosen so each auxiliary term contributes roughly 10-30% of total loss magnitude at initialization, measured on one batch before launch and recorded."
   },
   "reuse_condition": "L0 reuses B1 only if its config.json matches the loss-ablation config on architecture, budget, seed rule, scaler, composite, event weight and input file. Any mismatch means L0 is re-run.",
-
   "controlled_variables": "folds 1/5/9; base seed 42 with effective seed 42+fold, paired across arms; budget max_epochs 80, patience 20; AdamW lr 1e-4, wd 1e-4, batch 16; train-fold global robust scaler; _wsst8s.h5 full-window input; the same evaluator; the same frozen checkpoint composite.",
-
   "primary_readout": "NOT PCC alone. A term is judged on the joint movement of: PCC; R2; NRMSE; QRS-region MAE; ST/T-region MAE; waveform-derived F1@100ms; and the two smoothing diagnostics below.",
   "smoothing_diagnostics": {
     "amplitude_variance_ratio": "var(prediction) / var(ground truth), per window then fold-macro. Over-smoothing drives this BELOW 1.",
     "spectral_energy_ratio": "fraction of predicted spectral energy above 10 Hz, divided by the same fraction for the ground truth. Over-smoothing drives this BELOW 1.",
     "why": "These test the hypothesis directly rather than through a proxy. A term that raises PCC while leaving both ratios far below 1 has not fixed smoothing and must not be described as having done so."
   },
-
   "decision": {
     "promote_a_term": "Consistent improvement on 3/3 folds in R2 AND at least one region MAE, without degrading waveform F1, AND with the smoothing diagnostics moving toward 1.",
     "L4_gate": "L4 runs only if at least one single term meets the promote rule. Otherwise the ladder stops and the smearing hypothesis is recorded as falsified.",
     "no_claim": "Development evidence only. No manuscript claim may rest on this pilot."
   },
   "prohibitions": [
-    "No test split.", "No weight tuning after seeing results.",
+    "No test split.",
+    "No weight tuning after seeing results.",
     "No merging of L2 and L3 into a single arm.",
     "No architecture change; only the objective varies.",
     "No promotion of L4 before the single-term gate is met."
   ],
-  "runs": "L1, L2, L3 x folds 1/5/9 = 9 runs (L0 reused). L4 adds 3 only if gated in.",
-  "status": "REGISTERED, NOT LAUNCHED"
+  "runs": "L1, L2, L3 x folds 1/5/9 = 9 runs (~2.5 h). L0 reused from B1. L4 not authorised.",
+  "status": "REGISTERED, NOT LAUNCHED",
+  "prior_evidence": {
+    "measured_2026_09_09": "Diagnostic run on the EXISTING B1 checkpoints, no training: var(pred)/var(gt) = 0.521/0.290/0.820 (mean 0.544); above-10 Hz energy ratio = 0.565/0.234/0.711 (mean 0.503).",
+    "conclusion": "The output is measurably smoothed and amplitude-compressed. The smearing hypothesis is SUPPORTED before any loss arm is run, which is what justifies spending the 2.5 h.",
+    "note": "F1@50 is 0.721 (not the 0.834 of F1@100). Rhythm recovery is good at 100 ms tolerance and only fair at 50 ms; the narrative must not quote the 100 ms figure as the rhythm capability."
+  },
+  "stop_loss": {
+    "rule": "This is the LAST loss-side diagnostic. After L1/L2/L3 the ladder stops unless the gate below is met.",
+    "stop_if": [
+      "best arm PCC still below ~0.55",
+      "or R2 not clearly above 0.2"
+    ],
+    "on_stop": [
+      "stop tuning the objective",
+      "do NOT build a narrative on a 0.01-0.02 improvement",
+      "do NOT expand to 11 folds",
+      "do NOT run L4"
+    ],
+    "L4_status": "NOT authorised. Requires an explicit new decision even if a single term passes.",
+    "purpose": "Establish the ceiling of the CURRENT architecture under a better objective, so we know whether the problem was only a misconfigured loss. Publication is not the aim."
+  }
 }
