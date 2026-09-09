@@ -12,7 +12,8 @@
     "B0": "Frozen-recipe REM-Net full-window branch (sigmoid output, per-window min-max target), rebuilt on FULL-SUPPORT input. New output directory; existing checkpoints untouched.",
     "B1": "B0 with final activation sigmoid -> LINEAR and target per-window min-max -> train-fold global robust scaler. Coupled factor, declared.",
     "B2a": "B1 + dual-scale rhythm/morphology decoder, WSST ONLY. Decoder-capacity and time-scale control: isolates capacity from input bandwidth.",
-    "B2b": "B2a + native-rate rcg dual path (200 Hz, strided not interpolated). Isolates the contribution of input bandwidth over and above B2a."
+    "B2b": "B2a + native-rate rcg dual path (200 Hz, strided not interpolated). Isolates the contribution of input bandwidth over and above B2a.",
+    "B2a-wide": "Capacity control. B2a with the WSST stem's internal width raised to 243 so total parameters match B2b (1,487,551 vs 1,487,667, 0.008%); decoder/fuse/output identical to B2a. A B2b gain that does not survive B2a-wide is a capacity effect, not an information effect."
   },
   "single_factor_note": "B0->B1 couples activation and target normalization by necessity (a linear head against a [0,1] target is ill-posed). B1->B2a varies decoder only. B2a->B2b varies input path only. B2a exists so that a B2b gain cannot be misattributed to added capacity.",
   "datasets": {
@@ -66,9 +67,9 @@
     "No RQ1.tex edit until the pilot is audited."
   ],
   "branch": "exp/rem-shape-guided-continuous-decoder",
-  "spec_commit": "pending \u2014 recorded at registration",
-  "implementation_commit": "pending",
-  "status": "REGISTERED, NOT LAUNCHED \u2014 awaiting full-support WSST and preflight",
+  "spec_commit": "fea1a12ccc1e2d59c9186755431b8d4b1b218252",
+  "implementation_commit": "e6aeed09c7503390c37da950d2f8e786e0bfdad2",
+  "status": "READY TO LAUNCH \u2014 preflight PASS, 35 tests pass, five-arm smoke pass; awaiting explicit approval",
   "input_requirement": {
     "wsst_suffix": "_wsst8s.h5",
     "required_attrs": {
@@ -93,7 +94,7 @@
     "only_permitted_difference": "B2b adds a native-rate rcg input stem and widens the first fusion projection to accept it. Nothing downstream of that fusion point may differ.",
     "why": "Without this parity a B2b gain could be attributed to added decoder capacity rather than to native-rate radar information, which is the only thing the contrast is meant to test.",
     "parameter_reporting": "MANDATORY. Every arm reports total trainable parameters and a per-module breakdown. B2b additionally reports the parameter delta over B2a, split into (i) the rcg stem and (ii) the widened fusion projection.",
-    "capacity_control_trigger": "If params(B2b) - params(B2a) exceeds 15% of params(B2a), a width-matched control B2a-wide is REQUIRED before any B2b claim: B2a with its WSST stem widened to match B2b's total parameter count. A B2b gain over B2a that does not survive B2a-wide is a capacity effect, not an information effect.",
+    "capacity_control_trigger": "Superseded: B2a-wide is now a STANDING arm regardless of the trigger. Measured delta was 14.16%, only 0.84 pp under the 15% threshold, which is too thin a margin to rest an information claim on.",
     "estimated_delta": "Planned rcg stem is two strided Conv1d layers (50->128 k7 s2, 128->128 k7 s2) ~160k params, plus ~25k for the widened fusion projection: roughly 185k against a trunk on the order of 1.5M, i.e. ~12%, below the trigger. To be confirmed from the built models, not assumed."
   },
   "preflight_gate": {
@@ -130,5 +131,14 @@
     }
   },
   "open_recommendation": "B2b exceeds B2a by 14.16%, just 0.84 pp under the 15% trigger I set. The threshold is arbitrary and this margin is not comfortable. RECOMMEND running B2a-wide (WSST stem widened to B2b's parameter count) as a standing control rather than relying on the trigger not firing. Awaiting user ruling.",
-  "note_b1_to_b2a": "B2a has FEWER parameters than B0/B1 (1,303,091 vs 1,438,019). B1->B2a is therefore a structural change at reduced capacity, not a capacity increase; a B2a gain cannot be attributed to added size."
+  "note_b1_to_b2a": "B2a has FEWER parameters than B0/B1 (1,303,091 vs 1,438,019). B1->B2a is therefore a structural change at reduced capacity, not a capacity increase; a B2a gain cannot be attributed to added size.",
+  "implementation_files": [
+    "src/models/continuous/ce_net.py",
+    "scripts/train_continuous_ecg_pilot.py",
+    "scripts/preflight_continuous_ecg_pilot.py",
+    "scripts/precompute_wsst8s_mmecg.py",
+    "tests/test_continuous_ecg_pilot.py"
+  ],
+  "event_loss": "BCE-with-logits on Gaussian R (sigma 4) and QRS (sigma 16) masks, weight 0.20, IDENTICAL across all arms; not a varied factor in this pilot.",
+  "runs": "5 arms x folds 1,5,9 = 15 validation-only runs"
 }
