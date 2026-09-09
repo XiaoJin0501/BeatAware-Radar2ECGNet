@@ -68,7 +68,7 @@
   "branch": "exp/rem-shape-guided-continuous-decoder",
   "spec_commit": "fea1a12ccc1e2d59c9186755431b8d4b1b218252",
   "implementation_commit": "e6aeed09c7503390c37da950d2f8e786e0bfdad2",
-  "status": "READY TO LAUNCH \u2014 preflight PASS, 35 tests pass, five-arm smoke pass; awaiting explicit approval",
+  "status": "AWAITING RE-APPROVAL \u2014 budget 30/8, RAM preload benchmarked, preflight/tests green",
   "input_requirement": {
     "wsst_suffix": "_wsst8s.h5",
     "required_attrs": {
@@ -146,5 +146,43 @@
     "rationale": "Identical across ALL arms within a fold, so arm comparisons are paired on the same initialization and shuffling; varies across folds so the three folds are not replicates of one draw.",
     "determinism": "cudnn.deterministic=True, cudnn.benchmark=False, seeded DataLoader generator and worker_init_fn",
     "recorded_as": "effective_seed in every run config.json"
+  },
+  "budget": {
+    "max_epochs": 30,
+    "patience": 8,
+    "optimizer": "AdamW",
+    "lr": 0.0001,
+    "weight_decay": 0.0001,
+    "batch_size": 16,
+    "applies_to": "ALL arms identically. No arm may run a different budget.",
+    "changed": "2026-09-09, BEFORE any complete run result existed. Previous 80/20 was abandoned when the HDF5 input pipeline proved to be the bottleneck (~269 s/epoch at 0% GPU). The only output produced under 80/20 was a 4-epoch B0 fold-01 run, marked ABORTED/INVALID and excluded from all comparisons."
+  },
+  "input_pipeline": {
+    "mode": "RAM preload per fold",
+    "reason": "HDF5+lzf decompression saturated the DataLoader workers at 0% GPU utilisation",
+    "footprint": "~4 GiB per fold as float16 against >100 GiB available",
+    "num_workers": 0
+  },
+  "benchmark": {
+    "date": "2026-09-09",
+    "fold": 1,
+    "scope": "one full epoch at full fold size",
+    "B0": {
+      "epoch_s": 11,
+      "preload_s": 7,
+      "wall_s": 20.4,
+      "peak_rss_gib": 5.29
+    },
+    "B2b": {
+      "epoch_s": 12,
+      "preload_s": 10,
+      "wall_s": 24.1,
+      "peak_rss_gib": 6.13
+    },
+    "before_ram_preload_s_per_epoch": 269,
+    "speedup": "~24x",
+    "gpu_util": "0% -> ~51%",
+    "projection": "worst case 6.2 min/run, 1.5 h for all 15 runs (no early stop)",
+    "equivalence_check": "B0 epoch-1 composite 0.1729 under RAM preload vs 0.1730 in the aborted HDF5 run; the residual difference is RNG consumption order from num_workers 2 -> 0, so the preload did not change training semantics."
   }
 }

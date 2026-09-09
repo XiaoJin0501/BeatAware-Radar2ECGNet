@@ -174,5 +174,21 @@ def test_legacy_arm_set_is_b0_only():
 
 
 def test_budget_is_shared_and_frozen():
-    assert T.BUDGET == dict(epochs=80, patience=20, lr=1e-4, weight_decay=1e-4,
+    assert T.BUDGET == dict(epochs=30, patience=8, lr=1e-4, weight_decay=1e-4,
                             batch_size=16, seed=42)
+
+
+def test_all_arms_share_one_budget():
+    """No arm may run a different budget: the trainer reads BUDGET, never a per-arm value."""
+    src = Path(T.__file__).read_text()
+    assert 'epochs, limit, tag = BUDGET["epochs"], None, "q1_continuous_ecg_b0_b2_pilot"' in src
+    for arm in ARMS:
+        assert f'"{arm}":' not in src.split("BUDGET =")[1].split("\n")[0], "budget must not be per-arm"
+
+
+def test_input_is_ram_preloaded_not_hdf5_per_item():
+    """HDF5-per-item was the measured bottleneck (~269 s/epoch at 0% GPU)."""
+    src = Path(T.__file__).read_text()
+    assert "self.wsst = np.asarray" in src, "WSST must be preloaded into RAM"
+    assert "num_workers=0" in src, "workers are unnecessary once data is in RAM"
+    assert "_open(self)" not in src, "the lazy per-item HDF5 path must be gone"

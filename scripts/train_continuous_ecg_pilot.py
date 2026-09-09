@@ -27,7 +27,7 @@ from scripts.train_anchor_head import match_counts, peaks_from_heatmap  # noqa: 
 
 DATA = Path("/home/qhh2237/Datasets/MMECG/processed/loso")
 FS = 200
-BUDGET = dict(epochs=80, patience=20, lr=1e-4, weight_decay=1e-4, batch_size=16, seed=42)
+BUDGET = dict(epochs=30, patience=8, lr=1e-4, weight_decay=1e-4, batch_size=16, seed=42)
 LEGACY_TARGET_ARMS = ("B0",)
 COMPOSITE_W = dict(pcc=0.40, nrmse=0.25, r2=0.20, f1=0.15)
 EVENT_W = 0.20                       # fixed, IDENTICAL across arms (not an ablated factor)
@@ -55,29 +55,41 @@ def _worker_init(worker_id: int):
 
 
 class Fold(Dataset):
+    """Fold data held IN RAM.
+
+    The HDF5-backed version was the bottleneck: ~269 s/epoch at 0% GPU utilisation
+    with DataLoader workers saturated on lzf decompression. A fold is only ~4 GiB as
+    float16, against >100 GiB available, so the whole split is preloaded once and
+    indexed from memory. With no decompression per item, `num_workers=0` is correct
+    and avoids duplicating the array across forked workers.
+    """
+
     def __init__(self, fold: int, split: str, arm: str, scaler: tuple[float, float] | None, limit=None):
         assert split != "test", "test split is prohibited in this pilot"
         self.h5p = DATA / f"fold_{fold:02d}" / f"{split}.h5"
         self.wp = DATA / f"fold_{fold:02d}" / f"{split}_wsst8s.h5"
+        self.arm, self.scaler, self.needs_rcg = arm, scaler, (arm == "B2b")
         with h5py.File(self.wp, "r") as w:
             a = dict(w.attrs)
             assert a["support"] == "full_window_samples_0_1600", f"{self.wp} is not full-support"
             assert float(a["supported_fraction_of_target"]) == 1.0
             n = w["wsst"].shape[0]
-        self.n = min(limit, n) if limit else n
-        self.arm, self.scaler, self.needs_rcg = arm, scaler, (arm == "B2b")
-        self._h = self._w = None
+            self.n = min(limit, n) if limit else n
+            t0 = time.time()
+            self.wsst = np.asarray(w["wsst"][: self.n])            # float16 in RAM
+        with h5py.File(self.h5p, "r") as h:
+            self.ecg = np.asarray(h["ecg"][: self.n, 0], np.float32)
+            self.rpk = [np.sort(np.unique(np.asarray(h["rpeak_indices"][i], np.int64)))
+                        for i in range(self.n)]
+            self.rcg = (np.asarray(h["rcg"][: self.n], np.float32) if self.needs_rcg else None)
+        gib = (self.wsst.nbytes + self.ecg.nbytes + (self.rcg.nbytes if self.rcg is not None else 0)) / 2 ** 30
+        print(f"    preloaded {split} fold{fold}: {self.n} windows, {gib:.2f} GiB, {time.time()-t0:.0f}s")
 
     def __len__(self): return self.n
 
-    def _open(self):
-        if self._h is None:
-            self._h = h5py.File(self.h5p, "r"); self._w = h5py.File(self.wp, "r")
-
     def __getitem__(self, i):
-        self._open()
-        wsst = np.asarray(self._w["wsst"][i], np.float32)
-        ecg = np.asarray(self._h["ecg"][i, 0], np.float32)
+        wsst = self.wsst[i].astype(np.float32)
+        ecg = self.ecg[i]
         if self.arm in LEGACY_TARGET_ARMS:
             lo, hi = float(ecg.min()), float(ecg.max())
             y = (ecg - lo) / max(hi - lo, 1e-8)
@@ -86,7 +98,7 @@ class Fold(Dataset):
             med, iqr = self.scaler
             y = (ecg - med) / iqr
             inv = np.float32([iqr, med])                     # DEPLOYABLE inverse
-        rp = np.sort(np.unique(np.asarray(self._h["rpeak_indices"][i], np.int64)))
+        rp = self.rpk[i]
         rp = rp[(rp >= 0) & (rp < WIN)]
         ev = np.stack([_gaussian_mask(rp, WIN, R_SIGMA), _gaussian_mask(rp, WIN, QRS_SIGMA)])
         out = {"wsst": torch.from_numpy(wsst), "y": torch.from_numpy(y[None]),
@@ -95,7 +107,7 @@ class Fold(Dataset):
                "n_rpeaks": len(rp),
                "rpeaks": torch.from_numpy(np.pad(rp, (0, 40 - len(rp)), constant_values=-1)[:40])}
         if self.needs_rcg:
-            out["rcg"] = torch.from_numpy(np.asarray(self._h["rcg"][i], np.float32))
+            out["rcg"] = torch.from_numpy(self.rcg[i])
         return out
 
 
@@ -246,10 +258,9 @@ def main():
     scaler = None if a.arm in LEGACY_TARGET_ARMS else fit_scaler(a.fold)
     tr, va = Fold(a.fold, "train", a.arm, scaler, limit), Fold(a.fold, "val", a.arm, scaler, limit)
     g = torch.Generator(); g.manual_seed(seed)
-    ltr = DataLoader(tr, batch_size=BUDGET["batch_size"], shuffle=True, num_workers=2,
-                     drop_last=True, generator=g, worker_init_fn=_worker_init)
-    lva = DataLoader(va, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=2,
-                     worker_init_fn=_worker_init)
+    ltr = DataLoader(tr, batch_size=BUDGET["batch_size"], shuffle=True, num_workers=0,
+                     drop_last=True, generator=g)
+    lva = DataLoader(va, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
 
     model = CENet(a.arm).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=BUDGET["lr"], weight_decay=BUDGET["weight_decay"])
@@ -262,6 +273,8 @@ def main():
         "epochs": epochs, "limit": limit, "effective_seed": seed,
         "seed_rule": "BUDGET.seed + fold; identical across arms within a fold (paired)",
         "cudnn_deterministic": True, "split_used": ["train", "val"], "test_accessed": False,
+        "input_pipeline": "RAM-preloaded per fold (HDF5 was the bottleneck at ~269 s/epoch, 0% GPU)",
+        "num_workers": 0,
         "scaler_median_iqr": scaler, "scaler_source": "ENTIRE training fold",
         "budget": BUDGET, "params": param_report(model),
         "composite_weights": COMPOSITE_W, "event_loss_weight": EVENT_W,

@@ -11,8 +11,9 @@ from src.models.continuous.ce_net import CENet, param_report, WIN  # noqa: E402
 SPEC = json.loads((ROOT / "experiments/specs/q1_continuous_ecg_b0_b2_pilot.json").read_text())
 DATA = Path("/home/qhh2237/Datasets/MMECG/processed/loso")
 FOLDS, SPLITS, ARMS = [1, 5, 9], ["train", "val"], ["B0", "B1", "B2a", "B2a-wide", "B2b"]
-BUDGET = {"epochs": 80, "patience": 20, "optimizer": "AdamW", "lr": 1e-4,
-          "weight_decay": 1e-4, "batch_size": 16, "seed": 42}
+BUDGET = {"max_epochs": 30, "patience": 8, "optimizer": "AdamW", "lr": 1e-4,
+          "weight_decay": 1e-4, "batch_size": 16, "base_seed": 42,
+          "effective_seed": "42 + fold"}
 COMPOSITE = "S = 0.40*PCC + 0.25*(1-NRMSE_clipped) + 0.20*R2_clipped + 0.15*RpeakF1_100ms"
 fail: list[str] = []
 R: dict = {"spec": SPEC["experiment_id"], "launches_training": False}
