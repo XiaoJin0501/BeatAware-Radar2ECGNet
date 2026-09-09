@@ -1,0 +1,60 @@
+{
+  "experiment_id": "q1_cgd_reeval_fullsupport",
+  "research_question": "Does the continuous-gap mechanism conclusion -- that predicted beat boundaries, not morphology, dominate the residual error -- survive when the 4 s/8 s input-support confound is removed?",
+  "motivation": "The original C0-C5 audit ran on the 4s-crop incumbent whose event head reached only F1@100 0.10-0.54. The full-support B1/B2a models reach waveform-derived F1@100 0.83-0.86. The mechanism conclusion may therefore have been an artifact of the retired protocol.",
+
+  "category": "pilot",
+  "publishable": false,
+  "type": "evaluation only",
+
+  "prohibitions": [
+    "No training of any kind; frozen checkpoints only.",
+    "No test split is opened. Validation only.",
+    "No modification of scripts/evaluate_continuous_gap_decomposition.py -- its scoring and assembly DEFINITIONS are frozen and imported unchanged.",
+    "No comparison of any number here against the old 4s-input C0-C5 results (docs/PROTOCOL_CONFOUND_4S_INPUT.md). The two are separate result sets and must never appear in one table.",
+    "No promotion of oracle-consuming conditions as achievable performance."
+  ],
+
+  "models": {
+    "source": "experiments_mmecg/q1_continuous_ecg_b0_b2_pilot/{B1,B2a}/fold_{01,05,09}/checkpoints/best_composite.pt",
+    "selection": "already selected by the frozen full-waveform composite; not reselected here",
+    "code_commit": "2a5b679cff8bd29c6e93e5cd9ebf56cb454da693"
+  },
+  "data": {
+    "split": "validation only",
+    "folds": [1, 5, 9],
+    "input": "_wsst8s.h5, support=full_window_samples_0_1600, supported_fraction_of_target=1.0"
+  },
+
+  "PROTOCOL_DIFFERENCE_FROM_ORIGINAL_AUDIT": {
+    "issue": "The original audit drew each beat morphology from a DEDICATED shape-200 head. B1/B2a have no shape head; CENet returns only the full-window waveform and the event logits.",
+    "resolution": "Morphology is CROP-DERIVED: the model's own full-window output is cropped at the centre cycle and resampled to 200 points, i.e. the same crop path used elsewhere in this project for head-less comparators.",
+    "consequence": "C1-C5 here measure a DIFFERENT quantity from C1-C5 in the original audit. Cross-audit numerical comparison is FORBIDDEN. Only the qualitative question -- does the boundary contrast remain large? -- carries across.",
+    "what_is_frozen": "All scoring and assembly definitions are imported unchanged from scripts/evaluate_continuous_gap_decomposition.py: _metrics, _resample, _affine_fit, _global_cycles, _centre_cycle, _assemble_record. Only model loading and the source of the morphology differ."
+  },
+
+  "conditions": {
+    "C0": {"boundaries": "none (dense full-window decoder output)", "amplitude": "fixed affine, TRAIN-fold fitted", "oracle_information": "NONE", "role": "reference floor, deployable"},
+    "C1": {"boundaries": "reference R-peaks (GT)", "amplitude": "fixed affine, TRAIN-fold fitted", "oracle_information": "beat boundaries", "role": "boundary-oracle condition"},
+    "C2": {"boundaries": "reference R-peaks (GT)", "amplitude": "ORACLE per-cycle affine fitted against the true ECG", "oracle_information": "beat boundaries AND per-cycle gain/offset", "role": "upper bound, never achievable"},
+    "C3": {"boundaries": "predicted, from the event-head R mask", "amplitude": "fixed affine, TRAIN-fold fitted", "oracle_information": "window set selection only (see below)", "role": "paired counterfactual against C1"},
+    "C4": {"boundaries": "predicted, from the event-head R mask", "amplitude": "ORACLE per-cycle affine", "oracle_information": "per-cycle gain/offset, plus window set selection", "role": "isolates amplitude under predicted boundaries"},
+    "C5": {"boundaries": "predicted, iterated over predicted cycles directly", "amplitude": "fixed affine, TRAIN-fold fitted", "oracle_information": "NONE", "role": "DESCRIPTIVE autonomous deployment behaviour, native coverage only, never differenced against C0-C4"}
+  },
+  "residual_oracle_in_C3_C4": "C1-C4 share an identical contributing-window set chosen using reference cycles. That is deliberate: it makes C1 vs C3 vary only the boundary source. It also means C3/C4 are NOT autonomous pipelines; C5 is the only autonomous figure.",
+
+  "scoring": {
+    "target": "the ORIGINAL ECG in native amplitude. _shape200_targets and normalize_01 must never touch the ground truth.",
+    "metrics": ["PCC", "RMSE", "NRMSE", "MAE"],
+    "nrmse": "RMSE divided by the peak-to-peak range of the original ECG over the sample set being scored",
+    "coverage": "EVERY figure carries native coverage AND common support. Cross-arm comparison is computed on the common support of C0-C4 only; C5 is reported on its own native coverage.",
+    "no_manufactured_coverage": "GT cycles with no genuine centre-cycle prediction stay uncovered and are never filled."
+  },
+  "aggregation": "per record, then fold mean, then fold-macro mean +/- sd over folds 1/5/9, reported per arm and per model (B1, B2a). Folds are never pooled into a single headline number.",
+
+  "contrast_framing": "Pairwise contrasts on common support. NOT an additive decomposition; non-orthogonal and interacting. Phrases of the form 'X accounts for N of the gap' are forbidden. The C1-vs-C3 contrast is a BOUNDARY LOCALIZATION/WARPING contrast, since predicted bounds change both position and duration.",
+
+  "decision": "Diagnostic only. Outcome determines whether the manuscript's continuous-gap section is rewritten, retained, or further bounded. No model claim may rest on it.",
+  "isolation": "Outputs are written to experiments_mmecg/q1_cgd_reeval_fullsupport/, entirely separate from q1_continuous_gap_decomposition_audit/.",
+  "status": "REGISTERED"
+}
