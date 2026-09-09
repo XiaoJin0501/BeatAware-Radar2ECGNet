@@ -124,7 +124,9 @@ def run(arm, fold, dev, epochs):
     net = (T1Net() if arm == "T1" else T0bNet()).to(dev)
     opt = torch.optim.AdamW(net.parameters(), lr=BUDGET["lr"], weight_decay=BUDGET["wd"])
     best, bad, bstate, bstats = -1, 0, None, None
+    ep_times = []
     for ep in range(1, epochs+1):
+        _t_ep = time.time()
         net.train()
         for b in ltr:
             loss = F.binary_cross_entropy_with_logits(net(b["x"].to(dev)), b["y"].to(dev))
@@ -134,28 +136,42 @@ def run(arm, fold, dev, epochs):
             for b in lva:
                 L.append(net(b["x"].to(dev)).cpu().numpy()[:, 0]); I += b["idx"].tolist()
         st = peak_stats(np.concatenate(L), va.rpk, I)
+        ep_times.append(time.time()-_t_ep)
+        if ep <= 3 or ep % 10 == 0:
+            print(f"      {arm} fold{fold} ep{ep:3d}: F1@50 {st['f1_50']:.3f}  "
+                  f"[{ep_times[-1]:.1f}s/epoch]", flush=True)
         if st["f1_50"] > best:
             best, bad = st["f1_50"], 0
             bstats = dict(st, epoch=ep); bstate = {k: v.cpu() for k, v in net.state_dict().items()}
         else:
             bad += 1
             if bad >= BUDGET["patience"]: break
-    return bstats, va.sid, sum(p.numel() for p in net.parameters())
+    return bstats, va.sid, sum(p.numel() for p in net.parameters()), float(np.mean(ep_times)), len(ep_times)
 
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--epochs", type=int, default=BUDGET["epochs"])
+    ap.add_argument("--smoke", action="store_true",
+                    help="reduced run; ALWAYS writes to the _smoke tree, never the formal one")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args(); dev = torch.device(a.device)
     res = defaultdict(dict)
     for arm in ("T0b", "T1"):
         for fold in (1, 5, 9):
-            t0 = time.time(); st, sid, npar = run(arm, fold, dev, a.epochs)
-            res[arm][f"S{sid}"] = dict(st, params=npar)
+            t0 = time.time(); st, sid, npar, s_ep, n_ep = run(arm, fold, dev, a.epochs)
+            res[arm][f"S{sid}"] = dict(st, params=npar, sec_per_epoch=s_ep, epochs_run=n_ep)
             print(f"  {arm} fold{fold} S{sid}: F1@50 {st['f1_50']:.3f} F1@25 {st['f1_25']:.3f} "
-                  f"signed {st['signed_median']:+.1f}ms MAE {st['mae']:.1f}ms ({time.time()-t0:.0f}s)")
-    out = ROOT/"experiments_mmecg/q1_timing_identifiability_gate"; out.mkdir(parents=True, exist_ok=True)
-    (out/"results.json").write_text(json.dumps(res, indent=2)+"\n")
+                  f"signed {st['signed_median']:+.1f}ms MAE {st['mae']:.1f}ms | "
+                  f"{n_ep} epochs, {s_ep:.1f}s/epoch, RUN TOTAL {time.time()-t0:.0f}s")
+    n_done = sum(len(v) for v in res.values())
+    smoke = a.smoke or a.epochs < BUDGET["epochs"] or n_done < 6
+    tag = "q1_timing_identifiability_gate" + ("_smoke" if smoke else "")
+    out = ROOT/"experiments_mmecg"/tag; out.mkdir(parents=True, exist_ok=True)
+    name = "results.json" if not smoke else f"results_partial_{n_done}of6_{a.epochs}ep.json"
+    (out/name).write_text(json.dumps(res, indent=2)+"\n")
+    if smoke:
+        print(f"\n  [SMOKE/PARTIAL] {n_done}/6 runs, {a.epochs} epochs -> {out/name}")
+        print("  The formal directory is untouched; this is NOT a gate result.")
     print("\n" + "="*74)
     print(f"{'subj':>6}{'arm':>6}{'F1@25':>8}{'F1@50':>8}{'F1@100':>8}{'signed':>9}{'MAE':>8}{'IQR':>8}{'fail':>7}")
     for s in res["T1"]:
