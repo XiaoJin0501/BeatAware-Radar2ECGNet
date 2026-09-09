@@ -67,8 +67,8 @@
   ],
   "branch": "exp/rem-shape-guided-continuous-decoder",
   "spec_commit": "fea1a12ccc1e2d59c9186755431b8d4b1b218252",
-  "implementation_commit": "e6aeed09c7503390c37da950d2f8e786e0bfdad2",
-  "status": "AWAITING RE-APPROVAL \u2014 budget 30/8, RAM preload benchmarked, preflight/tests green",
+  "implementation_commit": "ad26603ec926e3ebc6104310c875778981576b55",
+  "status": "APPROVED \u2014 launching 15 validation-only runs",
   "input_requirement": {
     "wsst_suffix": "_wsst8s.h5",
     "required_attrs": {
@@ -184,5 +184,11 @@
     "gpu_util": "0% -> ~51%",
     "projection": "worst case 6.2 min/run, 1.5 h for all 15 runs (no early stop)",
     "equivalence_check": "B0 epoch-1 composite 0.1729 under RAM preload vs 0.1730 in the aborted HDF5 run; the residual difference is RNG consumption order from num_workers 2 -> 0, so the preload did not change training semantics."
-  }
+  },
+  "code_provenance": {
+    "executable_commit": "ad26603ec926e3ebc6104310c875778981576b55",
+    "note": "Runs stamp code_commit = git HEAD at runtime, which is d4feea1e0e5990c298af0c38606626027feb64b9 \u2014 the CSV-only registry correction that follows ad26603. `git diff --quiet ad26603 HEAD -- src/ scripts/ tests/ configs/` is clean, so the executable tree the runs use IS ad26603's. Editing the trainer to emit the literal ad26603 would change the trainer and thereby stop ad26603 from being the code state, so both hashes are recorded instead.",
+    "verify": "git diff --quiet ad26603 <code_commit> -- src/ scripts/ tests/ configs/"
+  },
+  "reporting_requirement": "On completion, report best epoch for every run. If several runs hit best_epoch = 30 (the cap), flag the pilot as BUDGET-BINDING and draw no model-quality conclusion from the arm contrasts: a capped run has not demonstrated convergence and its composite is a lower bound."
 }
