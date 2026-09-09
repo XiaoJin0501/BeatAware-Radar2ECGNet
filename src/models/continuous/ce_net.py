@@ -20,12 +20,16 @@ LATENT_T = 400
 class WSSTStem(nn.Module):
     """(B, R, 71, T) -> (B, C, LATENT_T). Frequency is pooled; time is preserved."""
 
-    def __init__(self, in_bins: int = 50, width: int = 128, dropout: float = 0.1):
+    def __init__(self, in_bins: int = 50, width: int = 128, dropout: float = 0.1,
+                 hidden: int | None = None):
+        """`hidden` widens the internal channel count only; the OUTPUT stays `width`
+        so that everything downstream is bit-identical. Used by B2a-wide."""
         super().__init__()
+        hidden = width if hidden is None else hidden
         self.net = nn.Sequential(
-            nn.Conv2d(in_bins, width, 3, padding=1, bias=False), nn.BatchNorm2d(width), nn.GELU(),
+            nn.Conv2d(in_bins, hidden, 3, padding=1, bias=False), nn.BatchNorm2d(hidden), nn.GELU(),
             nn.MaxPool2d((2, 1)),
-            nn.Conv2d(width, width, 3, padding=1, bias=False), nn.BatchNorm2d(width), nn.GELU(),
+            nn.Conv2d(hidden, width, 3, padding=1, bias=False), nn.BatchNorm2d(width), nn.GELU(),
             nn.Dropout2d(dropout),
         )
         self.freq_pool = nn.AdaptiveAvgPool2d((1, None))
@@ -117,15 +121,19 @@ class LegacyDecoder(nn.Module):
 
 
 class CENet(nn.Module):
-    """arm in {B0, B1, B2a, B2b}."""
+    """arm in {B0, B1, B2a, B2a-wide, B2b}."""
 
     def __init__(self, arm: str, in_bins: int = 50, width: int = 128, dropout: float = 0.1):
         super().__init__()
-        if arm not in ("B0", "B1", "B2a", "B2b"):
+        if arm not in ("B0", "B1", "B2a", "B2a-wide", "B2b"):
             raise ValueError(arm)
         self.arm = arm
         self.uses_rcg = arm == "B2b"
-        self.wsst_stem = WSSTStem(in_bins, width, dropout)
+        # B2a-wide: capacity control. WSST stem widened so total params match B2b,
+        # while decoder/fuse/output stay identical to B2a. A B2b gain over B2a that
+        # does not survive B2a-wide is a capacity effect, not an information effect.
+        stem_hidden = 243 if arm == "B2a-wide" else None
+        self.wsst_stem = WSSTStem(in_bins, width, dropout, hidden=stem_hidden)
         if arm in ("B0", "B1"):
             self.decoder = LegacyDecoder(width, sigmoid=(arm == "B0"))
             self.fuse = None
