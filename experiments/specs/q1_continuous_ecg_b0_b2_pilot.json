@@ -35,7 +35,6 @@
     "prohibited": "Selection on Shape-200 PCC, on any test-split quantity, or on any metric not listed here."
   },
   "controlled_variables": "Architecture (except the declared output change), encoder, TCN, event head and its loss weight, optimizer, learning rate, batch size, 80-epoch cap, patience 20, seed 42, preprocessing, windowing, folds, and the evaluator.",
-  "seed": 42,
   "metrics": [
     "waveform PCC",
     "RMSE",
@@ -140,5 +139,12 @@
     "tests/test_continuous_ecg_pilot.py"
   ],
   "event_loss": "BCE-with-logits on Gaussian R (sigma 4) and QRS (sigma 16) masks, weight 0.20, IDENTICAL across all arms; not a varied factor in this pilot.",
-  "runs": "5 arms x folds 1,5,9 = 15 validation-only runs"
+  "runs": "5 arms x folds 1,5,9 = 15 validation-only runs",
+  "seed_policy": {
+    "base_seed": 42,
+    "effective_seed": "42 + fold  (fold 1 -> 43, fold 5 -> 47, fold 9 -> 51)",
+    "rationale": "Identical across ALL arms within a fold, so arm comparisons are paired on the same initialization and shuffling; varies across folds so the three folds are not replicates of one draw.",
+    "determinism": "cudnn.deterministic=True, cudnn.benchmark=False, seeded DataLoader generator and worker_init_fn",
+    "recorded_as": "effective_seed in every run config.json"
+  }
 }
