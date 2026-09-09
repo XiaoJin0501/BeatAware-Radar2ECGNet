@@ -1,0 +1,7 @@
+fold,split,shape,base_n,support,hop,sha,src
+1,train,"(1665, 50, 71, 240)",1665,full_window_samples_0_1600,33.333333333333336,2e1382e20d861faf6db9ae53ddef8963c151b8590359ac3da08602974d3cd302,/home/qhh2237/Datasets/MMECG/processed/loso_v2/fold_01/train.h5
+1,val,"(170, 50, 71, 240)",170,full_window_samples_0_1600,33.333333333333336,3144a0488afc5642d3f8263191fca3dc292d0319fd98c144e0bbd49ff7a3476d,/home/qhh2237/Datasets/MMECG/processed/loso_v2/fold_01/val.h5
+5,train,"(1644, 50, 71, 240)",1644,full_window_samples_0_1600,33.333333333333336,542170929bd93ec2676a5a23936894b043a390d29de76ca62c51c529e2cb8809,/home/qhh2237/Datasets/MMECG/processed/loso_v2/fold_05/train.h5
+5,val,"(510, 50, 71, 240)",510,full_window_samples_0_1600,33.333333333333336,afae7f385d1e0f12e40955d86995cb25cc2650ca99f9dd19a4e037a5d849bcf9,/home/qhh2237/Datasets/MMECG/processed/loso_v2/fold_05/val.h5
+9,train,"(1309, 50, 71, 240)",1309,full_window_samples_0_1600,33.333333333333336,8cf99dda57ae91ce83766c18bf8595bc1f53c2aceff1e37190be905c8af641ae,/home/qhh2237/Datasets/MMECG/processed/loso_v2/fold_09/train.h5
+9,val,"(1955, 50, 71, 240)",1955,full_window_samples_0_1600,33.333333333333336,f8124c4c2e0b1be91d2008af895b37244fb47f80e660d1d1c7a46b02cce4f597,/home/qhh2237/Datasets/MMECG/processed/loso_v2/fold_09/val.h5
