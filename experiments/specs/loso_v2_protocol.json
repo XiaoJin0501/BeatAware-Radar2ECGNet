@@ -1,0 +1,51 @@
+{
+  "protocol_id": "mmecg_loso_v2",
+  "status": "FROZEN 2026-09-09, before materialization",
+  "supersedes": "/home/qhh2237/Datasets/MMECG/processed/loso — 2 distinct validation subjects across 11 folds (docs/MMECG_SPLIT_PROVENANCE_AUDIT.md)",
+  "output_root": "/home/qhh2237/Datasets/MMECG/processed/loso_v2",
+  "never_overwrites": "The existing processed/loso tree is left untouched. loso_v2 is a new directory.",
+
+  "subjects": [1, 2, 5, 9, 10, 13, 14, 16, 17, 29, 30],
+  "n_subjects": 11,
+  "n_folds": 11,
+  "assignment_rule": "For fold i (1-indexed) over the sorted subject list S: test = S[i-1], val = S[i mod 11], train = the remaining 9.",
+  "manifest": "/home/qhh2237/Datasets/MMECG/processed/loso_v2_manifest/loso_v2_split_manifest.csv",
+
+  "FROZEN_INVARIANTS": {
+    "I1_subject_disjoint": "In every fold, train, val and test subject sets are pairwise disjoint.",
+    "I2_test_once": "Each of the 11 subjects is the TEST subject in exactly one fold.",
+    "I3_val_once": "Each of the 11 subjects is the VALIDATION subject in exactly one fold.",
+    "I4_pairs_unique": "All 11 (test, val) pairs are distinct.",
+    "enforcement": "All four are asserted by preflight BEFORE materialization and re-asserted by audit AFTER base-H5 generation. A failure aborts; nothing is silently degraded."
+  },
+
+  "materialization_order": [
+    "1. Freeze this protocol (done).",
+    "2. Delete ONLY the files listed in docs/WSST4S_DELETION_MANIFEST.csv, by explicit path, to free space.",
+    "3. Generate base H5 (train/val/test per fold) into loso_v2.",
+    "4. AUDIT the base H5: subject inventory, record IDs, window counts, and SHA256 per file; re-assert I1-I4; confirm no two folds share a validation file hash.",
+    "5. Only after the audit passes, generate _wsst8s.h5 for all 11 folds.",
+    "6. Re-run B1 on folds 1/5/9 only, to establish the repaired baseline and confirm three distinct validation subjects."
+  ],
+
+  "post_materialization_audit": {
+    "subject": "per fold, the subject sets of train/val/test, checked against I1-I4",
+    "record": "record IDs per split; no record ID may appear in two splits of the same fold",
+    "window": "window counts per split; total windows across the three splits equals the source total for that fold",
+    "hash": "SHA256 of every generated file; the 11 validation files must have 11 DISTINCT hashes (the exact failure mode of the old split)"
+  },
+
+  "after_rebuild": {
+    "immediate": "Re-run B1 on folds 1/5/9 ONLY. Purpose is a repaired baseline and confirmation of three unique validation subjects.",
+    "not_authorised_yet": ["loss ablation (Gate 1)", "B0/B2a/B2a-wide/B2b re-run", "C0-C5 re-evaluation", "any 11-fold aggregate claim"],
+    "old_results": "All conclusions from the old split remain blocked or protocol-invalid regardless of what the rebuild shows."
+  },
+
+  "wsst4s_deletion": {
+    "rationale": "Superseded generated artifacts, fully rebuildable from source by scripts/precompute_wsst4s_mmecg.py from the base H5.",
+    "evidence_unused": "0 of 311 run-configs reference _wsst4s; 217 carry wsst_suffix=_wsst.h5 and 94 omit it.",
+    "caveat": "Seven scripts still name _wsst4s as a selectable suffix and would fail at runtime if that data is requested; reproducing any run that used it requires regeneration first.",
+    "safety": "Deletion is by explicit path from a SHA256 manifest. No recursive or glob deletion.",
+    "class": "superseded, rebuildable-from-source"
+  }
+}
