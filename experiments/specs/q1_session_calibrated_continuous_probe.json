@@ -1,0 +1,27 @@
+{
+  "experiment_id": "q1_session_calibrated_continuous_probe",
+  "tier": "probe",
+  "publishable": false,
+  "research_question": "Does a short reference ECG at the start of each monitoring session calibrate the record-varying timing and amplitude of continuous radar-to-ECG reconstruction?",
+  "motivation": "The preregistered one-record subject calibration failed on 2/3 subjects, showing that one fixed subject constant does not transfer across records. This separate probe tests session calibration rather than changing that failed result.",
+  "dataset": "MMECG loso_v2 validation subjects, folds 1/5/9",
+  "frozen_model": "q1_continuous_ecg_b1_lososv2_baseline/B1 validation-best continuous checkpoint",
+  "output": "Full-window continuous ECG, 1600 samples at 200 Hz",
+  "calibration_protocol": {
+    "budget": "first 20 seconds of every record",
+    "calibration_windows": "only windows whose end_idx <= 4000",
+    "query_windows": "only windows whose start_idx >= 4000",
+    "guard": "no calibration and query window shares an ECG or radar sample",
+    "inference": "one lag and affine map are stored per session; query receives radar plus those stored constants"
+  },
+  "arms": ["zero_shot", "affine", "lag", "lag_affine"],
+  "lag_search": "integer samples in [-40,40] selected on calibration prefix only",
+  "metrics": "query-only per-window full-1600 PCC/RMSE/MAE/R2; subject/fold summaries retain record-level counts",
+  "shape200": "not computed and not used",
+  "checkpoint_selection": "none; frozen validation-best checkpoint",
+  "gate": {
+    "required": "lag_affine improves all 3 subjects, mean delta PCC >= 0.15, and at least 80% of records improve",
+    "on_pass": "authorise learned calibration-conditioned REM-Net",
+    "on_fail": "calibration alone is not a sufficient main method"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "experiment_id": "q1_calibrated_continuous_probe",
+  "tier": "probe",
+  "publishable": false,
+  "research_question": "Can one held-out-subject reference record provide a deployable fixed timing/amplitude calibration that materially improves continuous 8-second ECG reconstruction on disjoint records?",
+  "purpose": "Establish whether calibration guidance is a viable route before implementing a learned REM-Net calibration module.",
+  "dataset": "MMECG loso_v2 validation subjects on development folds 1/5/9",
+  "frozen_model": "q1_continuous_ecg_b1_lososv2_baseline/B1 validation-best continuous checkpoint",
+  "output": "Full-window continuous ECG, 1600 samples at 200 Hz",
+  "calibration_protocol": {
+    "budget": "one complete record (85 overlapping windows, approximately 42 seconds)",
+    "selection": "lexicographically first record_id, fixed before metrics",
+    "query": "all other record_ids from the same held-out validation subject",
+    "disjointness": "calibration and query are record-disjoint; no query ECG is used to estimate calibration",
+    "inference": "estimate one subject-level lag and one affine map from calibration ECG; store them; query inference consumes radar plus stored constants only"
+  },
+  "arms": {
+    "zero_shot": "frozen continuous prediction",
+    "affine": "subject-level scale and offset only",
+    "lag": "subject-level integer lag only",
+    "lag_affine": "subject-level lag followed by scale and offset"
+  },
+  "lag_search": "integer samples in [-40,40] (plus/minus 200 ms), selected by calibration-record pooled PCC",
+  "metrics": "query-only per-window PCC/RMSE/MAE/R2, then fold macro; full 1600 samples with edge replication after shifting",
+  "checkpoint_selection": "none; frozen validation-best checkpoint; no model or checkpoint reselection",
+  "shape200": "not computed and not used",
+  "gate": {
+    "required": "lag_affine improves PCC on 3/3 validation subjects and mean delta PCC >= 0.15",
+    "on_pass": "authorise a learned calibration-conditioned REM-Net pilot",
+    "on_fail": "do not build a large calibration architecture; reassess the calibration signal and budget"
+  },
+  "limitations": [
+    "Development-fold validation probe only, not final-test evidence.",
+    "Fold 1 has only two records, leaving one query record; uncertainty must be reported.",
+    "The calibration protocol is not zero-shot LOSO and must always be labelled calibrated subject-independent evaluation."
+  ]
+}
