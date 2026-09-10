@@ -1,0 +1,34 @@
+{
+  "experiment_id": "q1_calibration_conditioned_rem_pilot",
+  "tier": "pilot",
+  "publishable": false,
+  "status": "IMPLEMENTATION — formal training not yet launched",
+  "research_question": "Can REM-Net learn a session calibration token that improves continuous ECG beyond conventional lag+affine calibration, and do Event and Morphology interact positively?",
+  "input_protocol": "MMECG loso_v2; each source-training and held-out validation record uses its first 20 seconds as paired calibration and sample-disjoint remainder as query",
+  "primary_output": "continuous ECG [B,1,1600] at 200 Hz",
+  "frozen_backbone": "B1 full-support continuous checkpoint for the corresponding fold",
+  "architecture": {
+    "R": "frozen radar-to-continuous-ECG backbone and its event logits",
+    "M": "calibration encoder over paired baseline prediction, reference ECG, and reference derivative; record-mean session token",
+    "E": "predicted R/QRS event field gates the continuous residual",
+    "interaction": "the morphology token FiLM-modulates residual blocks before event gating",
+    "output": "baseline continuous ECG plus identity-initialized residual"
+  },
+  "factorial_arms": {
+    "neither": "zero calibration token and unit event gate",
+    "event_only": "zero calibration token with event gate",
+    "morphology_only": "calibration token with unit event gate",
+    "full": "calibration token with event gate",
+    "conventional": "non-learned session lag+affine control from q1_session_calibrated_continuous_probe"
+  },
+  "parity": "all four learned arms have identical parameters, training records, budget, loss, decoder, and checkpoint rule; switches mask information/pathways without deleting parameters",
+  "checkpoint_selection": "validation query-only continuous composite; Shape-200 excluded",
+  "metrics": ["full-window PCC", "RMSE", "MAE", "R2", "R-F1@25/50/100ms", "QRS-region MAE", "ST/T-region MAE", "variance ratio", "above-10Hz energy ratio"],
+  "gate": {
+    "stage_0": "small source-record overfit must reduce continuous loss and produce nonzero residual",
+    "stage_1": "fold 1 full arm must exceed conventional calibration PCC by >=0.05 without worsening RMSE and R2",
+    "stage_2": "only then run folds 5/9 factorial; full improves all folds, mean gain over conventional >=0.05, E×M interaction positive"
+  },
+  "shape200": "auxiliary reporting may be added later but is forbidden from loss, checkpoint selection, gate, and headline table",
+  "test_policy": "development validation only; MMECG test files remain unopened"
+}
