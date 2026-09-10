@@ -60,6 +60,7 @@ def main() -> None:
         args.fold, cfg.loso_h5_dir, batch_size=cfg.batch_size,
         num_workers=cfg.num_workers, balanced_sampling=False,
         target_norm=cfg.target_norm, wsst_suffix=cfg.wsst_suffix,
+        load_test=False,
     )
     device = torch.device(args.device)
     model = build_mmecg_model(cfg).to(device)

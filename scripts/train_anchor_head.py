@@ -125,7 +125,7 @@ def main() -> None:
         fold_idx=args.fold_idx, loso_dir=loso_dir, batch_size=args.batch_size,
         num_workers=cfg.num_workers, balanced_sampling=cfg.balanced_sampling,
         balance_by=args.balance_by, target_norm=cfg.target_norm, wsst_suffix=args.wsst_suffix,
-        rpeak_sigma=args.rpeak_sigma,
+        rpeak_sigma=args.rpeak_sigma, load_test=False,
     )
 
     model = AnchorHeatmapNet(in_channels=cfg.n_range_bins, hidden=cfg.baseline_hidden,

@@ -685,7 +685,8 @@ def build_loso_wsst_loaders_h5(
     target_norm: str = "minmax",
     wsst_suffix: str = "_wsst.h5",
     rpeak_sigma: float = RPEAK_SIGMA_DEFAULT,
-) -> tuple[DataLoader, DataLoader, DataLoader]:
+    load_test: bool = True,
+) -> tuple[DataLoader, DataLoader, DataLoader | None]:
     """LOSO loaders using cached WSST/time-frequency tensors.
 
     Expected files under each fold directory:
@@ -714,10 +715,12 @@ def build_loso_wsst_loaders_h5(
         fold_dir / "val.h5", wsst_for("val"),
         include_peak_indices=False, target_norm=target_norm, rpeak_sigma=rpeak_sigma,
     )
-    test_ds = MMECGWindowedWSSTH5Dataset(
-        fold_dir / "test.h5", wsst_for("test"),
-        include_peak_indices=True, target_norm=target_norm, rpeak_sigma=rpeak_sigma,
-    )
+    test_ds = None
+    if load_test:
+        test_ds = MMECGWindowedWSSTH5Dataset(
+            fold_dir / "test.h5", wsst_for("test"),
+            include_peak_indices=True, target_norm=target_norm, rpeak_sigma=rpeak_sigma,
+        )
 
     sampler = _make_sampler(train_ds, balanced_sampling, balance_by)
     if sampler is not None:
@@ -735,11 +738,13 @@ def build_loso_wsst_loaders_h5(
         val_ds, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=pin_memory,
     )
-    test_loader = DataLoader(
-        test_ds, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=pin_memory,
-        collate_fn=_collate_with_peaks,
-    )
+    test_loader = None
+    if test_ds is not None:
+        test_loader = DataLoader(
+            test_ds, batch_size=batch_size, shuffle=False,
+            num_workers=num_workers, pin_memory=pin_memory,
+            collate_fn=_collate_with_peaks,
+        )
     return train_loader, val_loader, test_loader
 
 

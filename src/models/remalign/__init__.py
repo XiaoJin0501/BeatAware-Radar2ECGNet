@@ -9,6 +9,8 @@ from .rem_align_net import (
     REMAlignMTLRefineNet,
     REMAlignNet,
     REMEventNet,
+    REMPhaseMTLNet,
+    SoftCardiacPhaseCanonicalizer,
 )
 
 __all__ = [
@@ -17,6 +19,8 @@ __all__ = [
     "REMAlignMTLNet",
     "REMAlignMTLRefineNet",
     "REMAlignHybridMTLNet",
+    "REMPhaseMTLNet",
+    "SoftCardiacPhaseCanonicalizer",
     "AnchorHeatmapNet",
     "AnchorHeatmapRcgNet",
     "AnchorHeatmapFusionNet",

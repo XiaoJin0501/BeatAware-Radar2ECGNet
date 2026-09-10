@@ -39,6 +39,8 @@ SUPPORTED_ARCHES = {
     "rem_align_hybrid_mtl",
     "rem_align_hybrid",
     "remalign_hybrid_mtl",
+    "rem_phase_mtl",
+    "remnet_phase_mtl",
 }
 
 

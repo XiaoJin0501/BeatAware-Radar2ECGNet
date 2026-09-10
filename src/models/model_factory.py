@@ -9,6 +9,7 @@ from src.models.remalign import (
     REMAlignMTLRefineNet,
     REMAlignNet,
     REMEventNet,
+    REMPhaseMTLNet,
 )
 
 
@@ -96,6 +97,16 @@ def build_mmecg_model(cfg):
             hidden=getattr(cfg, "baseline_hidden", 128),
             dropout=getattr(cfg, "dropout", 0.1),
             max_delay=getattr(cfg, "align_max_delay", 8.0),
+        )
+
+    if arch in ("rem_phase_mtl", "remnet_phase_mtl"):
+        return REMPhaseMTLNet(
+            in_channels=getattr(cfg, "n_range_bins", 50),
+            hidden=getattr(cfg, "baseline_hidden", 128),
+            dropout=getattr(cfg, "dropout", 0.1),
+            use_phase_canonicalizer=getattr(cfg, "use_phase_canonicalizer", True),
+            use_event_conditioning=getattr(cfg, "use_event_conditioning", True),
+            phase_temperature=getattr(cfg, "phase_temperature", 0.10),
         )
 
     try:

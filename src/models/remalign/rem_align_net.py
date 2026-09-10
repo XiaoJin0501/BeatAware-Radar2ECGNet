@@ -310,6 +310,184 @@ class REMAlignMTLNet(nn.Module):
         return ecg, (r_mask, qrs_mask, delay)
 
 
+class SoftCardiacPhaseCanonicalizer(nn.Module):
+    """Resample latent features between two predicted R anchors.
+
+    The centre-cycle Shape-200 target removes absolute duration but the legacy
+    head simply interpolates the entire eight-second latent sequence to 200
+    points.  This module makes the Event-to-Morphology connection explicit:
+    two differentiable soft-argmax anchors define a deployable R-to-R phase
+    coordinate and the latent representation is sampled on that coordinate.
+    Ground-truth ECG or cycle bounds are never consumed by ``forward``.
+    """
+
+    def __init__(self, temperature: float = 0.10, phase_points: int = 200) -> None:
+        super().__init__()
+        if temperature <= 0:
+            raise ValueError("temperature must be positive")
+        if phase_points < 2:
+            raise ValueError("phase_points must be at least two")
+        self.temperature = float(temperature)
+        self.phase_points = int(phase_points)
+
+    def _soft_anchor(self, mask: torch.Tensor, start: int, end: int) -> torch.Tensor:
+        segment = mask[..., start:end].clamp(1e-5, 1.0 - 1e-5)
+        logits = torch.logit(segment) / self.temperature
+        weights = torch.softmax(logits, dim=-1)
+        index = torch.arange(start, end, device=mask.device, dtype=mask.dtype)
+        return (weights * index.view(1, 1, -1)).sum(dim=-1)
+
+    def forward(
+        self,
+        h: torch.Tensor,
+        r_mask: torch.Tensor,
+        qrs_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if h.ndim != 3 or r_mask.ndim != 3 or qrs_mask.ndim != 3:
+            raise ValueError("canonicalizer expects [B,C,T] tensors")
+        if r_mask.shape[0] != h.shape[0] or qrs_mask.shape != r_mask.shape:
+            raise ValueError("event masks must share batch and temporal shape")
+
+        event_len = r_mask.shape[-1]
+        midpoint = event_len // 2
+        left = self._soft_anchor(r_mask, 0, midpoint)
+        right = self._soft_anchor(r_mask, midpoint, event_len)
+        phase = torch.linspace(
+            0.0, 1.0, self.phase_points, device=h.device, dtype=h.dtype,
+        ).view(1, 1, -1)
+        event_index = left.unsqueeze(-1) + phase * (right - left).unsqueeze(-1)
+
+        # grid_sample uses [-1, 1] along the temporal axis.  One grid is reused
+        # for the latent and event fields so their phase coordinates match.
+        event_x = 2.0 * event_index / float(max(event_len - 1, 1)) - 1.0
+        latent_index = event_index * float(max(h.shape[-1] - 1, 1)) / float(max(event_len - 1, 1))
+        latent_x = 2.0 * latent_index / float(max(h.shape[-1] - 1, 1)) - 1.0
+
+        def sample(signal: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+            y = torch.zeros_like(x)
+            grid = torch.stack([x.squeeze(1), y.squeeze(1)], dim=-1).unsqueeze(1)
+            return F.grid_sample(
+                signal.unsqueeze(2), grid, mode="bilinear",
+                padding_mode="border", align_corners=True,
+            ).squeeze(2)
+
+        canonical_h = sample(h, latent_x)
+        canonical_events = sample(torch.cat([r_mask, qrs_mask], dim=1), event_x)
+        bounds = torch.cat([left, right], dim=1)
+        return canonical_h, canonical_events, bounds
+
+
+class PhaseStructuredMorphologyDecoder(nn.Module):
+    """Decode morphology from canonical features plus an explicit phase field."""
+
+    def __init__(self, hidden: int = 128, dropout: float = 0.1) -> None:
+        super().__init__()
+        # Six Fourier phase coordinates and two event fields are projected into
+        # the same latent width before residual temporal decoding.
+        self.condition = nn.Sequential(
+            nn.Conv1d(8, hidden, kernel_size=1, bias=False),
+            nn.BatchNorm1d(hidden),
+            nn.GELU(),
+        )
+        self.gate = nn.Sequential(
+            nn.Conv1d(hidden * 2, hidden, kernel_size=1),
+            nn.Sigmoid(),
+        )
+        self.decoder = nn.Sequential(
+            _ResidualTCNBlock(hidden, dilation=1, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=2, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=4, dropout=dropout),
+            nn.Conv1d(hidden, hidden // 2, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden // 2),
+            nn.GELU(),
+            nn.Conv1d(hidden // 2, 1, kernel_size=1),
+        )
+
+    def forward(self, h: torch.Tensor, events: torch.Tensor) -> torch.Tensor:
+        if h.shape[-1] != 200 or events.shape != (h.shape[0], 2, 200):
+            raise ValueError("phase decoder expects h=[B,C,200], events=[B,2,200]")
+        phase = torch.linspace(0.0, 1.0, 200, device=h.device, dtype=h.dtype)
+        fourier = torch.stack(
+            [fn(2.0 * torch.pi * k * phase) for k in (1, 2, 3) for fn in (torch.sin, torch.cos)],
+            dim=0,
+        ).unsqueeze(0).expand(h.shape[0], -1, -1)
+        condition = self.condition(torch.cat([fourier, events], dim=1))
+        fused = h + self.gate(torch.cat([h, condition], dim=1)) * condition
+        return torch.sigmoid(self.decoder(fused))
+
+
+class REMPhaseMTLNet(nn.Module):
+    """REM-Net with explicit Representation–Event–Morphology interaction.
+
+    ``use_phase_canonicalizer`` and ``use_event_conditioning`` support the
+    registered 2x2 interaction experiment without changing parameter count.
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 50,
+        hidden: int = 128,
+        dropout: float = 0.1,
+        use_phase_canonicalizer: bool = True,
+        use_event_conditioning: bool = True,
+        phase_temperature: float = 0.10,
+    ) -> None:
+        super().__init__()
+        self.use_phase_canonicalizer = bool(use_phase_canonicalizer)
+        self.use_event_conditioning = bool(use_event_conditioning)
+        self.encoder = WSSTEncoder(in_channels=in_channels, hidden=hidden, dropout=dropout)
+        self.event_head = EventStructureHead(hidden=hidden)
+        self.event_proj = nn.Sequential(
+            nn.Conv1d(2, hidden, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden),
+            nn.GELU(),
+        )
+        self.canonicalizer = SoftCardiacPhaseCanonicalizer(temperature=phase_temperature)
+        self.tcn = nn.Sequential(
+            _ResidualTCNBlock(hidden, dilation=1, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=2, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=4, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=8, dropout=dropout),
+            _ResidualTCNBlock(hidden, dilation=16, dropout=dropout),
+        )
+        self.full_decoder = nn.Sequential(
+            nn.Conv1d(hidden, hidden // 2, kernel_size=7, padding=3, bias=False),
+            nn.BatchNorm1d(hidden // 2),
+            nn.GELU(),
+            nn.Conv1d(hidden // 2, 1, kernel_size=1),
+        )
+        self.morphology_decoder = PhaseStructuredMorphologyDecoder(hidden=hidden, dropout=dropout)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+        h = self.encoder(x)
+        r_mask, qrs_mask = self.event_head(h)
+        event_low = F.interpolate(
+            torch.cat([r_mask, qrs_mask], dim=1), size=h.shape[-1],
+            mode="linear", align_corners=False,
+        )
+        h = self.tcn(h + self.event_proj(event_low))
+
+        full_h = F.interpolate(h, size=1600, mode="linear", align_corners=False)
+        ecg = torch.sigmoid(self.full_decoder(full_h))
+
+        if self.use_phase_canonicalizer:
+            shape_h, phase_events, bounds = self.canonicalizer(h, r_mask, qrs_mask)
+        else:
+            shape_h = F.interpolate(h, size=200, mode="linear", align_corners=False)
+            phase_events = F.interpolate(
+                torch.cat([r_mask, qrs_mask], dim=1), size=200,
+                mode="linear", align_corners=False,
+            )
+            bounds = h.new_tensor([0.0, 1599.0]).view(1, 2).expand(h.shape[0], -1)
+        if not self.use_event_conditioning:
+            phase_events = torch.zeros_like(phase_events)
+
+        ecg.shape200_pred = self.morphology_decoder(shape_h, phase_events)
+        ecg.phase_bounds = bounds
+        ecg.phase_events = phase_events
+        return ecg, (r_mask, qrs_mask, bounds)
+
+
 class REMAlignMTLRefineNet(nn.Module):
     """REM-AlignNet-MTL with morphology-guided residual full-ECG refinement."""
 

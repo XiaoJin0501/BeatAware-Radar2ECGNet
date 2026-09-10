@@ -1,0 +1,86 @@
+{
+  "experiment_id": "q1_remnet_phase_interaction_gate",
+  "tier": "pilot",
+  "publishable": false,
+  "paper_model_name": "REM-Net",
+  "research_question": "Does an explicit Representation-Event-Morphology interaction improve subject-independent beat morphology beyond a conventional global temporal decoder?",
+  "hypothesis": "A deployable event-derived R-to-R phase coordinate and event-conditioned morphology decoder are complementary: the full interaction should outperform either factor alone, not merely add parameters.",
+  "dataset": {
+    "name": "MMECG public",
+    "split_root": "/home/qhh2237/Datasets/MMECG/processed/loso_v2",
+    "development_folds": [1, 5, 9],
+    "validation_subjects": [2, 13, 29],
+    "input": "train/val _wsst8s.h5; test files remain unopened",
+    "target": "centre-cycle, amplitude-normalized Shape-200 beat morphology",
+    "target_scope_guard": "This gate supports beat-morphology claims only, not continuous ECG claims."
+  },
+  "architecture": {
+    "R": "multi-scale WSST representation encoder",
+    "E": "supervised R/QRS event field",
+    "M": "phase-structured morphology decoder",
+    "interaction": "two soft R anchors define a differentiable R-to-R phase grid; representation and event fields are sampled on the same grid before morphology decoding",
+    "inference_guard": "The canonicalizer consumes predicted event fields only; no ECG, cycle_bounds, validation labels, or subject calibration are inputs."
+  },
+  "arms": [
+    {
+      "arm": "I0",
+      "model_arch": "rem_align_mtl",
+      "role": "locked incumbent REM-Net reference",
+      "use_alignment": false,
+      "beta_peak": 0.3
+    },
+    {
+      "arm": "F00",
+      "model_arch": "rem_phase_mtl",
+      "role": "matched structured decoder; neither event pathway nor phase canonicalization",
+      "use_phase_canonicalizer": false,
+      "use_event_conditioning": false,
+      "beta_peak": 0.0
+    },
+    {
+      "arm": "F10",
+      "model_arch": "rem_phase_mtl",
+      "role": "event pathway with conventional whole-window interpolation",
+      "use_phase_canonicalizer": false,
+      "use_event_conditioning": true,
+      "beta_peak": 0.3
+    },
+    {
+      "arm": "F01",
+      "model_arch": "rem_phase_mtl",
+      "role": "phase canonicalization with morphology-driven latent event field but no event supervision/conditioning",
+      "use_phase_canonicalizer": true,
+      "use_event_conditioning": false,
+      "beta_peak": 0.0
+    },
+    {
+      "arm": "F11",
+      "model_arch": "rem_phase_mtl",
+      "role": "full REM interaction: supervised event field plus canonicalization plus event-conditioned decoder",
+      "use_phase_canonicalizer": true,
+      "use_event_conditioning": true,
+      "beta_peak": 0.3
+    }
+  ],
+  "controlled_variables": {
+    "training": "80 epochs maximum, patience 20, AdamW, lr 1e-4, weight decay 1e-4, batch 16",
+    "seed": "base 42; effective seed 42 + fold; paired across arms within fold",
+    "loss": "same full-output reconstruction and Shape-200 loss; lambda_shape200 0.8 and PCC weight 0.5",
+    "capacity": "F00/F10/F01/F11 instantiate byte-identical parameter sets; switches change computation but not trainable parameter count",
+    "checkpoint": "best_shape200.pt selected using validation Shape-200 PCC only",
+    "evaluation": "validation-only during this gate; fold-macro reporting; test split never opened"
+  },
+  "primary_metrics": ["Shape-200 PCC", "Shape-200 RMSE", "Shape-200 MAE", "Shape-200 R2"],
+  "secondary_metrics": ["event-head R-F1@50/100/150ms", "valid-cycle coverage", "parameter count", "latency"],
+  "interaction_test": "For each fold and metric, compute (F11-F10)-(F01-F00). Report all fold values and their fold-macro mean; do not infer synergy from F11 alone.",
+  "promotion_gate": [
+    "F11 improves Shape-200 PCC over both F10 and F01 on at least 2 of 3 folds",
+    "fold-macro F11 PCC exceeds max(F10,F01) by at least 0.02",
+    "fold-macro interaction contrast is positive for PCC and does not hide a worse RMSE",
+    "F11 event F1@50ms is not worse than F10 by more than 0.02",
+    "no arm uses test data, oracle anchors, or per-subject calibration"
+  ],
+  "next_if_pass": "Freeze F11, generate corrected loso_v2 4-second WSST caches for all 11 folds, run 11-fold MMECG plus at least three seeds for headline comparisons, then mirror on CR_RVS.",
+  "next_if_fail": "Do not expand this architecture. Retain the incumbent and redesign the morphology mechanism from the failed factor/interaction pattern.",
+  "status": "approved; implemented; unit-tested; awaiting clean commit and pilot launch"
+}

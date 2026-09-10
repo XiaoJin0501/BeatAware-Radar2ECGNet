@@ -87,6 +87,12 @@ class MMECGConfig:
     align_space           : str   = "latent"  # "latent" | "output"
     use_alignment         : bool  = True       # G5: toggle REM-Net alignment module
 
+    # REM-Net cardiac-phase interaction model. These switches form a registered
+    # 2x2 event-conditioning x phase-canonicalization experiment.
+    use_phase_canonicalizer: bool = True
+    use_event_conditioning  : bool = True
+    phase_temperature       : float = 0.10
+
     def __repr__(self):
         lines = [f"{self.__class__.__name__}:"]
         for k, v in self.__class__.__dict__.items():

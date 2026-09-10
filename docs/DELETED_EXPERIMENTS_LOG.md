@@ -31,6 +31,42 @@ experiments_mmecg/mmecg_unet1d_fewshot40v10_baseline
 experiments_mmecg/mmecg_wavegru_fewshot40v10_baseline
 ```
 
+### 2026-09-10 method-development cleanup
+
+The following generated outputs were removed before starting the next REM-Net
+method-development stage. They were smoke checks or explicitly quarantined,
+truncated runs and were never eligible for scientific comparison. Their specs,
+registry records, audit notes, and source code remain tracked.
+
+```text
+experiments_mmecg/q1_cgd_smoke
+experiments_mmecg/q1_continuous_ecg_b0_b2_pilot/ABORTED_INVALID_B0_fold01_11epochs_budget30
+experiments_mmecg/q1_continuous_ecg_b0_b2_pilot/ABORTED_INVALID_B0_fold01_4epochs
+experiments_mmecg/q1_continuous_ecg_b0_b2_pilot_smoke
+experiments_mmecg/q1_morphology_consistency_overfit_smoke_20260908
+experiments_mmecg/q1_morphology_consistency_smoke_20260908
+experiments_mmecg/q1_timing_identifiability_gate_smoke
+```
+
+The six old-protocol full-support WSST caches below were also removed. They
+were generated from the superseded `processed/loso` manifest whose repeated
+validation assignment makes cross-fold model selection protocol-invalid. The
+source H5 files, generator, experiment records, and corrected `loso_v2` caches
+are retained, so these derived files can be regenerated if an audit requires
+them.
+
+```text
+/home/qhh2237/Datasets/MMECG/processed/loso/fold_01/train_wsst8s.h5
+/home/qhh2237/Datasets/MMECG/processed/loso/fold_01/val_wsst8s.h5
+/home/qhh2237/Datasets/MMECG/processed/loso/fold_05/train_wsst8s.h5
+/home/qhh2237/Datasets/MMECG/processed/loso/fold_05/val_wsst8s.h5
+/home/qhh2237/Datasets/MMECG/processed/loso/fold_09/train_wsst8s.h5
+/home/qhh2237/Datasets/MMECG/processed/loso/fold_09/val_wsst8s.h5
+```
+
+Recorded size before deletion: 10,691,865,349 bytes for the six WSST caches
+and approximately 40 MiB for the seven result directories.
+
 ## Deleted Script Directories
 
 ```text

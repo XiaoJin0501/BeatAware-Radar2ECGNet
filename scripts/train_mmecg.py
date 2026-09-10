@@ -73,6 +73,7 @@ def _uses_wsst_loader(model_arch: str) -> bool:
         "rem_align_mtl", "remalign_mtl", "remalign_net_mtl",
         "rem_align_mtl_refine", "remalign_mtl_refine", "remalign_net_mtl_refine",
         "rem_align_hybrid_mtl", "rem_align_hybrid", "remalign_hybrid_mtl",
+        "rem_phase_mtl", "remnet_phase_mtl",
     }
 
 
@@ -625,7 +626,8 @@ def main():
                                  "rem_align_mtl_refine", "remalign_mtl_refine",
                                  "remalign_net_mtl_refine",
                                  "rem_align_hybrid_mtl", "rem_align_hybrid",
-                                 "remalign_hybrid_mtl"],
+                                 "remalign_hybrid_mtl", "rem_phase_mtl",
+                                 "remnet_phase_mtl"],
                         help="Runnable model architecture. Frozen legacy baseline outputs remain in experiments_mmecg but are not current training entry points.")
     parser.add_argument("--baseline_hidden", type=int, default=None,
                         help="Hidden channels for simple baseline models.")
@@ -690,6 +692,14 @@ def main():
     parser.add_argument("--use_alignment",
                         type=lambda x: x.lower() != "false", default=None,
                         help="G5: enable REM-Net event-conditioned alignment module (rem_align_mtl).")
+    parser.add_argument("--use_phase_canonicalizer",
+                        type=lambda x: x.lower() != "false", default=None,
+                        help="REM-Net: resample morphology features on predicted R-to-R phase.")
+    parser.add_argument("--use_event_conditioning",
+                        type=lambda x: x.lower() != "false", default=None,
+                        help="REM-Net: condition the morphology decoder on canonical event fields.")
+    parser.add_argument("--phase_temperature", type=float, default=None,
+                        help="Soft-argmax temperature for cardiac-phase anchors.")
     parser.add_argument("--seed", type=int, default=42,
                         help="Base training seed; per-fold seed = seed + fold (G1 multi-seed).")
     parser.add_argument("--topk_bins", type=int, default=None,
@@ -782,6 +792,14 @@ def main():
     if args.delta_residual_eps_ms is not None: cfg.delta_residual_eps_ms = args.delta_residual_eps_ms
     if args.align_space       is not None: cfg.align_space       = args.align_space
     if args.use_alignment     is not None: cfg.use_alignment     = args.use_alignment
+    if args.use_phase_canonicalizer is not None:
+        cfg.use_phase_canonicalizer = args.use_phase_canonicalizer
+    if args.use_event_conditioning is not None:
+        cfg.use_event_conditioning = args.use_event_conditioning
+    if args.phase_temperature is not None:
+        if not math.isfinite(args.phase_temperature) or args.phase_temperature <= 0:
+            raise ValueError("phase_temperature must be finite and positive")
+        cfg.phase_temperature = args.phase_temperature
     if args.fmcw_selector     is not None: cfg.fmcw_selector     = args.fmcw_selector
     if args.fmcw_topk         is not None: cfg.fmcw_topk         = args.fmcw_topk
     if args.fmcw_out_channels is not None: cfg.fmcw_out_channels = args.fmcw_out_channels
@@ -877,6 +895,7 @@ def main():
                     train_loader, val_loader, _ = build_loso_wsst_loaders_h5(
                         fold_idx=fold,
                         loso_dir=cfg.loso_h5_dir,
+                        load_test=False,
                         **wsst_loader_kwargs,
                     )
                 else:
