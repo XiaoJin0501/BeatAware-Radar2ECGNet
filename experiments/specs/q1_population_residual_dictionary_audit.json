@@ -1,0 +1,21 @@
+{
+  "experiment_id": "q1_population_residual_dictionary_audit",
+  "tier": "pilot",
+  "publishable": false,
+  "status": "REGISTERED",
+  "question": "Can a training-subject population dictionary express held-out continuous-ECG residual morphology, and can frozen radar-derived outputs select its coefficients?",
+  "protocol": "MMECG loso_v2 folds 5/9 development validation; frozen repaired B1; no held-out calibration; test unopened",
+  "dictionary": "PCA rank 32 fitted only to train-window raw-ECG residuals (ground truth minus frozen B1 prediction), each 1600 samples",
+  "arms": {
+    "B1": "frozen zero-shot continuous baseline",
+    "mean": "B1 plus training-population mean residual",
+    "oracle_pca32": "B1 plus validation residual projected onto the train PCA basis; diagnostic upper bound using validation ECG",
+    "radar_ridge_pca32": "B1 plus PCA coefficients predicted by fixed ridge(alpha=1) from frozen B1 prediction and event outputs pooled to 100 time bins"
+  },
+  "feature_rule": "300 radar-derived features: mean-pooled 100-bin B1 waveform plus two event-logit channels; train standardization; train-only feature PCA rank 64; closed-form ridge alpha 1",
+  "metrics": ["full-window PCC", "RMSE", "MAE", "R2"],
+  "gate": "oracle_pca32 PCC >=0.75 on both folds; radar_ridge beats mean and B1 PCC on both folds; radar_ridge fold-macro PCC gain over B1 >=0.08 and R2 improves on both",
+  "failure_rule": "If either representability or radar accessibility fails, do not implement a deep population-dictionary generator from this evidence",
+  "shape200": "not computed",
+  "test_policy": "validation only; test files remain unopened"
+}
