@@ -23,6 +23,8 @@
   },
   "parity": "all four learned arms have identical parameters, training records, budget, loss, decoder, and checkpoint rule; switches mask information/pathways without deleting parameters",
   "checkpoint_selection": "validation query-only continuous composite; Shape-200 excluded",
+  "training_loss": "Huber + 0.30*(1-PCC) + 0.10*derivative-L1, computed only on sample-disjoint query windows",
+  "budget": "80 epochs, patience 20, AdamW lr=1e-4 weight_decay=1e-4, batch 16, effective seed=42+fold",
   "metrics": ["full-window PCC", "RMSE", "MAE", "R2", "R-F1@25/50/100ms", "QRS-region MAE", "ST/T-region MAE", "variance ratio", "above-10Hz energy ratio"],
   "gate": {
     "stage_0": "small source-record overfit must reduce continuous loss and produce nonzero residual",
