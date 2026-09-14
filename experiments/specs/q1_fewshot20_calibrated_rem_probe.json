@@ -1,0 +1,19 @@
+{
+  "experiment_id": "q1_fewshot20_calibrated_rem_probe",
+  "tier": "probe",
+  "publishable": false,
+  "status": "REGISTERED",
+  "question": "Does supervised adaptation on the chronological first 20% of each held-out session materially improve continuous ECG on its disjoint final 80%?",
+  "protocol_label": "subject-calibrated few-shot; not strict zero-shot LOSO",
+  "split": "MMECG loso_v2 development validation folds 1/5/9; test unopened",
+  "calibration": "per record, windows ending at or before 20% of record duration",
+  "query": "same record, windows starting at or after the 20% boundary; no source-sample overlap with calibration",
+  "initialization": "source-trained fold-matched calibration-guided REM full-arm checkpoint",
+  "adaptation": "adapter parameters only; frozen B1 backbone; exactly 100 AdamW steps at lr=1e-4 on calibration windows; no query-based early stopping or selection",
+  "controls": ["conventional 20% lag+affine", "source-trained REM without target optimization", "20%-adapted REM"],
+  "primary_metric": "full-window query PCC, per window then fold aggregated",
+  "secondary_metrics": ["RMSE", "MAE", "R2", "R-F1@50/100ms"],
+  "gate": "on fold 1, adapted REM exceeds conventional PCC by >=0.05 and source-trained REM by >=0.03 without worsening RMSE or R2",
+  "shape200": "not computed",
+  "test_policy": "validation only; test files remain unopened"
+}
