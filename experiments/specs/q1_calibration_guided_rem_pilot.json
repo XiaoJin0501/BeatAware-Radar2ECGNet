@@ -1,0 +1,31 @@
+{
+  "experiment_id": "q1_calibration_guided_rem_pilot",
+  "tier": "pilot",
+  "publishable": false,
+  "status": "IMPLEMENTATION",
+  "paper_role": "Decisive feasibility gate for calibration-guided continuous REM-Net; not a replacement for final 11-fold evidence",
+  "hypothesis": "Once a deployable session lag+affine calibration removes the low-dimensional timing/scale nuisance, Event and Morphology conditioning can interact to recover continuous ECG morphology beyond that strong conventional control.",
+  "protocol": "MMECG loso_v2 development validation folds 1/5/9; first 20 seconds of every record are paired radar/reference-ECG calibration; query windows start at or after 20 seconds and share no source samples with calibration",
+  "primary_output": "continuous ECG [B,1,1600] at 200 Hz",
+  "frontend": "For each record, fit lag and affine parameters on its calibration prefix only; apply them to frozen B1 predictions and shift its event logits by the same lag. No query ECG enters calibration.",
+  "identity_control": "The residual output layer is zero initialized, so epoch 0 is byte-equivalent to conventional lag+affine and is eligible for checkpoint selection.",
+  "factorial_arms": {
+    "conventional": "lag+affine frontend with zero residual",
+    "neither": "trained parameter-matched residual with zero morphology token and unit event gate",
+    "event_only": "trained residual with aligned event gate and zero morphology token",
+    "morphology_only": "trained residual with calibration morphology token and unit event gate",
+    "full": "morphology-token FiLM residual modulated by the aligned event gate"
+  },
+  "parity": "All four learned arms use identical parameters, data, frontend, loss, budget, seed, decoder and checkpoint rule; pathway switches mask information without removing parameters.",
+  "training_loss": "Huber + 0.30*(1-PCC) + 0.10*derivative-L1 on query windows only",
+  "budget": "80 epochs, patience 20, AdamW lr=1e-4 weight_decay=1e-4, batch 16, effective seed=42+fold",
+  "checkpoint_selection": "validation query-only continuous composite; epoch 0 conventional identity included; Shape-200 excluded",
+  "metrics": ["full-window PCC", "RMSE", "MAE", "R2", "R-F1@25/50/100ms", "QRS-region MAE", "ST/T-region MAE", "variance ratio", "above-10Hz energy ratio"],
+  "gate": {
+    "stage_1": "fold 1 full arm improves PCC over its epoch-0 conventional identity by >=0.05, with RMSE no higher and R2 no lower",
+    "stage_2": "only after stage_1, run all four learned arms on folds 1/5/9; full improves all subjects, fold-macro gain over conventional >=0.05, and E-by-M interaction is positive",
+    "stage_3": "only after stage_2, design final 11-fold and CR_RVS experiments"
+  },
+  "test_policy": "development validation only; MMECG test files remain unopened",
+  "shape200": "not computed, not used in loss, selection, gate or headline"
+}

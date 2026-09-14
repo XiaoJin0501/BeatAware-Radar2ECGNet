@@ -23,6 +23,7 @@ from scripts.train_continuous_ecg_pilot import waveform_metrics, timing_metrics,
 DATA = Path("/home/qhh2237/Datasets/MMECG/processed/loso_v2")
 BASE = ROOT / "experiments_mmecg/q1_continuous_ecg_b1_lososv2_baseline/B1"
 OUT = ROOT / "experiments_mmecg/q1_calibration_conditioned_rem_pilot"
+GUIDED_OUT = ROOT / "experiments_mmecg/q1_calibration_guided_rem_pilot"
 FS, CUTOFF, EPOCHS, PATIENCE, BATCH = 200, 4000, 80, 20, 16
 ARMS = {
     "neither": (False, False), "event_only": (True, False),
@@ -91,6 +92,42 @@ def record_groups(data: dict) -> list[tuple[str, np.ndarray, np.ndarray]]:
     return groups
 
 
+def _shift_edge(x: torch.Tensor, lag: int) -> torch.Tensor:
+    if lag == 0: return x.clone()
+    out = torch.empty_like(x)
+    if lag > 0:
+        out[..., lag:] = x[..., :-lag]; out[..., :lag] = x[..., :1]
+    else:
+        k = -lag; out[..., :-k] = x[..., k:]; out[..., -k:] = x[..., -1:]
+    return out
+
+
+def apply_lag_affine_frontend(data: dict, groups) -> list[dict]:
+    """Fit deployable per-record calibration and transform prediction/events."""
+    audit = []
+    for rec, cal, qry in groups:
+        pred, gt = data["pred"][cal, 0].numpy(), data["gt"][cal, 0].numpy()
+        scores = []
+        for lag in range(-40, 41):
+            shifted = _shift_edge(torch.from_numpy(pred), lag).numpy()
+            x, y = shifted.reshape(-1), gt.reshape(-1)
+            xc, yc = x - x.mean(), y - y.mean()
+            scores.append((float(np.dot(xc, yc) / max(np.sqrt(np.dot(xc, xc) * np.dot(yc, yc)), 1e-12)), lag))
+        lag = max(scores, key=lambda z: (z[0], -abs(z[1])))[1]
+        own = np.concatenate([cal, qry])
+        shifted = _shift_edge(data["pred"][own], lag)
+        shifted_cal = _shift_edge(data["pred"][cal], lag).numpy().reshape(-1)
+        target_cal = data["gt"][cal].numpy().reshape(-1)
+        vx = float(np.var(shifted_cal))
+        scale = float(np.mean((shifted_cal - shifted_cal.mean()) * (target_cal - target_cal.mean())) / vx) if vx > 1e-12 else 1.0
+        offset = float(target_cal.mean() - scale * shifted_cal.mean())
+        data["pred"][own] = shifted * scale + offset
+        data["event"][own] = _shift_edge(data["event"][own], lag)
+        audit.append({"record": rec, "lag_samples": lag, "scale": scale, "offset": offset,
+                      "n_calibration": len(cal), "n_query": len(qry)})
+    return audit
+
+
 def forward_record(model, data, cal, qry, device, train: bool):
     cp, cg = data["pred"][cal].to(device), data["gt"][cal].to(device)
     order = np.random.permutation(qry) if train else qry
@@ -119,30 +156,43 @@ def main() -> None:
     ap.add_argument("--arm", choices=ARMS, required=True)
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--overwrite", action="store_true")
+    ap.add_argument("--frontend", choices=["identity", "lag_affine"], default="identity")
     args = ap.parse_args()
     if not torch.cuda.is_available(): raise SystemExit("CUDA is required")
     seed = 42 + args.fold; seed_all(seed); device = torch.device("cuda")
     epochs, patience = (2, 2) if args.smoke else (EPOCHS, PATIENCE)
-    tag = "_smoke" if args.smoke else args.arm
-    out = OUT / tag / f"fold_{args.fold:02d}"
+    root = GUIDED_OUT if args.frontend == "lag_affine" else OUT
+    tag = f"_smoke_{args.arm}" if args.smoke else args.arm
+    out = root / tag / f"fold_{args.fold:02d}"
     if (out / "best.json").exists() and not args.overwrite: raise SystemExit(f"Refusing overwrite: {out}")
     (out / "checkpoints").mkdir(parents=True, exist_ok=True)
     print("Precomputing frozen B1 train/validation outputs...", flush=True)
     train, val = freeze_predictions(args.fold, "train", device), freeze_predictions(args.fold, "val", device)
     tg, vg = record_groups(train), record_groups(val)
+    frontend_audit = {"train": [], "val": []}
+    if args.frontend == "lag_affine":
+        frontend_audit = {"train": apply_lag_affine_frontend(train, tg),
+                          "val": apply_lag_affine_frontend(val, vg)}
     use_event, use_morph = ARMS[args.arm]
     model = CalibrationConditionedREM(use_event=use_event, use_morphology=use_morph).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    config = {"experiment_id": "q1_calibration_conditioned_rem_pilot", "tier": "smoke" if args.smoke else "pilot",
+    experiment_id = "q1_calibration_guided_rem_pilot" if args.frontend == "lag_affine" else "q1_calibration_conditioned_rem_pilot"
+    config = {"experiment_id": experiment_id, "tier": "smoke" if args.smoke else "pilot",
               "arm": args.arm, "fold": args.fold, "seed": seed, "epochs": epochs, "patience": patience,
               "calibration_seconds": 20, "split": "loso_v2", "test_accessed": False,
               "train_records": len(tg), "val_records": len(vg), "code_commit": commit,
               "val_sha256": sha256(DATA / f"fold_{args.fold:02d}/val.h5"),
               "loss": "Huber + 0.30*(1-PCC) + 0.10*derivative-L1",
-              "selection": "validation query-only continuous composite; Shape-200 absent"}
+              "selection": "validation query-only continuous composite; epoch-0 identity eligible; Shape-200 absent"}
+    config["frontend"] = args.frontend; config["frontend_audit"] = frontend_audit
     (out / "config.json").write_text(json.dumps(config, indent=2) + "\n")
-    best, best_ep, bad, hist = -1e9, 0, 0, []
+    initial = evaluate(model, val, vg, device)
+    hist = [{"epoch": 0, "train_loss": None, **initial}]
+    best, best_ep, bad = initial["composite"], 0, 0
+    torch.save({"model_state_dict": model.state_dict(), "epoch": 0}, out / "checkpoints/best_composite.pt")
+    print(f"ep=00 IDENTITY PCC={initial['pcc']:.4f} RMSE={initial['rmse']:.4f} "
+          f"R2={initial['r2']:+.4f} S={initial['composite']:.4f}", flush=True)
     for ep in range(1, epochs + 1):
         model.train(); total = batches = 0; t0 = time.time()
         random.shuffle(tg)
@@ -162,8 +212,8 @@ def main() -> None:
             bad += 1
             if bad >= patience: break
     (out / "history.json").write_text(json.dumps(hist, indent=2) + "\n")
-    result = {"best_epoch": best_ep, "stopped_at_epoch": len(hist), "best_composite": best,
-              "metrics": hist[best_ep - 1], "early_stopped": len(hist) < epochs,
+    result = {"best_epoch": best_ep, "stopped_at_epoch": len(hist) - 1, "best_composite": best,
+              "metrics": hist[best_ep], "identity_metrics": hist[0], "early_stopped": len(hist) - 1 < epochs,
               "shape200_computed": False}
     (out / "best.json").write_text(json.dumps(result, indent=2) + "\n")
     print("DONE " + json.dumps(result), flush=True)
