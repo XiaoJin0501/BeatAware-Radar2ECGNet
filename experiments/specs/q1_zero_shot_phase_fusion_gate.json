@@ -1,0 +1,21 @@
+{
+  "experiment_id": "q1_zero_shot_phase_fusion_gate",
+  "tier": "pilot",
+  "publishable": false,
+  "status": "REGISTERED",
+  "paper_role": "Zero-shot REM-Net representation gate; calibration experiments remain supplementary only",
+  "hypothesis": "Signed native-rate RCG is useful only when treated as a standardized phase residual conditioned on stable WSST context; naive fusion lets subject-specific phase dominate and does not generalize.",
+  "protocol": "MMECG loso_v2 folds 5/9, train and validation only, held-out ECG used only for validation metrics, no calibration, test unopened",
+  "arms": {
+    "P0-naive": "WSST semantic stream plus per-window/per-bin standardized signed RCG residual, with unit fusion gate",
+    "P1-gated": "parameter-identical streams and decoder; WSST-RCG interaction predicts the phase-residual gate"
+  },
+  "parity": "P0 and P1 instantiate identical parameters, optimizer, loss, budget, seed, preprocessing, decoder, checkpoint rule and evaluator; only the forward use of the already-instantiated gate differs",
+  "output": "continuous ECG [B,1,1600] at 200 Hz under train-fold robust scaling",
+  "budget": "80 epochs, patience 20, AdamW lr=1e-4 weight_decay=1e-4, batch 16, effective seed=42+fold",
+  "checkpoint": "validation-only continuous composite; Shape-200 excluded",
+  "gate": "P1 exceeds P0 and repaired B1 on both folds 5 and 9; fold-macro PCC gain over B1 >=0.10; R2 also improves on both folds",
+  "failure_rule": "If the gate fails, terminate phase-fusion scaling and move to population morphology/event formulation without a broader fusion sweep",
+  "shape200": "not computed or selected",
+  "test_policy": "test files remain unopened"
+}

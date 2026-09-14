@@ -93,7 +93,8 @@ class Fold(Dataset):
         assert split != "test", "test split is prohibited in this pilot"
         self.h5p = DATA / f"fold_{fold:02d}" / f"{split}.h5"
         self.wp = DATA / f"fold_{fold:02d}" / f"{split}_wsst8s.h5"
-        self.arm, self.scaler, self.needs_rcg = arm, scaler, (arm == "B2b")
+        self.arm, self.scaler = arm, scaler
+        self.needs_rcg = arm in ("B2b", "P0-naive", "P1-gated")
         with h5py.File(self.wp, "r") as w:
             a = dict(w.attrs)
             assert a["support"] == "full_window_samples_0_1600", f"{self.wp} is not full-support"
@@ -233,7 +234,7 @@ def composite(m: dict) -> float:
 
 
 @torch.no_grad()
-def evaluate(model, loader, dev) -> dict:
+def evaluate(model, loader, dev, compute_shape200: bool = True) -> dict:
     """All arms scored in RAW ECG units via each arm's own inverse, so metrics are
     comparable. B0's inverse is ORACLE (its target is defined by GT min/max)."""
     model.eval(); P, G, EV, RP = [], [], [], []
@@ -250,14 +251,16 @@ def evaluate(model, loader, dev) -> dict:
     m = waveform_metrics(P, G)
     m.update(timing_metrics(P, EV, RP))
     m.update(region_errors(P, G, RP))
-    m["shape200_pcc_auxiliary"] = shape200_pcc(P, G, RP)
+    if compute_shape200:
+        m["shape200_pcc_auxiliary"] = shape200_pcc(P, G, RP)
     m["composite"] = composite(m)
     return m
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--arm", required=True, choices=["B0", "B1", "B2a", "B2a-wide", "B2b"])
+    ap.add_argument("--arm", required=True,
+                    choices=["B0", "B1", "B2a", "B2a-wide", "B2b", "P0-naive", "P1-gated"])
     ap.add_argument("--fold", type=int, required=True)
     ap.add_argument("--smoke", action="store_true", help="reduced run; writes to a SEPARATE tree")
     ap.add_argument("--smoke_epochs", type=int, default=1)
@@ -333,7 +336,7 @@ def main():
                     + EVENT_W * F.binary_cross_entropy_with_logits(ev, b["event"].to(dev)))
             opt.zero_grad(); loss.backward(); opt.step()
             tot += float(loss); nb += 1
-        m = evaluate(model, lva, dev)
+        m = evaluate(model, lva, dev, compute_shape200=not a.arm.startswith("P"))
         hist.append({"epoch": ep, "train_loss": tot / max(nb, 1), **m})
         print(f"  ep{ep:3d} loss {tot/max(nb,1):.4f} | PCC {m['pcc']:.4f} NRMSE {m['nrmse']:.4f} "
               f"R2 {m['r2']:+.3f} F1@100 {m['f1_100ms']:.3f} evF1 {m['event_f1_100ms']:.3f} "

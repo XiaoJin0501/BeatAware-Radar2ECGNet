@@ -65,6 +65,22 @@ def test_b2b_requires_rcg(models):
         models["B2b"](torch.randn(2, 50, 71, 240))
 
 
+def test_phase_fusion_arms_are_parameter_matched_and_continuous():
+    p0, p1 = CENet("P0-naive"), CENet("P1-gated")
+    assert param_report(p0)["total"] == param_report(p1)["total"]
+    wsst, rcg = torch.randn(2, 50, 71, 240), torch.randn(2, 50, WIN)
+    for model in (p0, p1):
+        y, event = model(wsst, rcg)
+        assert y.shape == (2, 1, WIN)
+        assert event.shape == (2, 2, WIN)
+
+
+def test_phase_fusion_requires_rcg():
+    for arm in ("P0-naive", "P1-gated"):
+        with pytest.raises(ValueError):
+            CENet(arm)(torch.randn(2, 50, 71, 240))
+
+
 def test_composite_ignores_shape200():
     assert set(T.COMPOSITE_W) == {"pcc", "nrmse", "r2", "f1"}
     m = {"pcc": 0.5, "nrmse": 0.5, "r2": 0.5, "f1_100ms": 0.5, "shape200_pcc": 9.9}

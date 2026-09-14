@@ -57,6 +57,27 @@ class RCGStem(nn.Module):
         return self.net(x)                                     # 1600 -> 400
 
 
+class PhaseResidualFusion(nn.Module):
+    """Parameter-matched naive/gated fusion of stable context and signed phase."""
+
+    def __init__(self, width: int = 128, out_ch: int = 192, gated: bool = True):
+        super().__init__()
+        self.gated = gated
+        self.wsst_proj = nn.Conv1d(width, out_ch, 1, bias=False)
+        self.rcg_proj = nn.Conv1d(width, out_ch, 1, bias=False)
+        self.gate = nn.Sequential(
+            nn.Conv1d(width * 2, out_ch, 3, padding=1, bias=False),
+            nn.BatchNorm1d(out_ch), nn.Sigmoid())
+        self.norm = nn.GroupNorm(8, out_ch)
+
+    def forward(self, wsst: torch.Tensor, rcg: torch.Tensor) -> torch.Tensor:
+        phase = self.rcg_proj(rcg)
+        gate = self.gate(torch.cat([wsst, rcg], 1))
+        if not self.gated:
+            gate = torch.ones_like(gate)
+        return self.norm(self.wsst_proj(wsst) + gate * phase)
+
+
 class _TCN(nn.Module):
     def __init__(self, c, dils, k=7, dropout=0.1):
         super().__init__()
@@ -121,14 +142,14 @@ class LegacyDecoder(nn.Module):
 
 
 class CENet(nn.Module):
-    """arm in {B0, B1, B2a, B2a-wide, B2b}."""
+    """Continuous ECG arms, including matched zero-shot phase-fusion controls."""
 
     def __init__(self, arm: str, in_bins: int = 50, width: int = 128, dropout: float = 0.1):
         super().__init__()
-        if arm not in ("B0", "B1", "B2a", "B2a-wide", "B2b"):
+        if arm not in ("B0", "B1", "B2a", "B2a-wide", "B2b", "P0-naive", "P1-gated"):
             raise ValueError(arm)
         self.arm = arm
-        self.uses_rcg = arm == "B2b"
+        self.uses_rcg = arm in ("B2b", "P0-naive", "P1-gated")
         # B2a-wide: capacity control. WSST stem widened so total params match B2b,
         # while decoder/fuse/output stay identical to B2a. A B2b gain over B2a that
         # does not survive B2a-wide is a capacity effect, not an information effect.
@@ -137,6 +158,10 @@ class CENet(nn.Module):
         if arm in ("B0", "B1"):
             self.decoder = LegacyDecoder(width, sigmoid=(arm == "B0"))
             self.fuse = None
+        elif arm in ("P0-naive", "P1-gated"):
+            self.rcg_stem = RCGStem(in_bins, width)
+            self.fuse = PhaseResidualFusion(width, 192, gated=(arm == "P1-gated"))
+            self.decoder = ContinuousDecoder(192, dropout=dropout)
         else:
             self.rcg_stem = RCGStem(in_bins, width) if self.uses_rcg else None
             fuse_in = width * 2 if self.uses_rcg else width
@@ -148,9 +173,15 @@ class CENet(nn.Module):
         if self.fuse is not None:
             if self.uses_rcg:
                 if rcg is None:
-                    raise ValueError("B2b requires the rcg input")
-                z = torch.cat([z, self.rcg_stem(rcg)], dim=1)
-            z = self.fuse(z)
+                    raise ValueError(f"{self.arm} requires the rcg input")
+                if self.arm in ("P0-naive", "P1-gated"):
+                    rcg = (rcg - rcg.mean(dim=-1, keepdim=True)) / rcg.std(dim=-1, keepdim=True).clamp_min(1e-6)
+                    z = self.fuse(z, self.rcg_stem(rcg))
+                else:
+                    z = torch.cat([z, self.rcg_stem(rcg)], dim=1)
+                    z = self.fuse(z)
+            else:
+                z = self.fuse(z)
         y, ev = self.decoder(z)
         assert y.shape[-1] == WIN, f"output {y.shape[-1]} != {WIN}"
         return y, ev
