@@ -1,0 +1,41 @@
+{
+  "experiment_id": "q1_protocol_sensitivity_subject_overlap_pilot",
+  "tier": "pilot",
+  "publishable": false,
+  "status": "REGISTERED",
+  "question": "How much of the continuous-ECG performance gap is explained by allowing validation subjects to appear in training while keeping records disjoint?",
+  "paper_role": "Protocol-sensitivity diagnostic; never a strict-LOSO result and never the main REM-Net claim",
+  "dataset": "MMECG public",
+  "source_partition": "/home/qhh2237/Datasets/MMECG/processed/samplewise/{train,val}.h5",
+  "protocol_label": "record-disjoint, subject-overlap validation",
+  "observed_partition": {
+    "train_windows": 1639,
+    "validation_windows": 1190,
+    "train_subjects": 10,
+    "validation_subjects": 9,
+    "train_records": 63,
+    "validation_records": 14
+  },
+  "hard_guards": [
+    "train and validation record_id sets are disjoint",
+    "validation subject overlap with training is measured and reported",
+    "test.h5 is never opened",
+    "full 8-second WSST support is generated from each source H5",
+    "training-fold robust scaler only",
+    "checkpoint selection uses validation composite only",
+    "Shape-200 is auxiliary and excluded from checkpoint selection"
+  ],
+  "model": "B1 continuous model, identical executable path, loss, 80/20 budget, evaluator and seed policy to the repaired loso_v2 B1 pilot",
+  "comparison": "Against repaired loso_v2 B1 validation results on folds 1/5/9; protocol labels remain separate because the subject units differ",
+  "primary_metrics": ["full-window PCC", "RMSE", "MAE", "R2", "F1@50/100/150ms"],
+  "decision_rule": {
+    "protocol_effect_supported": "subject-overlap PCC exceeds repaired strict-LOSO fold-macro B1 PCC by at least 0.15 without worse R2",
+    "otherwise": "do not explain the literature gap primarily by subject reuse; retain model/task mismatch as a major cause"
+  },
+  "prohibited_claims": [
+    "calling this LOSO",
+    "calling this sample-wise unless window allocation is actually used",
+    "mixing this number into the strict-LOSO aggregate",
+    "using the unopened test partition for selection or reporting"
+  ]
+}
