@@ -20,7 +20,9 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
 ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
-from src.models.continuous.ce_net import CENet, param_report, WIN  # noqa: E402
+from src.models.continuous.ce_net import (  # noqa: E402
+    CENet, param_report, reset_module_parameters_paired, WIN,
+)
 from src.data.mmecg_dataset import _gaussian_mask  # noqa: E402
 from src.utils.metrics import detect_rpeaks  # noqa: E402
 from src.losses.losses import MultiResolutionSTFTLoss  # noqa: E402
@@ -326,9 +328,20 @@ def main():
     else:
         epochs, limit, tag = BUDGET["epochs"], None, base_tag
 
-    if a.loss_arm != "L0" and a.arm != "B1":
-        raise SystemExit("Loss ablation arms L1-L3 are registered only for architecture B1")
-    run_arm = a.arm if a.loss_arm == "L0" else a.loss_arm
+    completed_b1_loss_gate = a.arm == "B1" and a.loss_arm in ("L1", "L2", "L3")
+    native_rcg_gate = a.arm in ("B2a-wide", "B2b") and a.loss_arm == "L3"
+    if a.loss_arm != "L0" and not (completed_b1_loss_gate or native_rcg_gate):
+        raise SystemExit(
+            "Registered auxiliary losses are restricted to B1/L1-L3 or "
+            "B2a-wide/B2b with locked L3")
+    if native_rcg_gate and base_tag != "q1_native_rcg_resolution_gate":
+        raise SystemExit(
+            "B2a-wide/B2b L3 is registered only under q1_native_rcg_resolution_gate")
+    if native_rcg_gate:
+        run_arm = {"B2a-wide": "C0_capacity_matched_wsst",
+                   "B2b": "C1_native_rcg_dual_stream"}[a.arm]
+    else:
+        run_arm = a.arm if a.loss_arm == "L0" else a.loss_arm
     out = ROOT / "experiments_mmecg" / tag / run_arm / f"fold_{a.fold:02d}"
     if (out / "best.json").exists() and not a.overwrite:
         raise SystemExit(f"Refusing to overwrite a completed run at {out}. Pass --overwrite to replace it.")
@@ -345,7 +358,14 @@ def main():
                      drop_last=True, generator=g)
     lva = DataLoader(va, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
 
-    model = CENet(a.arm).to(dev)
+    model = CENet(a.arm)
+    paired_decoder_seed = None
+    if native_rcg_gate:
+        # Variant-specific stems consume different RNG streams. Re-initialise
+        # the byte-identical decoder from a component-specific paired seed.
+        paired_decoder_seed = seed + 10_000
+        reset_module_parameters_paired(model.decoder, paired_decoder_seed)
+    model = model.to(dev)
     mrstft = MultiResolutionSTFTLoss(**MRSTFT_CONFIG).to(dev) if a.loss_arm == "L3" else None
     opt = torch.optim.AdamW(model.parameters(), lr=BUDGET["lr"], weight_decay=BUDGET["weight_decay"])
     # The commit that last touched EXECUTABLE code, not bare HEAD: later
@@ -369,6 +389,8 @@ def main():
         "composite_weights": COMPOSITE_W, "event_loss_weight": EVENT_W,
         "loss_arm": a.loss_arm, "loss_weight": LOSS_WEIGHTS.get(a.loss_arm, 0.0),
         "mrstft_config": MRSTFT_CONFIG if a.loss_arm == "L3" else None,
+        "native_rcg_resolution_gate": native_rcg_gate,
+        "paired_decoder_seed": paired_decoder_seed,
         "region_definitions": REGION_DEF, "rpeak_readout": "waveform-derived",
         "metric_space": "raw ECG units for ALL arms (per-arm inverse applied)",
         "b0_inverse_is_oracle": a.arm in LEGACY_TARGET_ARMS,

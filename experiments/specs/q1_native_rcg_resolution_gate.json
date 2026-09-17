@@ -1,0 +1,59 @@
+{
+  "experiment_id": "q1_native_rcg_resolution_gate",
+  "research_question": "Under repaired subject-independent validation, does native 200-Hz RCG add transferable continuous-ECG morphology information beyond a capacity-matched WSST-only model?",
+  "category": "pilot",
+  "publishable": false,
+  "status": "REGISTERED DESIGN ONLY; implementation, tests, code commit, smoke, and preflight required before launch",
+  "historical_constraint": "The earlier B2b pilot was protocol-invalid because its three folds contained only two distinct repeated validation subjects. Its negative result motivates caution but cannot decide this gate. The later raw-RCG timing gate reduced some signed bias without improving precision or detection; native RCG information remains unproven.",
+  "protocol": {
+    "dataset": "MMECG public loso_v2",
+    "folds": [1, 5, 9],
+    "splits_used": ["train", "validation"],
+    "test_accessed": false,
+    "seed_rule": "base seed 42 plus fold; paired across arms",
+    "budget": "max_epochs 80; patience 20; AdamW lr 1e-4, weight_decay 1e-4; batch 16",
+    "checkpoint": "same locked validation composite for both arms; Shape-200 excluded",
+    "input_support": "full-window _wsst8s.h5; native rcg from matching base H5; legacy 4-second WSST prohibited"
+  },
+  "arms": {
+    "C0_capacity_matched_wsst": "CENet B2a-wide with locked L3 MR-STFT waveform objective; WSST only",
+    "C1_native_rcg_dual_stream": "CENet B2b with the identical decoder and locked L3 MR-STFT objective; WSST plus native 50x1600 RCG"
+  },
+  "single_changed_variable": "Presence of the native-rate RCG stem/input. B2a-wide widens only the internal WSST stem to match B2b capacity while preserving the same 128-channel stem output and all downstream tensors.",
+  "capacity_rule": {
+    "known_counts": "B2a-wide 1,487,551 versus B2b 1,487,667 trainable parameters; delta 116 (0.008%)",
+    "preflight": "Recompute counts from current code and require relative delta <=0.1%. Require byte-identical decoder state-dict shapes and configuration across arms."
+  },
+  "locked_loss": {
+    "base": "Huber + 0.20 event BCE",
+    "waveform_core": "0.50 MR-STFT with FFT/window sizes 128/256/512 and hops 32/64/128",
+    "prohibited": "No PCC or derivative addition, no weight tuning, no window tuning, and no fusion variant within this gate"
+  },
+  "input_guards": [
+    "RCG uses all 50 native channels; no ECG-correlation or test-derived range-bin selection",
+    "narrow_bandpass is false for RCG",
+    "RCG and WSST window identities/counts must match exactly",
+    "validation file hashes must be recorded and distinct across folds"
+  ],
+  "primary_metrics": [
+    "continuous PCC@0",
+    "R2",
+    "NRMSE",
+    "QRS-region MAE",
+    "amplitude variance ratio",
+    "relative above-10-Hz energy ratio",
+    "waveform R-F1@100ms"
+  ],
+  "decision_rule": {
+    "waveform": "C1-C0 PCC is positive on 3/3 folds with fold-macro delta >=0.05, and R2 improves on 3/3 folds.",
+    "mechanism": "QRS-region MAE decreases on 3/3 folds and at least one of variance ratio or above-10-Hz energy ratio moves closer to 1 on 3/3 folds.",
+    "event_safety": "Fold-macro F1@100 decline is <=0.02 and no individual fold decline exceeds 0.05.",
+    "promote": "All waveform, mechanism, and event_safety requirements pass.",
+    "close": "If any requirement fails, close native-RCG dual-stream scaling; do not tune fusion variants after observing this gate."
+  },
+  "interpretation_limits": [
+    "A win shows useful incremental information under this preprocessing and architecture; it does not prove direct recovery of myocardial electrical activity.",
+    "A failure bounds this tested direct-fusion route; do not overclaim a universal physical impossibility of radar sensing.",
+    "Variance-ratio 0.6-0.8 and any PCC target are validation objectives only, not expected or promised outcomes."
+  ]
+}

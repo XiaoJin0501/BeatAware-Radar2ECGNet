@@ -1,0 +1,36 @@
+{
+  "experiment_id": "q1_shared_gradient_conflict_audit",
+  "research_question": "Does the locked MR-STFT waveform objective conflict with event BCE on the parameters actually shared by B1's waveform and event paths?",
+  "category": "audit",
+  "publishable": false,
+  "status": "COMPLETED 2026-09-17 on CPU: preregistered conflict gate failed; see docs/audits/Q1_SHARED_GRADIENT_CONFLICT_AUDIT.md",
+  "source_runs": "Completed L3 checkpoints from q1_continuous_ecg_loss_ablation on loso_v2 validation folds 1/5/9",
+  "no_training": true,
+  "test_accessed": false,
+  "architecture_fact": "L3 used CENet arm B1 with LegacyDecoder. The actually shared parameters are wsst_stem plus decoder.tcn. decoder.head and decoder.event are task-specific; B2 fusion and upsampling are not part of this audit.",
+  "losses": {
+    "waveform": "0.50 * locked MR-STFT(128/256/512) only",
+    "event": "0.20 * BCEWithLogits over the two registered event masks only",
+    "excluded_from_gradient_pair": "Huber is excluded because this audit asks specifically whether the newly introduced MR-STFT term conflicts with event BCE"
+  },
+  "sampling": "Every validation batch in folds 1/5/9, batch size 16, shuffle false; final short batch retained",
+  "readouts": [
+    "global cosine over all shared parameter gradients per batch",
+    "gradient norm of each objective and their norm ratio",
+    "module-group cosine for wsst_stem and every decoder.tcn residual block",
+    "per-fold mean, median, negative fraction, <=-0.30 fraction, and deterministic bootstrap 95% CI"
+  ],
+  "decision_rule": {
+    "global_requirement": "Mean global cosine is below zero on 3/3 folds and the batch-bootstrap 95% CI upper bound is below zero on at least 2/3 folds.",
+    "localized_requirement": "At least one predeclared shared module group has mean cosine <= -0.30 on at least 2/3 folds.",
+    "support_conflict": "Both global_requirement and localized_requirement hold.",
+    "reject_conflict": "Otherwise this audit does not support shared-gradient conflict as the cause of the F1 trade-off; do not launch PCGrad from this hypothesis."
+  },
+  "prohibitions": [
+    "No test split",
+    "No training or parameter update",
+    "No checkpoint selection",
+    "No post-hoc layer selection or threshold change",
+    "No lambda_event or MR-STFT window tuning as a branch of this audit"
+  ]
+}

@@ -50,7 +50,7 @@
     "No promotion of L4 before the single-term gate is met."
   ],
   "runs": "L1, L2, L3 x folds 1/5/9 = 9 runs (~2.5 h). L0 reused from B1. L4 not authorised.",
-  "status": "QUEUED in detached session q1_loss_gate; waiting for >=12000 MiB free GPU memory",
+  "status": "COMPLETED 2026-09-17: 9/9 runs finished. L3 won waveform metrics but failed the original joint promotion rule because F1 degraded and smoothing diagnostics did not consistently move toward 1; see docs/audits/Q1_LOSS_GATING_AUDIT.md",
   "prior_evidence": {
     "measured_2026_09_09": "Diagnostic run on the EXISTING B1 checkpoints, no training: var(pred)/var(gt) = 0.521/0.290/0.820 (mean 0.544); above-10 Hz energy ratio = 0.565/0.234/0.711 (mean 0.503).",
     "conclusion": "The output is measurably smoothed and amplitude-compressed. The smearing hypothesis is SUPPORTED before any loss arm is run, which is what justifies spending the 2.5 h.",

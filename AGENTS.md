@@ -52,11 +52,15 @@ Do not launch formal experiments without an approved experiment specification.
   and retain the destination.
 - The canonical paper roadmap is `docs/Q1_JOURNAL_MASTER_PLAN.md`. The model
   name is REM-Net; do not revive REM-AlignNet or invent a replacement name.
-- The only active task is the detached `q1_loss_gate` session, waiting for GPU
-  release to execute the registered L1/L2/L3 loss gate on folds 1/5/9. Never
-  stop, restart, overwrite, or interfere with that session or its `queue.log`.
-- Temporary compatibility exception until that session completes:
-  `scripts/run_continuous_loss_ablation_queue.sh`,
-  `scripts/train_continuous_ecg_pilot.py`, and
-  `scripts/train_anchor_head.py` must remain at their current paths because the
-  live queue references them. Archive/rename them only after verified completion.
+- The `q1_loss_gate` completed 9/9 runs on 2026-09-17 and its detached session
+  exited naturally. Its immutable audit is
+  `docs/audits/Q1_LOSS_GATING_AUDIT.md`; do not overwrite its artifacts or
+  `queue.log`.
+- The read-only shared-gradient audit is complete and did not authorize PCGrad
+  or branch isolation. The next task is a preregistered, capacity-controlled
+  B2a-versus-B2b input-resolution gate on repaired `loso_v2`, with MR-STFT
+  locked as the waveform core loss. Do not launch it before its spec, registry
+  row, committed implementation, smoke validation, and preflight exist.
+- `scripts/audit_shared_gradient_conflict.py` is the explicitly requested,
+  registered exception to the legacy-script naming rule; it is read-only and
+  must not be copied into additional one-off audit scripts.

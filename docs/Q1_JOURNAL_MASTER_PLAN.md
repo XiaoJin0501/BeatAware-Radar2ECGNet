@@ -72,32 +72,54 @@ Artifacts live in
 `experiments_mmecg/q1_temporal_tolerance_curve_audit/` and are registered in
 `EXPERIMENT_REGISTRY.csv`.
 
-## Active Step-2 gate
+## Step 2 — loss gate completed
 
-The only active experiment is `q1_loss_gate`, executing
-`q1_continuous_ecg_loss_ablation` after GPU release. It compares on folds
-1/5/9, with all other variables fixed:
+The `q1_loss_gate` completed all nine formal runs on 2026-09-17. It compared on
+folds 1/5/9, with all other variables fixed:
 
 - L1: Huber + event BCE + PCC loss;
 - L2: Huber + event BCE + first-derivative L1;
 - L3: Huber + event BCE + MR-STFT using windows/FFTs 128, 256, 512.
 
-The decision uses PCC, R², NRMSE, QRS and ST/T region MAE, waveform R-F1, target
-variance retention, and relative >10-Hz energy. A loss may advance only if it
-meets the preregistered multi-metric rule consistently across all three folds.
-Only the winning loss may be proposed for an 11-fold run. If none passes, stop
-the loss route; do not tune weights after observing results, combine terms, or
-create rescue variants.
+The fold-macro L0/L3 comparison is PCC 0.2231→0.2935, R² -0.1356→+0.0121,
+NRMSE 2.2719→2.1319, QRS MAE 1.8622→1.8092, and ST/T MAE 0.5720→0.5294.
+However, waveform F1@100 falls 0.9027→0.8688, and the registered smoothing
+ratios do not consistently move toward 1. L3 is therefore the waveform winner
+but not a clean pass of the original joint multi-metric promotion rule. L4 is
+not authorized, and Step 2 is not being expanded directly to 11 folds.
 
-## Next decision
+The complete nine-run matrix and exact interpretation are frozen in
+`docs/audits/Q1_LOSS_GATING_AUDIT.md`.
 
-Do not launch a new model family while Step 2 is unresolved. After the gate:
+**Locked development decision:** MR-STFT is the waveform core loss for the
+next controlled model experiment. This locks the best observed waveform
+objective; it does not erase the measured F1 trade-off or convert the pilot
+into manuscript evidence.
 
-1. audit all nine runs and apply the registered rule exactly;
-2. either promote the single supported loss or close the loss hypothesis;
-3. run the clean 11-fold `loso_v2` Shape-200 comparison only with a frozen,
-   approved specification and matched baselines;
-4. update the manuscript only from registered, traceable evidence.
+## Step 2.5 — shared-gradient audit completed
+
+A read-only audit measured gradients of MR-STFT and event BCE on the parameters
+actually shared by B1 (`wsst_stem + decoder.tcn`) across every validation batch.
+Global cosine means were -0.137/+0.276/+0.088 on folds 1/5/9. Only fold 1 was
+significantly negative; folds 5 and 9 were significantly positive, and no
+predeclared module reached mean cosine ≤ -0.30 on any fold. The preregistered
+conflict rule failed. PCGrad and branch-gradient isolation are therefore not
+authorized from this hypothesis. Full evidence:
+`docs/audits/Q1_SHARED_GRADIENT_CONFLICT_AUDIT.md`.
+
+## Next task — repaired-protocol B2a/B2b input-resolution gate
+
+The next controlled question is whether native 200-Hz RCG provides useful
+held-out morphology information beyond WSST. Compare a capacity-matched
+WSST-only B2a control against B2b (WSST + RCG) on repaired `loso_v2`, with the
+waveform loss locked to MR-STFT and all other variables fixed. The earlier B2b
+result is protocol-invalid and may motivate but cannot answer this question.
+
+The new gate must preregister parameter parity, folds, seeds, checkpoint rule,
+and joint waveform/event/smoothing metrics. Native RCG information and any
+variance/high-frequency gain are hypotheses, not expected results. If B2b is
+not consistently better than the matched B2a control, close the dual-stream
+route; do not tune fusion variants after observing the gate.
 
 ## Non-negotiable reporting rules
 

@@ -1,0 +1,309 @@
+{
+  "experiment_id": "q1_shared_gradient_conflict_audit",
+  "formal": true,
+  "device": "cpu",
+  "split_root": "loso_v2",
+  "test_accessed": false,
+  "batch_size": 16,
+  "max_batches": null,
+  "shared_parameter_names": [
+    "wsst_stem.net.0.weight",
+    "wsst_stem.net.1.weight",
+    "wsst_stem.net.1.bias",
+    "wsst_stem.net.4.weight",
+    "wsst_stem.net.5.weight",
+    "wsst_stem.net.5.bias",
+    "decoder.tcn.blocks.0.0.weight",
+    "decoder.tcn.blocks.0.1.weight",
+    "decoder.tcn.blocks.0.1.bias",
+    "decoder.tcn.blocks.0.4.weight",
+    "decoder.tcn.blocks.0.5.weight",
+    "decoder.tcn.blocks.0.5.bias",
+    "decoder.tcn.blocks.1.0.weight",
+    "decoder.tcn.blocks.1.1.weight",
+    "decoder.tcn.blocks.1.1.bias",
+    "decoder.tcn.blocks.1.4.weight",
+    "decoder.tcn.blocks.1.5.weight",
+    "decoder.tcn.blocks.1.5.bias",
+    "decoder.tcn.blocks.2.0.weight",
+    "decoder.tcn.blocks.2.1.weight",
+    "decoder.tcn.blocks.2.1.bias",
+    "decoder.tcn.blocks.2.4.weight",
+    "decoder.tcn.blocks.2.5.weight",
+    "decoder.tcn.blocks.2.5.bias",
+    "decoder.tcn.blocks.3.0.weight",
+    "decoder.tcn.blocks.3.1.weight",
+    "decoder.tcn.blocks.3.1.bias",
+    "decoder.tcn.blocks.3.4.weight",
+    "decoder.tcn.blocks.3.5.weight",
+    "decoder.tcn.blocks.3.5.bias",
+    "decoder.tcn.blocks.4.0.weight",
+    "decoder.tcn.blocks.4.1.weight",
+    "decoder.tcn.blocks.4.1.bias",
+    "decoder.tcn.blocks.4.4.weight",
+    "decoder.tcn.blocks.4.5.weight",
+    "decoder.tcn.blocks.4.5.bias"
+  ],
+  "folds": [
+    {
+      "fold": 1,
+      "global": {
+        "n_batches": 11,
+        "mean": -0.13708968232664975,
+        "median": -0.15023821134194615,
+        "negative_fraction": 1.0,
+        "le_minus_0_30_fraction": 0.0,
+        "bootstrap_95ci_mean": [
+          -0.17607518091110894,
+          -0.09646450704814252
+        ]
+      },
+      "groups": {
+        "decoder.tcn.blocks.0": {
+          "n_batches": 11,
+          "mean": -0.1652160033389453,
+          "median": -0.18809512850857069,
+          "negative_fraction": 1.0,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            -0.19985170559386992,
+            -0.12913710248020915
+          ]
+        },
+        "decoder.tcn.blocks.1": {
+          "n_batches": 11,
+          "mean": 0.08216205503647395,
+          "median": 0.0875717399133423,
+          "negative_fraction": 0.09090909090909091,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            0.053625475984376066,
+            0.10867053209320908
+          ]
+        },
+        "decoder.tcn.blocks.2": {
+          "n_batches": 11,
+          "mean": 0.06300301256093448,
+          "median": 0.06000363557411979,
+          "negative_fraction": 0.09090909090909091,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            0.04366072652515113,
+            0.0825355421436148
+          ]
+        },
+        "decoder.tcn.blocks.3": {
+          "n_batches": 11,
+          "mean": 0.16487541359543967,
+          "median": 0.1835262268440697,
+          "negative_fraction": 0.09090909090909091,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            0.12391343316790841,
+            0.19912246761481878
+          ]
+        },
+        "decoder.tcn.blocks.4": {
+          "n_batches": 11,
+          "mean": 0.10010061541977837,
+          "median": 0.11077175526141805,
+          "negative_fraction": 0.09090909090909091,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            0.07045869326334614,
+            0.12736480273105527
+          ]
+        },
+        "wsst_stem": {
+          "n_batches": 11,
+          "mean": -0.16874080664161023,
+          "median": -0.16318928863595686,
+          "negative_fraction": 1.0,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            -0.2168825334517535,
+            -0.12078631526073264
+          ]
+        }
+      }
+    },
+    {
+      "fold": 5,
+      "global": {
+        "n_batches": 32,
+        "mean": 0.2755015524201647,
+        "median": 0.2619140581742332,
+        "negative_fraction": 0.15625,
+        "le_minus_0_30_fraction": 0.0,
+        "bootstrap_95ci_mean": [
+          0.17769461869071573,
+          0.3727325092371814
+        ]
+      },
+      "groups": {
+        "decoder.tcn.blocks.0": {
+          "n_batches": 32,
+          "mean": 0.1644101350405024,
+          "median": 0.1454869494984015,
+          "negative_fraction": 0.3125,
+          "le_minus_0_30_fraction": 0.03125,
+          "bootstrap_95ci_mean": [
+            0.06041490247187085,
+            0.2684517117100279
+          ]
+        },
+        "decoder.tcn.blocks.1": {
+          "n_batches": 32,
+          "mean": 0.01578695852969557,
+          "median": 0.04863132116565278,
+          "negative_fraction": 0.46875,
+          "le_minus_0_30_fraction": 0.0625,
+          "bootstrap_95ci_mean": [
+            -0.04651290700271751,
+            0.0770876894785416
+          ]
+        },
+        "decoder.tcn.blocks.2": {
+          "n_batches": 32,
+          "mean": 0.08268493574788469,
+          "median": 0.07135816049518075,
+          "negative_fraction": 0.34375,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            0.03590959850706041,
+            0.1305127129104316
+          ]
+        },
+        "decoder.tcn.blocks.3": {
+          "n_batches": 32,
+          "mean": 0.051293015696299946,
+          "median": 0.04135552951017826,
+          "negative_fraction": 0.28125,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            0.02615485881992985,
+            0.07542352514086276
+          ]
+        },
+        "decoder.tcn.blocks.4": {
+          "n_batches": 32,
+          "mean": -0.058667224133014007,
+          "median": -0.05684600396863232,
+          "negative_fraction": 0.84375,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            -0.07918240134035656,
+            -0.03743107699374369
+          ]
+        },
+        "wsst_stem": {
+          "n_batches": 32,
+          "mean": 0.33265939025569746,
+          "median": 0.33484475887300214,
+          "negative_fraction": 0.15625,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            0.22391554523053653,
+            0.4413433759380613
+          ]
+        }
+      }
+    },
+    {
+      "fold": 9,
+      "global": {
+        "n_batches": 123,
+        "mean": 0.08763638960293313,
+        "median": 0.040119666569216145,
+        "negative_fraction": 0.4065040650406504,
+        "le_minus_0_30_fraction": 0.06504065040650407,
+        "bootstrap_95ci_mean": [
+          0.04020006098398238,
+          0.1358046532308957
+        ]
+      },
+      "groups": {
+        "decoder.tcn.blocks.0": {
+          "n_batches": 123,
+          "mean": 0.07908011900925384,
+          "median": 0.06977386684533676,
+          "negative_fraction": 0.4146341463414634,
+          "le_minus_0_30_fraction": 0.12195121951219512,
+          "bootstrap_95ci_mean": [
+            0.022012207736849747,
+            0.1363505737173859
+          ]
+        },
+        "decoder.tcn.blocks.1": {
+          "n_batches": 123,
+          "mean": 0.07148358899489426,
+          "median": 0.1413898374400876,
+          "negative_fraction": 0.35772357723577236,
+          "le_minus_0_30_fraction": 0.08943089430894309,
+          "bootstrap_95ci_mean": [
+            0.0287433630161603,
+            0.11484014363324732
+          ]
+        },
+        "decoder.tcn.blocks.2": {
+          "n_batches": 123,
+          "mean": -0.08879301124106805,
+          "median": -0.10119091913049807,
+          "negative_fraction": 0.7560975609756098,
+          "le_minus_0_30_fraction": 0.04878048780487805,
+          "bootstrap_95ci_mean": [
+            -0.11460736987363505,
+            -0.0629583835447019
+          ]
+        },
+        "decoder.tcn.blocks.3": {
+          "n_batches": 123,
+          "mean": 0.012617469090215399,
+          "median": 0.028641744113809688,
+          "negative_fraction": 0.35772357723577236,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            -0.008194981517496905,
+            0.03312006338904514
+          ]
+        },
+        "decoder.tcn.blocks.4": {
+          "n_batches": 123,
+          "mean": -0.07104312585505311,
+          "median": -0.09882261289062393,
+          "negative_fraction": 0.7398373983739838,
+          "le_minus_0_30_fraction": 0.0,
+          "bootstrap_95ci_mean": [
+            -0.09366051118981303,
+            -0.04764408220448949
+          ]
+        },
+        "wsst_stem": {
+          "n_batches": 123,
+          "mean": 0.11599780697116929,
+          "median": 0.05636075281417328,
+          "negative_fraction": 0.3902439024390244,
+          "le_minus_0_30_fraction": 0.08130081300813008,
+          "bootstrap_95ci_mean": [
+            0.058912107761040215,
+            0.17255080390854907
+          ]
+        }
+      }
+    }
+  ],
+  "decision": {
+    "global_requirement": false,
+    "localized_counts_le_minus_0_30": {
+      "decoder.tcn.blocks.0": 0,
+      "decoder.tcn.blocks.1": 0,
+      "decoder.tcn.blocks.2": 0,
+      "decoder.tcn.blocks.3": 0,
+      "decoder.tcn.blocks.4": 0,
+      "wsst_stem": 0
+    },
+    "localized_requirement": false,
+    "conflict_supported": false,
+    "note": "Applied preregistered rule."
+  }
+}

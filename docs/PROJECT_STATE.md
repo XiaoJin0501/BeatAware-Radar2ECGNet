@@ -75,10 +75,21 @@ assembly are closed historical routes, not candidates for revival.
 
 ## Only approved next task
 
-The detached `q1_loss_gate` session is waiting for GPU release. It will run the
-registered L1/L2/L3 single-loss comparison on repaired folds 1/5/9. Apply its
-pre-registered multi-metric decision rule; only a passing winner may be proposed
-for 11 folds. Do not launch another route while this gate is unresolved.
+The `q1_loss_gate` completed all 9/9 runs on 2026-09-17. L3 MR-STFT won the
+waveform metrics (fold-macro PCC 0.293 versus L0 0.223; R² 0.012 versus -0.136)
+but reduced F1@100 from 0.903 to 0.869 and did not improve the smoothing ratios
+consistently. The original joint promotion gate therefore did not pass. The
+full record is `docs/audits/Q1_LOSS_GATING_AUDIT.md`.
+
+MR-STFT remains locked as the waveform core loss. The completed read-only
+shared-gradient audit did not support a cross-fold MR-STFT/event-BCE conflict:
+global cosine means were -0.137/+0.276/+0.088 on folds 1/5/9, and no module met
+the preregistered strong-conflict threshold. PCGrad is not authorized. The full
+record is `docs/audits/Q1_SHARED_GRADIENT_CONFLICT_AUDIT.md`.
+
+The only approved next task is to specify and preflight a repaired-`loso_v2`,
+capacity-controlled B2a (WSST only) versus B2b (WSST + native RCG) gate using
+the locked MR-STFT waveform loss. No training is currently active.
 
 ## Do Not Do
 

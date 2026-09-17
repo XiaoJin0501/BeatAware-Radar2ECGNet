@@ -149,6 +149,7 @@ class CENet(nn.Module):
         if arm not in ("B0", "B1", "B2a", "B2a-wide", "B2b", "P0-naive", "P1-gated"):
             raise ValueError(arm)
         self.arm = arm
+        self.in_bins = in_bins
         self.uses_rcg = arm in ("B2b", "P0-naive", "P1-gated")
         # B2a-wide: capacity control. WSST stem widened so total params match B2b,
         # while decoder/fuse/output stay identical to B2a. A B2b gain over B2a that
@@ -169,22 +170,50 @@ class CENet(nn.Module):
             self.decoder = ContinuousDecoder(192, dropout=dropout)
 
     def forward(self, wsst, rcg=None):
+        if wsst.ndim != 4 or wsst.shape[1] != self.in_bins:
+            raise ValueError(
+                f"wsst must have shape [B,{self.in_bins},F,T], got {tuple(wsst.shape)}")
         z = self.wsst_stem(wsst)
+        if z.ndim != 3 or z.shape[-1] != LATENT_T:
+            raise RuntimeError(f"WSST stem must emit [B,C,{LATENT_T}], got {tuple(z.shape)}")
         if self.fuse is not None:
             if self.uses_rcg:
                 if rcg is None:
                     raise ValueError(f"{self.arm} requires the rcg input")
+                if rcg.ndim != 3 or rcg.shape[1:] != (self.in_bins, WIN):
+                    raise ValueError(
+                        f"rcg must have shape [B,{self.in_bins},{WIN}], got {tuple(rcg.shape)}")
                 if self.arm in ("P0-naive", "P1-gated"):
                     rcg = (rcg - rcg.mean(dim=-1, keepdim=True)) / rcg.std(dim=-1, keepdim=True).clamp_min(1e-6)
                     z = self.fuse(z, self.rcg_stem(rcg))
                 else:
-                    z = torch.cat([z, self.rcg_stem(rcg)], dim=1)
+                    rz = self.rcg_stem(rcg)
+                    if rz.shape[0] != z.shape[0] or rz.shape[-1] != z.shape[-1]:
+                        raise RuntimeError(
+                            f"WSST/RCG latent mismatch: {tuple(z.shape)} versus {tuple(rz.shape)}")
+                    z = torch.cat([z, rz], dim=1)
                     z = self.fuse(z)
             else:
                 z = self.fuse(z)
         y, ev = self.decoder(z)
         assert y.shape[-1] == WIN, f"output {y.shape[-1]} != {WIN}"
         return y, ev
+
+
+def reset_module_parameters_paired(module: nn.Module, seed: int) -> None:
+    """Reset one matched component from an isolated CPU RNG stream.
+
+    Variant-specific stems consume different numbers of random draws. Calling
+    this on identically shaped downstream modules makes their initial tensors
+    exactly paired without coupling the variant-specific parameters.
+    """
+    devices = sorted({p.device.index for p in module.parameters()
+                      if p.is_cuda and p.device.index is not None})
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(seed)
+        if devices:
+            torch.cuda.manual_seed_all(seed)
+        module.apply(lambda m: m.reset_parameters() if hasattr(m, "reset_parameters") else None)
 
 
 def param_report(m: nn.Module) -> dict:
