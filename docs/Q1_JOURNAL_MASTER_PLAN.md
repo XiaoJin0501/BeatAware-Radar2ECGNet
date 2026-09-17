@@ -140,13 +140,14 @@ together. Shape-200 remains auxiliary and excluded from selection. Seed 42 is
 a complete-fold final candidate; any headline model claim still requires the
 multi-seed confirmation mandated by `METRIC_CONTRACT.md`.
 
-**Current launch blocker:** the base `loso_v2` H5 files are complete, but the
-full-window `_wsst8s.h5` companions currently exist only for train/validation
-on folds 1/5/9; no test companion exists. The legacy per-fold duplicated-cache
-layout would require roughly 50–60 GiB while only about 37 GiB is free. The
-runner must fail closed until either a numerically verified deduplicated cache
-is available or storage is increased. Four-second WSST is prohibited as a
-fallback because it recreates the known 50%-unsupported-input confound.
+**Data preparation complete (2026-09-18):** the deduplicated subject-centric
+8-second WSST pool contains all 11 subjects and 16,682 unique windows in 23.95
+GiB. All 33,257 train/validation/test fold references resolve without a missing
+key; reused formal-cache values and the loader smoke batch are bit-identical.
+The data blocker is removed. The 11-fold run is still **not launched** and must
+pass the normal clean-worktree/GPU preflight first. Four-second WSST remains
+prohibited. Full evidence is in
+`docs/audits/Q1_WSST8S_SUBJECT_POOL_AUDIT.md`.
 
 ## Non-negotiable reporting rules
 

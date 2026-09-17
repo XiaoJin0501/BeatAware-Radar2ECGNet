@@ -28,3 +28,11 @@ saving test predictions and a fold-macro summary.
 No 11-fold training was launched. The next implementation action is a
 numerically verified deduplicated full-window WSST cache (or added storage).
 The known 4-second WSST cache is not an allowed fallback.
+
+## Data-blocker resolution (2026-09-18)
+
+The subject-centric cache is complete: 11 subject files, 16,682 unique
+full-window samples, 33,257/33,257 fold references resolved, and 23.95 GiB on
+disk. Builder reuse checks and a real-loader CPU forward smoke passed. Details
+are frozen in `docs/audits/Q1_WSST8S_SUBJECT_POOL_AUDIT.md`. This prepares the
+data only; the 11-fold benchmark has not been launched.

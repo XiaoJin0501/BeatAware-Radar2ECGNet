@@ -97,10 +97,12 @@ The next authorized task is to preflight and then run the frozen WSST-driven
 REM-Net B1 + L3 MR-STFT candidate on all 11 `loso_v2` folds. Validation selects
 the checkpoint; held-out test is opened once afterward. The seed-42 complete
 benchmark is not a headline claim until the required multi-seed confirmation.
-Launch is currently data-blocked: `_wsst8s.h5` exists only for train/val on
-folds 1/5/9, test caches are absent, and the duplicated per-fold cache layout
-does not fit the approximately 37 GiB free disk. Do not substitute 4-second
-WSST. Prepare a verified deduplicated full-window cache or obtain more storage.
+The data blocker was removed on 2026-09-18. The subject-centric 8-second WSST
+pool contains 11 files, 16,682 unique windows, and resolves all 33,257 fold
+references in 23.95 GiB. Bitwise reuse and a real-loader CPU forward smoke both
+pass (`docs/audits/Q1_WSST8S_SUBJECT_POOL_AUDIT.md`). Do not substitute
+4-second WSST. The 11-fold benchmark remains not launched pending clean
+preflight and GPU availability.
 
 ## Do Not Do
 

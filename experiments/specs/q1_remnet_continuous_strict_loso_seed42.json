@@ -3,7 +3,7 @@
   "research_question": "What is the locked WSST-driven REM-Net continuous-ECG performance under the complete repaired 11-fold strict-LOSO protocol?",
   "category": "final_candidate",
   "publishable": false,
-  "status": "PREPARED BUT DATA-BLOCKED; not launched; per-fold full-window WSST caches are incomplete and the legacy duplicated-cache layout exceeds current free disk; requires a verified deduplicated cache (or additional storage), committed code, registry commit stamp, clean preflight, and available GPU",
+  "status": "DATA READY; not launched; verified deduplicated subject-centric 8-second WSST pool covers all 11 subjects and all 33,257 fold references; requires registry commit stamp, clean preflight, and available GPU",
   "model": "REM-Net continuous B1 with WSST-only input and locked L3 MR-STFT waveform loss",
   "dataset": "MMECG public loso_v2",
   "folds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
