@@ -8,6 +8,7 @@ from scripts.train_continuous_ecg_pilot import (
     LOSS_WEIGHTS,
     MRSTFT_CONFIG,
     auxiliary_waveform_loss,
+    is_registered_final_mode,
 )
 from src.losses.losses import MultiResolutionSTFTLoss
 from src.models.continuous.ce_net import (
@@ -79,3 +80,12 @@ def test_b2b_rejects_shape_mismatch_without_broadcasting() -> None:
         assert "rcg must have shape" in str(exc)
     else:
         raise AssertionError("B2b accepted a misaligned RCG tensor")
+
+
+def test_final_test_mode_is_narrowly_registered() -> None:
+    tag = "q1_remnet_continuous_strict_loso_seed42"
+    assert is_registered_final_mode(True, False, "B1", "L3", tag)
+    assert not is_registered_final_mode(True, False, "B2a-wide", "L3", tag)
+    assert not is_registered_final_mode(True, False, "B1", "L2", tag)
+    assert not is_registered_final_mode(True, True, "B1", "L3", tag)
+    assert not is_registered_final_mode(True, False, "B1", "L3", "unregistered")

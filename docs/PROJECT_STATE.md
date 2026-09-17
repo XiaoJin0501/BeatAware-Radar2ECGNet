@@ -87,11 +87,20 @@ global cosine means were -0.137/+0.276/+0.088 on folds 1/5/9, and no module met
 the preregistered strong-conflict threshold. PCGrad is not authorized. The full
 record is `docs/audits/Q1_SHARED_GRADIENT_CONFLICT_AUDIT.md`.
 
-The repaired-`loso_v2`, capacity-controlled B2a-wide (WSST only) versus B2b
-(WSST + native RCG) gate passed implementation preflight and is armed in the
-detached `q1_native_rcg_gate` session. It waits for at least 12000 MiB free GPU
-memory before running six paired fold-major jobs. No model is training while
-the threshold is unmet; do not interrupt the queue or overwrite its outputs.
+The repaired-`loso_v2`, capacity-controlled B2a-wide versus B2b gate completed
+6/6 runs. B2b improved tolerant event detection but reduced PCC on 3/3 folds,
+did not improve R2 or QRS-region MAE consistently, and failed its preregistered
+promotion rule. The native-RCG direct-fusion route is closed; see
+`docs/audits/Q1_NATIVE_RCG_GATE_AUDIT.md`.
+
+The next authorized task is to preflight and then run the frozen WSST-driven
+REM-Net B1 + L3 MR-STFT candidate on all 11 `loso_v2` folds. Validation selects
+the checkpoint; held-out test is opened once afterward. The seed-42 complete
+benchmark is not a headline claim until the required multi-seed confirmation.
+Launch is currently data-blocked: `_wsst8s.h5` exists only for train/val on
+folds 1/5/9, test caches are absent, and the duplicated per-fold cache layout
+does not fit the approximately 37 GiB free disk. Do not substitute 4-second
+WSST. Prepare a verified deduplicated full-window cache or obtain more storage.
 
 ## Do Not Do
 

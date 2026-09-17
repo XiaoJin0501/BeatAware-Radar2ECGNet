@@ -1,0 +1,34 @@
+{
+  "experiment_id": "q1_remnet_continuous_strict_loso_seed42",
+  "research_question": "What is the locked WSST-driven REM-Net continuous-ECG performance under the complete repaired 11-fold strict-LOSO protocol?",
+  "category": "final_candidate",
+  "publishable": false,
+  "status": "PREPARED BUT DATA-BLOCKED; not launched; per-fold full-window WSST caches are incomplete and the legacy duplicated-cache layout exceeds current free disk; requires a verified deduplicated cache (or additional storage), committed code, registry commit stamp, clean preflight, and available GPU",
+  "model": "REM-Net continuous B1 with WSST-only input and locked L3 MR-STFT waveform loss",
+  "dataset": "MMECG public loso_v2",
+  "folds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "protocol": {
+    "train": "nine subjects per fold",
+    "validation": "one distinct subject per fold; checkpoint selection only",
+    "test": "one held-out subject per fold; opened exactly once after checkpoint selection",
+    "split_invariants": "train/validation/test subject-disjoint per fold; each subject test exactly once; each subject validation exactly once; all validation files distinct",
+    "input": "full-window 8-second WSST with support samples 0:1600",
+    "target": "blind continuous 1x1600 ECG in train-fold robust-scaled space; reported in raw ECG units",
+    "test_oracles_prohibited": "No test-derived scaler, lag, affine map, range-bin selection, threshold, checkpoint, or model choice"
+  },
+  "training": {
+    "seed": "42 + fold, deterministic cuDNN",
+    "budget": "80 epochs maximum, patience 20, AdamW lr 1e-4, weight decay 1e-4, batch 16",
+    "loss": "Huber + 0.20 event BCE + 0.50 MR-STFT; FFT/window 128/256/512, hops 32/64/128",
+    "checkpoint": "maximum frozen validation composite only; Shape-200 excluded"
+  },
+  "metrics": {
+    "primary": ["continuous per-window PCC@0", "RMSE", "NRMSE", "MAE", "R2"],
+    "event": ["waveform R-F1@50/100/150 ms", "event-head F1@50/100/150 ms", "RR MAE", "HR MAE", "coverage"],
+    "mechanism": ["QRS-region MAE", "ST/T-region MAE", "amplitude variance ratio", "relative above-10-Hz energy ratio"],
+    "aggregation": "fold-macro mean and population standard deviation over 11 test subjects; per-fold values retained",
+    "nan_policy": "nanmean within evaluator; record NaN/failed values before promotion"
+  },
+  "artifacts": ["per-fold config", "validation history and checkpoint", "test_metrics.json", "compressed per-window test predictions", "11-fold CSV and summary JSON"],
+  "promotion_limit": "This seed-42 run establishes the complete-fold candidate benchmark. Headline model claims require the registered multi-seed confirmation required by METRIC_CONTRACT.md."
+}

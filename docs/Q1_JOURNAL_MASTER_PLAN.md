@@ -107,19 +107,46 @@ conflict rule failed. PCGrad and branch-gradient isolation are therefore not
 authorized from this hypothesis. Full evidence:
 `docs/audits/Q1_SHARED_GRADIENT_CONFLICT_AUDIT.md`.
 
-## Next task — repaired-protocol B2a/B2b input-resolution gate
+## Step 3 — native-RCG resolution gate completed and closed
 
-The next controlled question is whether native 200-Hz RCG provides useful
-held-out morphology information beyond WSST. Compare a capacity-matched
-WSST-only B2a control against B2b (WSST + RCG) on repaired `loso_v2`, with the
-waveform loss locked to MR-STFT and all other variables fixed. The earlier B2b
-result is protocol-invalid and may motivate but cannot answer this question.
+The capacity-matched B2a-wide/B2b gate completed all six validation runs on
+2026-09-17. B2b reduced PCC on 3/3 folds (fold-macro 0.1221 to 0.0863), made R2
+more negative (-0.0577 to -0.0661), and worsened QRS-region MAE on 3/3 folds.
+It substantially increased waveform F1@100 (0.2013 to 0.5487), but RR/HR error
+worsened in the macro aggregate and the high-frequency ratio was unstable,
+including a 2.383 overshoot on fold 5. Thus the waveform and mechanism gates
+failed even though event safety passed.
 
-The new gate must preregister parameter parity, folds, seeds, checkpoint rule,
-and joint waveform/event/smoothing metrics. Native RCG information and any
-variance/high-frequency gain are hypotheses, not expected results. If B2b is
-not consistently better than the matched B2a control, close the dual-stream
-route; do not tune fusion variants after observing the gate.
+Per the preregistered rule, the B2b native-RCG direct-fusion route is
+**closed**. Do not tune another fusion variant or scale B2b to 11 folds. This
+failure bounds the tested direct-fusion formulation; it does not establish
+that native radar contains no useful information. The immutable six-run table
+and decision are in `docs/audits/Q1_NATIVE_RCG_GATE_AUDIT.md`.
+
+## Official continuous model and next benchmark
+
+The official continuous candidate is now frozen as **WSST-driven REM-Net
+(continuous B1) with the L3 MR-STFT waveform core**. “Official” means the
+architecture, loss, normalization, checkpoint rule, and evaluation contract
+are frozen for the next benchmark; it does not claim that the model has
+already achieved publishable performance.
+
+The next authorized experiment is
+`q1_remnet_continuous_strict_loso_seed42`: all 11 repaired `loso_v2` folds,
+validation-only checkpoint selection, followed by one-time held-out test
+evaluation. Primary reporting is fold-macro across 11 test subjects and keeps
+PCC, R2, NRMSE, regional error, smoothing diagnostics, and event/timing metrics
+together. Shape-200 remains auxiliary and excluded from selection. Seed 42 is
+a complete-fold final candidate; any headline model claim still requires the
+multi-seed confirmation mandated by `METRIC_CONTRACT.md`.
+
+**Current launch blocker:** the base `loso_v2` H5 files are complete, but the
+full-window `_wsst8s.h5` companions currently exist only for train/validation
+on folds 1/5/9; no test companion exists. The legacy per-fold duplicated-cache
+layout would require roughly 50–60 GiB while only about 37 GiB is free. The
+runner must fail closed until either a numerically verified deduplicated cache
+is available or storage is increased. Four-second WSST is prohibited as a
+fallback because it recreates the known 50%-unsupported-input confound.
 
 ## Non-negotiable reporting rules
 

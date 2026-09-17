@@ -42,9 +42,11 @@ Do not launch formal experiments without an approved experiment specification.
 - `docs/Q1_JOURNAL_MASTER_PLAN.md` is the roadmap and REM-Net is the locked
   model identity. Do not revive REM-AlignNet or change the core idea to chase a
   metric.
-- The only active handoff is the detached `q1_loss_gate` session. It is waiting
-  for GPU release and will execute Step 2 (L1/L2/L3, folds 1/5/9). Do not stop,
-  restart, overwrite, or interfere with it or its `queue.log`.
-- Until the queue completes, its three referenced compatibility files must stay
-  at their current paths: `run_continuous_loss_ablation_queue.sh`,
-  `train_continuous_ecg_pilot.py`, and `train_anchor_head.py`.
+- The L1/L2/L3 loss gate and the subsequent capacity-matched B2a-wide/B2b
+  native-RCG gate are complete. The latter failed its waveform/mechanism rule;
+  B2b direct fusion is closed and must not be rescued with post-hoc variants.
+- The next authorized candidate is WSST-driven continuous REM-Net B1 with
+  locked L3 MR-STFT on all 11 repaired `loso_v2` folds. Validation selects the
+  checkpoint and test is opened exactly once afterward. Treat the first
+  seed-42 result as a final candidate, not a headline claim without multi-seed
+  confirmation.

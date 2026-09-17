@@ -6,7 +6,8 @@ Contract: docs/CONTINUOUS_ECG_TASK_CONTRACT.md
 
 Hard invariants (abort, never degrade silently):
   * consumed WSST must declare full-window support;
-  * the test split is never opened;
+  * the test split is never opened, except for the registered final-candidate
+    mode after validation checkpoint selection has completed;
   * checkpoint selection uses the frozen full-waveform composite, never Shape-200;
   * B1/B2* use a linear head against a TRAIN-fold robust scaler;
   * formal runs cannot use smoke parameters, and never overwrite an existing run.
@@ -45,6 +46,12 @@ REGION_DEF = {"qrs": "R +/- 50 ms", "stt": "R+80 ms .. R+400 ms"}
 LOSS_WEIGHTS = {"L1": 0.30, "L2": 0.10, "L3": 0.50}
 MRSTFT_CONFIG = {"fft_sizes": [128, 256, 512], "hop_sizes": [32, 64, 128],
                   "win_lengths": [128, 256, 512]}
+FINAL_CONTINUOUS_TAG = "q1_remnet_continuous_strict_loso_seed42"
+
+
+def is_registered_final_mode(final_test: bool, smoke: bool, arm: str,
+                             loss_arm: str, tag: str) -> bool:
+    return final_test and not smoke and arm == "B1" and loss_arm == "L3" and tag == FINAL_CONTINUOUS_TAG
 
 
 def effective_seed(fold: int) -> int:
@@ -75,12 +82,11 @@ def _set_split_root(name: str) -> None:
         raise SystemExit(f"split_root not found: {DATA}")
 
 
-def _val_sha(fold: int) -> str:
-    """Hash of the validation file, recorded per run so duplicate-validation splits
-    can never again go unnoticed."""
+def _split_sha(fold: int, split: str) -> str:
+    """Hash a split file so subject/split provenance remains machine-auditable."""
     import hashlib
     h = hashlib.sha256()
-    with open(DATA / f"fold_{fold:02d}" / "val.h5", "rb") as fh:
+    with open(DATA / f"fold_{fold:02d}" / f"{split}.h5", "rb") as fh:
         for c in iter(lambda: fh.read(1 << 22), b""): h.update(c)
     return h.hexdigest()
 
@@ -95,8 +101,10 @@ class Fold(Dataset):
     and avoids duplicating the array across forked workers.
     """
 
-    def __init__(self, fold: int, split: str, arm: str, scaler: tuple[float, float] | None, limit=None):
-        assert split != "test", "test split is prohibited in this pilot"
+    def __init__(self, fold: int, split: str, arm: str, scaler: tuple[float, float] | None,
+                 limit=None, allow_test: bool = False):
+        if split == "test" and not allow_test:
+            raise AssertionError("test split requires registered final-candidate mode")
         self.h5p = DATA / f"fold_{fold:02d}" / f"{split}.h5"
         self.wp = DATA / f"fold_{fold:02d}" / f"{split}_wsst8s.h5"
         self.arm, self.scaler = arm, scaler
@@ -280,7 +288,8 @@ def composite(m: dict) -> float:
 
 
 @torch.no_grad()
-def evaluate(model, loader, dev, compute_shape200: bool = True) -> dict:
+def evaluate(model, loader, dev, compute_shape200: bool = True,
+             return_outputs: bool = False):
     """All arms scored in RAW ECG units via each arm's own inverse, so metrics are
     comparable. B0's inverse is ORACLE (its target is defined by GT min/max)."""
     model.eval(); P, G, EV, RP = [], [], [], []
@@ -301,6 +310,9 @@ def evaluate(model, loader, dev, compute_shape200: bool = True) -> dict:
     if compute_shape200:
         m["shape200_pcc_auxiliary"] = shape200_pcc(P, G, RP)
     m["composite"] = composite(m)
+    if return_outputs:
+        return m, {"prediction": P, "ground_truth": G, "event_probability": EV,
+                   "rpeaks": np.asarray(RP, dtype=object)}
     return m
 
 
@@ -319,10 +331,19 @@ def main():
     ap.add_argument("--loss_arm", choices=["L0", "L1", "L2", "L3"], default="L0",
                     help="registered single-term loss ablation; L0 preserves the original objective")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
+    ap.add_argument(
+        "--final_test", action="store_true",
+        help="registered final-candidate mode: select on validation, then open test once")
     a = ap.parse_args()
 
     # ---- formal / smoke parameter isolation: a formal run CANNOT be shrunk ----
     base_tag = a.exp_tag or "q1_continuous_ecg_b0_b2_pilot"
+    official_final = is_registered_final_mode(
+        a.final_test, a.smoke, a.arm, a.loss_arm, base_tag)
+    if a.final_test and not official_final:
+        raise SystemExit(
+            "--final_test is restricted to registered B1/L3 experiment "
+            "q1_remnet_continuous_strict_loso_seed42")
     if a.smoke:
         epochs, limit, tag = a.smoke_epochs, a.smoke_limit, base_tag + "_smoke"
     else:
@@ -382,6 +403,7 @@ def main():
         "epochs": epochs, "limit": limit, "effective_seed": seed,
         "seed_rule": "BUDGET.seed + fold; identical across arms within a fold (paired)",
         "cudnn_deterministic": True, "split_used": ["train", "val"], "test_accessed": False,
+        "final_candidate_mode": official_final,
         "input_pipeline": "RAM-preloaded per fold (HDF5 was the bottleneck at ~269 s/epoch, 0% GPU)",
         "num_workers": 0,
         "scaler_median_iqr": scaler, "scaler_source": "ENTIRE training fold",
@@ -396,7 +418,7 @@ def main():
         "b0_inverse_is_oracle": a.arm in LEGACY_TARGET_ARMS,
         "wsst": "full_window_samples_0_1600",
         "split_root": a.split_root, "split_dir": str(DATA),
-        "val_file_sha256": _val_sha(a.fold),
+        "val_file_sha256": _split_sha(a.fold, "val"),
         "code_commit": commit, "code_commit_is": "last commit touching src/scripts/tests/configs",
         "runtime_head": head,
     }, indent=2, default=str) + "\n")
@@ -445,6 +467,39 @@ def main():
         "early_stopped": len(hist) < epochs,
         "selected_by": "full-waveform validation composite (Shape-200 excluded)",
         "metrics": hist[best_ep - 1] if best_ep > 0 else None}, indent=2) + "\n")
+
+    if official_final:
+        # The held-out test split is constructed only after the validation-best
+        # epoch is frozen. Test metrics cannot influence training or selection.
+        checkpoint = torch.load(out / "checkpoints" / "best_composite.pt",
+                                map_location=dev, weights_only=False)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        te = Fold(a.fold, "test", a.arm, scaler, allow_test=True)
+        lte = DataLoader(te, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
+        test_metrics, arrays = evaluate(
+            model, lte, dev, compute_shape200=False, return_outputs=True)
+        np.savez_compressed(out / "test_predictions.npz", **arrays)
+        (out / "test_metrics.json").write_text(json.dumps({
+            "arm": a.arm,
+            "loss_arm": a.loss_arm,
+            "fold": a.fold,
+            "checkpoint_epoch": best_ep,
+            "checkpoint_selected_by": "validation composite only",
+            "test_opened_after_selection": True,
+            "test_file_sha256": _split_sha(a.fold, "test"),
+            "aggregation_within_fold": "per-window metrics averaged within held-out test subject",
+            "shape200_excluded": True,
+            "metrics": test_metrics,
+        }, indent=2) + "\n")
+        config_path = out / "config.json"
+        config = json.loads(config_path.read_text())
+        config.update({"split_used": ["train", "val", "test"],
+                       "test_accessed": True,
+                       "test_access_rule": "once, after validation checkpoint selection",
+                       "test_file_sha256": _split_sha(a.fold, "test")})
+        config_path.write_text(json.dumps(config, indent=2, default=str) + "\n")
+        print(f"[test] B1 fold{a.fold}: PCC={test_metrics['pcc']:.4f} "
+              f"R2={test_metrics['r2']:+.4f} -> {out / 'test_metrics.json'}")
     print(f"[done] {a.arm} fold{a.fold} ({'smoke' if a.smoke else 'formal'}): "
           f"best S={best:.4f} @ep{best_ep} -> {out}")
 
