@@ -9,6 +9,8 @@ the held-out test subject once. Existing completed folds are resumable.
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import subprocess
 import sys
@@ -20,7 +22,7 @@ import h5py
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from src.utils.atomic_state import atomic_csv, atomic_json  # noqa: E402
+from src.utils.atomic_state import atomic_csv, atomic_json, atomic_text  # noqa: E402
 TAG = "q1_remnet_continuous_strict_loso_seed42"
 SPEC = ROOT / "experiments" / "specs" / f"{TAG}.json"
 REGISTRY = ROOT / "experiments_mmecg" / "EXPERIMENT_REGISTRY.csv"
@@ -67,11 +69,8 @@ def require_preflight() -> tuple[str, str]:
 
 
 def update_registry(commit: str, branch: str, status: str) -> None:
-    import csv
-    with REGISTRY.open(newline="") as f:
-        rows = list(csv.DictReader(f))
-    fields = list(rows[0])
-    row = next((r for r in rows if r["tag"] == TAG), None)
+    lines = REGISTRY.read_text().splitlines()
+    fields = next(csv.reader([lines[0]]))
     values = {
         "tag": TAG,
         "dataset": "MMECG public",
@@ -84,11 +83,19 @@ def update_registry(commit: str, branch: str, status: str) -> None:
         "status": status,
         "reason": "Frozen seed-42 full-fold candidate; headline claim awaits metric audit and multi-seed confirmation.",
     }
-    if row is None:
-        rows.append(values)
-    else:
-        row.update(values)
-    atomic_csv(REGISTRY, fields, rows)
+    encoded = io.StringIO()
+    writer = csv.DictWriter(encoded, fieldnames=fields, lineterminator="")
+    writer.writerow(values)
+    replacement = encoded.getvalue()
+    replaced = False
+    for index, line in enumerate(lines[1:], start=1):
+        if next(csv.reader([line]))[0] == TAG:
+            lines[index] = replacement
+            replaced = True
+            break
+    if not replaced:
+        lines.append(replacement)
+    atomic_text(REGISTRY, "\n".join(lines) + "\n")
 
 
 def run_folds(device: str) -> None:
