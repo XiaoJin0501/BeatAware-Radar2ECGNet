@@ -50,3 +50,17 @@ an allowed fallback.
 
 This audit removes the data blocker only. The registered 11-fold experiment
 remains **not launched** pending the normal clean-worktree/GPU preflight.
+
+## Superseded per-fold cache retirement
+
+On 2026-09-18, after the checks above passed, the six superseded physical
+per-fold caches (`fold_01`, `fold_05`, and `fold_09` train/validation
+`*_wsst8s.h5`) were removed. They occupied 11,085,167,734 bytes (10.324 GiB).
+No directory, base split H5, four-second cache, checkpoint, or subject-pool file
+was removed. Available filesystem space increased from about 13 GiB to 24 GiB.
+
+A subsequent smoke test ran with those six files absent and loaded fold-1
+validation exclusively through `wsst8s_subject_pool`; B1 produced finite
+`(1, 1, 1600)` waveform and `(1, 2, 1600)` event outputs. The retired files are
+derived and reproducible, but the physical deletions themselves are not
+recoverable without regeneration.
