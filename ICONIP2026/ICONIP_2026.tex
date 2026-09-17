@@ -1,0 +1,469 @@
+\documentclass[runningheads]{llncs}
+
+\usepackage[T1]{fontenc}
+\usepackage{pifont}
+\newcommand{\cmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{marvosym}
+\usepackage{cite}
+\usepackage{placeins}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    citecolor=blue,
+    linkcolor=blue,
+    urlcolor=black
+}
+\usepackage{orcidlink}
+\usepackage{multirow}
+\usepackage[table]{xcolor}
+
+\setlength{\textfloatsep}{8pt plus 1pt minus 2pt}
+\setlength{\floatsep}{6pt plus 1pt minus 2pt}
+\setlength{\intextsep}{6pt plus 1pt minus 2pt}
+\setlength{\abovecaptionskip}{4pt}
+\setlength{\belowcaptionskip}{2pt}
+
+\renewcommand{\topfraction}{0.85}
+\renewcommand{\floatpagefraction}{0.75}
+
+\definecolor{bestcolor}{RGB}{255,245,204}
+\definecolor{secondcolor}{RGB}{238,238,238}
+\newcommand{\best}[1]{\cellcolor{bestcolor}\textbf{#1}}
+\newcommand{\second}[1]{\cellcolor{secondcolor}#1}
+
+\graphicspath{{ICONIP_Figures/}}
+
+\raggedbottom
+
+\begin{document}
+
+\title{BeatAware-Radar2ECGNet: Physiology-Guided Continuous ECG Reconstruction from Radar}
+\titlerunning{Physiology-Guided ECG Reconstruction from Radar}
+
+\author{Xiao Jin\inst{1}\href{mailto:xiao.jin@autuni.ac.nz}{\textsuperscript{(\Letter)}}\orcidlink{0009-0005-9937-3417} \and
+Sira Yongchareon\inst{1}\orcidlink{0000-0002-2880-6618} \and
+Anuradha Singh\inst{1}\orcidlink{0000-0002-0315-3710}}
+
+\authorrunning{X. Jin et al.}
+
+\institute{
+\textsuperscript{1} Department of Data Science and AI, School of Engineering, Computer and Mathematical Sciences, Auckland University of Technology, Auckland, New Zealand\\
+\email{
+\href{mailto:xiao.jin@autuni.ac.nz}{xiao.jin@autuni.ac.nz},
+\href{mailto:sira.yongchareon@aut.ac.nz}{sira.yongchareon@aut.ac.nz},
+\href{mailto:anuradha.singh@aut.ac.nz}{anuradha.singh@aut.ac.nz}
+}
+}
+
+\maketitle
+
+\begin{abstract}
+Contactless ECG reconstruction from radar is a promising direction for unobtrusive cardiac monitoring, but it remains a difficult cross-modal sequence learning problem. Radar captures thoracic mechanical motion, whereas ECG records cardiac electrical activity; consequently, the mapping is indirect, subject-dependent, and temporally misaligned. We propose BeatAware-Radar2ECGNet, a physiology-guided framework for continuous radar-to-ECG waveform reconstruction under subject-independent evaluation. Rather than treating radar-to-ECG reconstruction as unconstrained black-box regression, the model introduces learnable inductive biases motivated by the radar-ECG electromechanical relationship: kinematic compression extracts compact motion channels from multi-bin FMCW radar inputs, cardiac-prior conditioning injects beat-structured temporal cues through an auxiliary QRS prior and TFiLM modulation, and latent phase alignment compensates for local radar-ECG shifts before ECG decoding. Experiments on the public MMECG dataset using an 11-fold leave-one-subject-out protocol show that BeatAware-Radar2ECGNet achieves a PCC of 0.772$\pm$0.064, an RMSE of 0.096$\pm$0.012, a QMR of 99.9\%, and an R-F1 score of 0.946. Among baselines with complete metric availability, it obtains the lowest Q-Q, R-R, S-S, and T-T timing errors of 15.2 ms, 8.20 ms, 12.7 ms, and 11.5 ms, respectively. Compared with the TCN backbone, BeatAware improves PCC from 0.683$\pm$0.082 to 0.772$\pm$0.064 and reduces RMSE from 0.111$\pm$0.017 to 0.096$\pm$0.012, indicating that physiology-guided temporal priors and latent alignment improve waveform fidelity and beat-level monitoring reliability.
+
+\keywords{Radar-based ECG reconstruction \and Contactless cardiac monitoring \and FMCW radar \and Cross-modal learning \and Physiological prior modeling}
+\end{abstract}
+
+\section{Introduction}
+
+Cardiovascular diseases remain a major global health burden, motivating continuous and unobtrusive cardiac monitoring outside clinical settings. An electrocardiogram (ECG) is a central diagnostic signal because it directly records cardiac electrical activity and reveals beat timing, rhythm, and morphology~\cite{kouhalvandi2025advances,zhang2023overview}. However, conventional ECG acquisition relies on electrodes attached to the skin, which may cause discomfort, skin irritation, and reduced compliance during long-term monitoring~\cite{wuNonintrusiveHumanVital2024}. Contactless sensing with radio-frequency and millimeter-wave radar offers an appealing alternative: a radar placed near the user can measure subtle chest-wall motion induced by respiration and heartbeat without body contact~\cite{wuNonintrusiveHumanVital2024,hassanpourContactlessVitalSign2025a,noceraMachineLearningRADARbased2024}.
+
+Despite this promise, reconstructing ECG-like waveforms from radar signals remains an ill-posed cross-modal learning problem. Unlike HR or RR estimation, waveform-level ECG reconstruction requires preserving fine-grained P--QRS--T morphology and beat-to-beat temporal consistency~\cite{radar2ecg}. The core difficulty is the electromechanical domain gap: radar measures external thoracic mechanical motion, whereas ECG records internal cardiac electrical activity~\cite{chenmmwave,airecg}. Although these modalities are physiologically coupled, the mapping from radar to ECG is indirect, nonlinear, non-stationary, and not uniquely determined~\cite{radarode,disentangled}. Radar measurements are also vulnerable to respiration, body movements, multipath reflections, and ambient clutter, which can obscure weak cardiac micro-motion~\cite{liComprehensiveSurveyContactless2025,noceraMachineLearningRADARbased2024,singhMultiResidentNonContactVital2021,hassanpourContactlessVitalSign2025a}. These factors are amplified under subject-independent evaluation because anatomical differences, posture, and radar-to-body distance introduce substantial cross-subject variability~\cite{radarode,radar2ecg,airecg,chenmmwave}.
+
+Recent studies have begun to address this challenge by moving beyond purely direct regression. State-space and ODE-based models introduce temporal dynamics or mathematical priors~\cite{11322590,radarode,radarodemt}; diffusion-based models generate ECG waveforms from radar or Doppler conditions~\cite{airecg,ecgdiff,FromRadarCardiography}; and cross-modal or multi-scale models transfer representations from related physiological signals~\cite{disentangled,radar2ecg,cross-modalautoencoder}. These approaches show that physiological structure is important for radar-to-ECG reconstruction. However, strict leave-one-subject-out (LOSO) reconstruction remains challenging when the target subject is completely excluded from training and no calibration windows or few-shot adaptation are used.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{fig1_overview.png}
+        \vspace{-0.6em}
+    \caption{Overview of radar-based contactless ECG reconstruction.}
+    \label{fig:overview}
+\end{figure}
+
+We propose BeatAware-Radar2ECGNet to address continuous radar-to-ECG reconstruction under strict subject isolation. As illustrated in Fig.~\ref{fig:overview}, the proposed model uses physiology-guided, learnable inductive biases rather than a closed-form biomechanical simulator. Kinematic Inversion (KI) learns compact cardiac motion channels from 50-bin FMCW range-time inputs; Cardiac Prior Conditioning (CP) injects beat-structured temporal information through auxiliary QRS supervision and TFiLM modulation; and Phase Alignment (PA) provides latent temporal flexibility for subject-dependent radar-ECG phase shifts. Evaluated on the public MMECG dataset with an 11-fold LOSO protocol, the framework improves waveform reconstruction, fiducial timing, and clinical metrics over representative continuous-output baselines with complete metric availability.
+
+The main contributions are summarized as follows:
+\begin{itemize}
+    \setlength{\itemsep}{0.2em}
+    \setlength{\parsep}{0pt}
+    \setlength{\topsep}{0.3em}
+    \item We propose a physiology-guided framework for radar-to-ECG reconstruction that combines learned kinematic compression, cardiac-prior conditioning, temporal convolutional modeling, and latent phase alignment.
+    \item We introduce a beat-aware TFiLM conditioning mechanism, guided by an auxiliary QRS prior and rhythm embedding, that preserves beat-structured ECG morphology from radar input alone at inference.
+    \item We conduct a strict 11-fold LOSO evaluation on the public MMECG dataset, reporting waveform, event-level, clinical, subject-wise, condition-wise, and ablation analyses.
+\end{itemize}
+
+\section{Related Work}
+
+\subsection{Contactless Cardiac Monitoring with Radar}
+Early radar-based vital sign tracking primarily targeted macro-level metrics, such as respiration rate (RR), heart rate (HR), or basic heartbeat intervals, using continuous-wave (CW) or ultra-wideband (UWB) signals processed through classical filtering and frequency-domain analysis~\cite{kimEndtoendElectrocardiogramSignal2024,wangECGgrainedCardiacMonitoring2022c}. High-resolution frequency-modulated continuous-wave (FMCW) millimeter-wave radar has recently shifted attention toward fine-grained cardiac event characterization. CardiacWave exploits the cardiorespiratory scattering effect to recover high-definition cardiac activity waves~\cite{xuCardiacWaveMmWavebasedScheme2021}, while UWB systems have been used for ECG-grained monitoring through short-range spatial phase updates~\cite{wangECGgrainedCardiacMonitoring2022c}.
+
+Recent work has further investigated pathology-related and fiducial cardiac information. Cao et al. studied non-contact extraction of ECG fiducial points from radar signals using multi-neighbor differentiation~\cite{caoNoncontactDetectionElectrocardiogram2024a}. Distribution-encoding networks with microwave biomedical radar have also been validated for multi-class arrhythmia screening~\cite{11398845}. These studies demonstrate that radar signals contain cardiac information beyond simple heart-rate estimates, but they also highlight the vulnerability of radar waveforms to respiration, motion artifacts, and environmental interference.
+
+\subsection{Deep Cross-Modal ECG Reconstruction}
+Deep learning has become a major paradigm for bridging the mechanical-to-electrical gap in radar-based ECG reconstruction. RSSRNet processes STFT representations using a residual spectral-spatial encoder-decoder to separate respiratory and cardiac components~\cite{rssrnet}. SS-S2SA combines signal segmentation with an attention-based sequence-to-sequence network for FMCW radar ECG reconstruction~\cite{S2SA}. Recurrent and convolutional autoencoders have also been explored for modeling long temporal dependencies in radar sequences~\cite{li2025non}.
+
+To reduce the ambiguity of direct radar-to-ECG regression, recent methods introduce stronger structural priors. radarODE and radarODE-MTL embed ordinary differential equation or multi-task constraints into the reconstruction process~\cite{radarode,radarodemt}, and state-space approaches model continuous contactless cardiac dynamics from FMCW radar~\cite{11322590}. Generative methods such as AirECG, ECGDiff, and conditional diffusion models treat radar or Doppler signals as conditions for ECG waveform synthesis~\cite{airecg,ecgdiff,FromRadarCardiography}. Other approaches use learnable multi-resolution decomposition, cross-modal semantic distillation, or ECG-prior transfer to improve morphology preservation~\cite{lifwavnet,radar2ecg,cross-modalautoencoder}. BeatAware follows this physiology-guided direction but focuses on a lightweight continuous-output architecture with strict subject-independent evaluation and complementary beat-level monitoring metrics.
+
+\section{Method}
+
+\noindent\textbf{Problem Formulation.}
+We formulate radar-to-ECG reconstruction as a cross-modal sequence learning task. Let $\mathcal{D}=\{(X_i,Y_i,s_i)\}_{i=1}^{N}$ denote paired radar-ECG segments, where $X_i$ is an FMCW radar segment, $Y_i$ is the synchronized ECG waveform, and $s_i$ is the subject identity. Each radar input is a range-time window $X_i\in\mathbb{R}^{C_{\mathrm{in}}\times T}$, with $C_{\mathrm{in}}=50$ range bins and $T=1600$ samples. At $200\,\mathrm{Hz}$, each window covers $8\,\mathrm{s}$, and the ECG target is $Y_i\in\mathbb{R}^{1\times T}$.
+
+Given a mini-batch $X\in\mathbb{R}^{B\times C_{\mathrm{in}}\times T}$, the model learns
+\begin{equation}
+    \hat{Y}=f_{\theta}(X), \qquad 
+    \hat{Y}\in\mathbb{R}^{B\times 1\times T},
+\end{equation}
+where $\hat{Y}$ is the reconstructed ECG and $\theta$ denotes trainable parameters. We evaluate the model under a leave-one-subject-out protocol, where training, validation, and test subjects are strictly disjoint.
+
+Because radar measures thoracic mechanical motion while ECG records cardiac electrical activity, the mapping is indirect and ill-posed. BeatAware therefore decomposes $f_{\theta}$ into physiology-guided learnable components:
+\begin{equation}
+\begin{split}
+    M&=\mathcal{F}_{\mathrm{KI}}(X), \quad
+    P=\mathcal{F}_{\mathrm{CP}}(M), \\
+    H&=\mathcal{F}_{\mathrm{TCN}}(M\mid P), \quad
+    \hat{Y}=\mathcal{G}_{\mathrm{dec}}(\mathcal{F}_{\mathrm{PA}}(H)).
+\end{split}
+\end{equation}
+Here, KI extracts compact radar motion features, CP provides cardiac prior conditioning, the TCN backbone models temporal dynamics, PA performs latent phase alignment, and the decoder reconstructs the ECG waveform. The model is physiology-guided in the sense that these components encode learnable inductive biases derived from radar-ECG electromechanical coupling; they are not intended to be explicit first-principles electrophysiological or biomechanical solvers. The overall architecture is shown in Fig.~\ref{fig:architecture}.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{ICONIP_Figures/fig2_architecture.pdf}
+    \caption{
+Architecture of the proposed BeatAware-Radar2ECGNet. 
+The model reconstructs continuous ECG waveforms from FMCW radar range-time inputs through four main components: 
+(a) Kinematic Inversion (KI), which converts 50 range bins into compact motion channels; 
+(b) a TCN-based temporal feature extractor for latent cardiac dynamics modeling; 
+(c) Cardiac Prior Conditioning (CP), which predicts beat-structured priors and generates TFiLM modulation parameters; 
+and (d) Phase Alignment (PA), which compensates for latent radar-ECG phase shifts before ECG decoding. 
+Solid arrows denote the main reconstruction flow, while dashed arrows indicate prior-guided TFiLM conditioning.
+}
+    \label{fig:architecture}
+\end{figure}
+
+\noindent\textbf{Overall Architecture.}
+Given $X\in\mathbb{R}^{B\times50\times1600}$, KI first converts the multi-bin range-time representation into compact motion channels:
+\begin{equation}
+    M=\mathrm{Conv}_{1\times1}(\alpha\odot X),
+\end{equation}
+where $\alpha$ denotes learned range-bin attention weights, $\odot$ is element-wise multiplication, and $M\in\mathbb{R}^{B\times16\times1600}$. This attention-projection step suppresses redundant range-bin responses while retaining radar-derived motion cues related to cardiac activity. The design is motivated by the observation that cardiac micro-motion is typically concentrated in a subset of informative range bins, whereas other bins may contain respiration-dominant components, multipath reflections, or background clutter.
+
+CP then predicts soft cardiac prior maps and a rhythm embedding from the motion representation:
+\begin{equation}
+    P=\mathcal{F}_{\mathrm{CP}}(M).
+\end{equation}
+The auxiliary QRS target is generated from ECG R-peak annotations as a Gaussian soft mask with $\sigma=5$ samples, corresponding to 25 ms at 200 Hz. During training, this QRS supervision encourages the latent representation to preserve beat timing; during inference, the prior is predicted solely from radar features. The CP module also contains auxiliary P/T heads that provide additional soft structural channels for conditioning, but the supervised prior loss is applied to the more reliable QRS target to avoid noisy P/T fiducial supervision.
+
+To inject the cardiac prior into temporal feature learning, CP transforms $P$ into feature-wise modulation parameters and applies them to the backbone features:
+\begin{equation}
+    \tilde{H}=H\odot(1+\gamma(P))+\beta(P),
+\end{equation}
+where $\gamma(\cdot)$ and $\beta(\cdot)$ are learnable projections. This follows feature-wise temporal modulation~\cite{FiLM}, allowing beat-level prior information to adaptively modulate temporal representations.
+
+The conditioned representation is processed by a lightweight TCN backbone. A temporal stem projects the motion features to $B\times128\times400$ using a 1D convolution with kernel size 7 and stride 4. Five residual TCN blocks with dilation factors $\{1,2,4,8,16\}$ then model multi-scale temporal dependencies:
+\begin{equation}
+    H_l = H_{l-1}+\mathcal{T}_l(H_{l-1}),
+\end{equation}
+where $\mathcal{T}_l(\cdot)$ denotes two dilated convolution layers with normalization, activation, and dropout. Dilated temporal convolutions provide a large receptive field with efficient parallel computation, making them suitable for long-range sequence modeling~\cite{bai2018tcn}.
+
+Before decoding, PA applies a learnable channel-wise temporal filter:
+\begin{equation}
+    Z_c(t)=\sum_{\tau=-d}^{d} a_c(\tau)H_c(t-\tau),
+\end{equation}
+where $a_c(\tau)$ is the alignment kernel for channel $c$ and $d$ controls the temporal support. In our implementation, $d=20$ latent samples after the stride-4 temporal stem. This defines a broad local support for feature alignment, but the learned kernels are not interpreted as clinically calibrated electromechanical-delay or pre-ejection-period (PEP) estimators. PA gives the model temporal flexibility for subject-dependent radar-ECG phase shifts without requiring explicit delay annotations. Finally, the decoder upsamples $Z$ from length 400 to 1600 through two transposed convolution blocks and a final 1D projection layer, producing $\hat{Y}\in\mathbb{R}^{B\times1\times1600}$.
+
+\noindent\textbf{Training Objective.}
+The model is trained with a joint objective that combines waveform fidelity, spectral consistency~\cite{Yamamoto2020stftloss}, and QRS prior supervision:
+\begin{equation}
+    \mathcal{L}
+    =
+    \mathcal{L}_{1}(\hat{Y},Y)
+    +
+    \lambda_{\mathrm{stft}}
+    \mathcal{L}_{\mathrm{STFT}}(\hat{Y},Y)
+    +
+    \lambda_{\mathrm{qrs}}
+    \mathrm{BCE}(P_{\mathrm{qrs}},\bar{P}_{\mathrm{qrs}}).
+\end{equation}
+Here, $\mathcal{L}_{1}$ is the point-wise waveform loss, $\mathcal{L}_{\mathrm{STFT}}$ is a multi-resolution STFT loss, and $\bar{P}_{\mathrm{qrs}}$ is the ECG-derived QRS soft mask. We use $\lambda_{\mathrm{stft}}=0.1$ and $\lambda_{\mathrm{qrs}}=1.0$. The STFT loss uses FFT sizes $\{128,256,512\}$, hop sizes $\{64,128,256\}$, and window lengths $\{16,32,64\}$. The PA module is optimized implicitly through this objective.
+
+\section{Experiments}
+\vspace{-0.6em}
+
+\noindent\textbf{Experimental Setup.}
+\textit{Dataset and protocol.} We evaluate on the public MMECG dataset\footnote{\url{https://github.com/jinbochen0823/RCG2ECG}}~\cite{chenmmwave}, which contains synchronized FMCW radar and reference ECG recordings for radar-based ECG reconstruction. The dataset was collected using a TI AWR1843 radar operating at $77\,\mathrm{GHz}$ with $3.8\,\mathrm{GHz}$ bandwidth. It includes 91 trials from 11 healthy subjects under four physiological conditions: normal breathing (NB), irregular breathing (IB), post-exercise (PE), and sleep (SP). Both radar and ECG signals are sampled at $200\,\mathrm{Hz}$. For each trial, the radar input is represented as a range-time matrix with 50 range bins. We use 8-s windows, where each input is $X\in\mathbb{R}^{50\times1600}$ and the target ECG is $Y\in\mathbb{R}^{1\times1600}$.
+
+We adopt an 11-fold LOSO protocol to evaluate subject-independent generalization. In each fold, one subject is held out for testing, one subject from the remaining subjects is used for validation, and all other subjects are used for training. Validation and test recordings are segmented into 8-s windows with a 2-s stride, corresponding to 75\% within-record overlap. Subject splitting is performed before window-level evaluation, so overlapping windows are confined within a single subject split and cannot produce train-test leakage. No target-subject calibration windows, historical target-subject data, or few-shot test-time optimization are used.
+
+\noindent\textbf{Baselines.}
+We compare with representative continuous-output baselines, including GRU, BiLSTM, Transformer, U-Net1D, TCN, WaveGRU~\cite{wavegru2025}, AirECG~\cite{airecg}, RSSRNet~\cite{rssrnet}, and radarODE-MTL~\cite{radarodemt}. GRU, BiLSTM, Transformer, U-Net1D, and TCN provide generic sequence-to-sequence baselines covering recurrent, attention-based, convolutional, and temporal-convolutional modeling. WaveGRU, AirECG, RSSRNet, and radarODE-MTL represent recent radar-based ECG reconstruction strategies, including multi-scale recurrent modeling, diffusion-based generation, spectral-spatial reconstruction, and ODE-constrained multi-task temporal modeling. Reproduced continuous-output baselines are evaluated with the same MMECG LOSO split, 8-s validation/test windows, 2-s evaluation stride, normalization strategy, and metric pipeline. When a method's fiducial or clinical outputs are unavailable in the unified evaluation pipeline, those entries are marked as ``--'' and are excluded from ranking for the corresponding metrics.
+
+\noindent\textbf{Evaluation metrics.}
+We evaluate reconstruction quality from three complementary perspectives. Morphological metrics include PCC and RMSE, measuring waveform similarity and amplitude error. Event-based timing metrics include Q-Q, R-R, S-S, and T-T errors, measuring absolute timing differences between corresponding ECG fiducial points. Clinical metrics include Qualified Monitoring Rate (QMR) and R-F1@150 ms. A segment is counted as qualified if both the reference and reconstructed ECG have at least two detected R peaks and at least one matched RR interval exists; QMR is the percentage of qualified segments. R-F1 is computed with a 150-ms tolerance window. R-peaks and fiducial points are detected using NeuroKit2~\cite{neurokit2} for both reconstructed and reference ECG signals, with all timing errors reported in milliseconds.
+
+\noindent\textbf{Implementation details.}
+All models are implemented in PyTorch and trained on a single NVIDIA GeForce RTX 4080 SUPER GPU. Unless otherwise stated, models are trained for up to 150 epochs with a batch size of 16, an initial learning rate of $1\times10^{-4}$, and a weight decay of $1\times10^{-4}$ using AdamW. A cosine learning-rate scheduler and early stopping with a patience of 20 epochs are used. The best checkpoint is selected according to validation PCC. Radar inputs are channel-wise normalized in the preprocessed H5 files, and ECG targets are min-max normalized independently within each segment before model training.
+
+\section{Results and Discussion}
+\vspace{-0.6em}
+
+\noindent\textbf{Overall Comparison.}
+Table~\ref{tab:comprehensive_comparison} reports the quantitative comparison on MMECG under the LOSO protocol. The proposed model achieves the lowest RMSE overall, along with the best event-level and clinical results among methods with complete metric availability. Across the 11 LOSO folds, BeatAware obtains PCC $0.772\pm0.064$ and RMSE $0.096\pm0.012$, compared with PCC $0.683\pm0.082$ and RMSE $0.111\pm0.017$ for the TCN backbone. This indicates that the physiology-guided modules improve reconstruction beyond the temporal convolutional backbone alone while maintaining moderate cross-subject variation.
+
+radarODE-MTL reports a higher PCC, but its fiducial timing and clinical outputs are unavailable in our unified evaluation pipeline. We therefore do not claim the best PCC across all methods. Instead, Table~\ref{tab:comprehensive_comparison} highlights the complementary value of event-level metrics: global waveform correlation can remain high even when fiducial points are temporally shifted, while Q-Q, R-R, S-S, T-T, QMR, and R-F1 directly reflect whether the reconstructed ECG is usable for beat-level monitoring. Under this broader evaluation, BeatAware achieves Q-Q, R-R, S-S, and T-T errors of 15.2 ms, 8.20 ms, 12.7 ms, and 11.5 ms, respectively, with a QMR of 99.9\% and an R-F1 score of 0.946.
+
+\begin{table}[t]
+\centering
+\caption{Comparison with radar-to-ECG reconstruction methods on MMECG. PCC and RMSE are shown as mean$\pm$std across LOSO folds. Bold and shaded entries indicate the best value in each column, and gray entries indicate the second-best value. Missing entries are excluded from ranking for the corresponding metrics.}
+\label{tab:comprehensive_comparison}
+\vspace{-0.3em}
+\scriptsize
+\setlength{\tabcolsep}{1.6pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l c c c c c c c c c@{}}
+\toprule
+\multirow{2}{*}{\textbf{Methods}} 
+& \multirow{2}{*}{\textbf{Params}} 
+& \multicolumn{2}{c}{\textbf{Morph.}} 
+& \multicolumn{4}{c}{\textbf{Event-based Timing}} 
+& \multicolumn{2}{c}{\textbf{Clinical}} \\
+\cmidrule(lr){3-4}
+\cmidrule(lr){5-8}
+\cmidrule(lr){9-10}
+& 
+& \textbf{PCC}$\uparrow$ 
+& \textbf{RMSE}$\downarrow$ 
+& \textbf{Q-Q}$\downarrow$ 
+& \textbf{R-R}$\downarrow$ 
+& \textbf{S-S}$\downarrow$ 
+& \textbf{T-T}$\downarrow$ 
+& \textbf{QMR}$\uparrow$ 
+& \textbf{R-F1}$\uparrow$ \\
+\midrule
+GRU         
+& 0.38M & 0.180{\tiny$\pm$.11} & 0.158{\tiny$\pm$.02} & 25.1 & 24.7 & 25.8 & 26.5 & 52.2\% & 0.418 \\
+BiLSTM      
+& 0.30M & 0.048{\tiny$\pm$.09} & 0.175{\tiny$\pm$.03} & 24.5 & 25.9 & 24.8 & 29.2 & 55.0\% & 0.499 \\
+Transformer 
+& 0.98M & 0.308{\tiny$\pm$.13} & 0.153{\tiny$\pm$.02} & 22.4 & 17.0 & 20.6 & 27.4 & 82.7\% & 0.518 \\
+U-Net1D     
+& 0.30M & 0.345{\tiny$\pm$.12} & 0.150{\tiny$\pm$.02} & 20.5 & 16.1 & 20.8 & 23.6 & 95.4\% & 0.764 \\
+TCN         
+& 1.30M & 0.683{\tiny$\pm$.08} & 0.111{\tiny$\pm$.02} & \second{17.2} & 11.8 & \second{15.0} & \second{13.9} & 97.4\% & \second{0.941} \\
+WaveGRU~\cite{wavegru2025}     
+& 0.49M & 0.608{\tiny$\pm$.09} & \second{0.125{\tiny$\pm$.02}} & 22.7 & \second{10.9} & 19.3 & 16.3 & \second{99.4\%} & 0.854 \\
+AirECG~\cite{airecg}      
+& 20.1M & 0.147{\tiny$\pm$.07} & 0.206{\tiny$\pm$.03} & 26.7 & 25.6 & 26.4 & 27.1 & 86.8\% & 0.787 \\
+RSSRNet~\cite{rssrnet}     
+& 11.8M & 0.233{\tiny$\pm$.11} & 0.179{\tiny$\pm$.02} & 25.1 & 24.9 & 26.0 & 25.3 & 91.9\% & 0.800 \\
+radarODE-MTL~\cite{radarodemt}  
+& 35.2M & \best{0.870{\tiny$\pm$.05}} & 0.131{\tiny$\pm$.02} & -- & -- & -- & -- & -- & -- \\
+Ours        
+& 4.80M & \second{0.772{\tiny$\pm$.06}} & \best{0.096{\tiny$\pm$.01}} & \best{15.2} & \best{8.20} & \best{12.7} & \best{11.5} & \best{99.9\%} & \best{0.946} \\
+\bottomrule
+\end{tabular*}
+\vspace{0.4em}
+\parbox{\textwidth}{%
+\scriptsize
+\noindent\textit{Note:} Q-Q, R-R, S-S, and T-T errors are reported in milliseconds. R-F1 is computed with a 150-ms tolerance window. QMR is reported in percentage. ``--'' indicates unavailable fiducial or clinical metrics in the unified evaluation pipeline. The std values summarize fold-level variation.
+}
+\vspace{0.4em}
+\end{table}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\linewidth]{ICONIP_Figures/fig3_waveforms.pdf}
+    \vspace{-0.6em}
+    \caption{Representative ECG reconstruction examples under four physiological conditions: (a) Normal Breathing (NB), (b) Irregular Breathing (IB), (c) Post-Exercise (PE), and (d) Sleep Condition (SP). Ground-truth and reconstructed ECG signals are shown after amplitude normalization; PCC and RMSE are reported for each example.}
+    \label{fig:waveforms}
+    \vspace{0.7em}
+\end{figure}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\linewidth]{fig4_subject_condition_pcc.pdf}
+    \vspace{0.7em}
+    \caption{Subject- and condition-wise reconstruction results. Bars denote subject-level mean values, while markers indicate condition-specific mean results.}
+    \label{fig:subject_condition}
+    \vspace{0.7em}
+\end{figure}
+
+\noindent\textbf{Reconstruction and Robustness Analysis.}
+The qualitative examples in Fig.~\ref{fig:waveforms} show that BeatAware reconstructs ECG-like waveforms across normal breathing, irregular breathing, post-exercise, and sleep conditions. The reconstructed signals preserve the dominant rhythm and align well with reference R peaks, suggesting that the model captures the main cardiac motion patterns in the radar measurements. Fine P/T morphology and beat-to-beat amplitude variations remain harder to recover, reflecting the weaker coupling between subtle ECG components and radar-observed thoracic motion.
+
+Subject- and condition-wise results in Fig.~\ref{fig:subject_condition} further show that the model maintains stable performance across most subjects and physiological conditions. Normal breathing and sleep generally yield higher reconstruction quality, whereas post-exercise is more challenging because of faster heart rate and stronger cardiorespiratory dynamics. These subject-wise bars and segment-level distributions provide variation information across the LOSO test subjects. They support improved robustness within the healthy-subject MMECG setting, although they should not be interpreted as evidence of generalization to unseen radar hardware, substantially different environments, or pathological ECG morphologies.
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\linewidth]{ICONIP_Figures/fig5_cdf.pdf}
+    \caption{CDF analysis of reconstructed ECG segments: (a) PCC, (b) R-R interval error, (c) normalized RMSE, and (d) relative clinical interval errors.}
+    \label{fig:cdf_analysis}
+    \vspace{-0.6em}
+\end{figure}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\linewidth]{ICONIP_Figures/fig6_fiducial_timing.pdf}
+    \caption{Distribution of absolute fiducial timing errors for Q, R, S, and T peaks across physiological conditions. Errors are reported in milliseconds; lower values indicate better temporal alignment.}
+    \label{fig:fiducial_timing}
+    \vspace{-0.8em}
+\end{figure}
+
+\noindent\textbf{Distributional and Fiducial Timing Analysis.}
+We further assess segment-level reliability using the CDF curves in Fig.~\ref{fig:cdf_analysis}. The proposed model shows a favorable distribution, with PCC shifted toward higher values and RMSE concentrated in the lower-error region. The R-R interval error curve also indicates stable beat-to-beat timing for most test segments, suggesting that the improvement is not dominated by a small number of easy cases.
+
+Fiducial timing errors are analyzed in Fig.~\ref{fig:fiducial_timing}. R-peak localization is the most stable among the four fiducial points, which is consistent with the stronger mechanical response around ventricular contraction. In contrast, Q and T points show larger variability because they are lower-amplitude components and are less directly reflected in radar-observed thoracic motion. These results indicate that BeatAware preserves the main ECG temporal structure, while precise localization of subtle fiducial boundaries remains challenging.
+
+\noindent\textbf{Ablation Study.}
+Table~\ref{tab:ablation} evaluates the contribution of the main architectural components. Compared with the TCN-only baseline, KI improves PCC, RMSE, and RR error, indicating that learned kinematic motion channels provide a more effective radar representation. Among the KI variants, KI16 performs better than KI8 and is therefore adopted in the final model.
+
+CP and PA provide complementary benefits. Adding CP to the KI16-TCN baseline improves PCC from 0.730 to 0.748 and reduces RR error from 10.42 ms to 8.70 ms, showing that cardiac-prior conditioning helps guide beat-aware reconstruction. Adding PA alone mainly reduces RMSE and RR error, suggesting improved temporal alignment between radar-observed motion and ECG activity. With both CP and PA enabled, the full model achieves the best PCC, RMSE, and RR error in the ablation study. These results confirm that the performance gain comes from the joint use of KI, CP, and PA rather than from the TCN backbone alone.
+
+% =========================================================
+% Table 2: Ablation Study
+% =========================================================
+\begin{table}[!t]
+\centering
+\caption{Ablation study of BeatAware-Radar2ECGNet.}
+\label{tab:ablation}
+\footnotesize
+\setlength{\tabcolsep}{4.8pt}
+\renewcommand{\arraystretch}{1.08}
+
+\begin{tabular*}{\textwidth}
+{@{\extracolsep{\fill}}l c c c c c c c@{}}
+\toprule
+
+\multirow{2}{*}{\textbf{Variant}}
+& \multirow{2}{*}{\textbf{Params}}
+& \multicolumn{3}{c}{\textbf{Components}}
+& \multicolumn{3}{c}{\textbf{Metrics}} \\
+
+\cmidrule(lr){3-5}
+\cmidrule(lr){6-8}
+
+&
+& \textbf{KI}
+& \textbf{CP}
+& \textbf{PA}
+& \textbf{PCC}$\uparrow$
+& \textbf{RMSE}$\downarrow$
+& \textbf{RR$_{\mathrm{err}}$}$\downarrow$ \\
+
+\midrule
+
+TCN only
+& 1.30M
+& \xmark
+& \xmark
+& \xmark
+& 0.683
+& 0.111
+& 11.79 \\
+
+KI8 + TCN
+& 1.24M
+& 8
+& \xmark
+& \xmark
+& 0.714
+& 0.110
+& 10.59 \\
+
+KI16 + TCN
+& 1.40M
+& 16
+& \xmark
+& \xmark
+& 0.730
+& 0.109
+& 10.42 \\
+
+KI16 + TCN + CP
+& 3.18M
+& 16
+& \cmark
+& \xmark
+& 0.748
+& 0.097
+& 8.70 \\
+
+KI16 + TCN + PA
+& 3.02M
+& 16
+& \xmark
+& \cmark
+& 0.736
+& 0.102
+& 10.25 \\
+
+Full Model
+& 4.80M
+& 16
+& \cmark
+& \cmark
+& \textbf{0.772}
+& \textbf{0.096}
+& \textbf{8.20} \\
+
+\bottomrule
+\end{tabular*}
+
+\vspace{0.15em}
+
+\parbox{\textwidth}{%
+\footnotesize
+\textit{Note:} KI denotes the number of learned kinematic motion channels. CP and PA denote cardiac prior conditioning and phase alignment, respectively.
+}
+
+\vspace{0.4em}
+\end{table}
+
+
+% =========================================================
+% Further interpretation of PA
+% =========================================================
+To further clarify the interpretation of PA, we inspected the learned depth-wise alignment kernels after training. Across the 11 LOSO checkpoints, the maximum-magnitude tap remains centered at zero latent delay, while the absolute center-of-mass offset has a median of 0.42 latent samples, approximately 8.5 ms after mapping the 400-step latent sequence back to the 8-s window. The 75th percentile is 0.91 latent samples, approximately 18.3 ms. These small, identity-dominant offsets are much shorter than typical PEP values reported in cardiovascular studies~\cite{pilz2023pep}; therefore, PA should be understood as a learnable local phase-correction and smoothing operator in latent feature space, not as a direct physiological PEP measurement. This interpretation aligns with the modest yet consistent RMSE and RR-error gains observed in Table~\ref{tab:ablation}.
+
+
+% =========================================================
+% Prevent Table 2 from entering the Conclusion
+% =========================================================
+\FloatBarrier
+
+
+% =========================================================
+% Conclusion
+% =========================================================
+\section{Conclusion}
+
+This paper presented BeatAware-Radar2ECGNet, a physiology-guided framework for continuous ECG waveform reconstruction from FMCW radar, combining learned kinematic compression, cardiac-prior conditioning, temporal convolutional modeling, and latent phase alignment to improve waveform fidelity, fiducial timing accuracy, and beat-level monitoring reliability on MMECG under strict LOSO evaluation. The study is limited to a single public dataset of 11 healthy subjects, so the reported gains reflect subject-independent generalization within MMECG rather than generalization across populations, radar hardware, or clinical settings, and the cardiac-prior branch has not been validated on pathological morphologies such as arrhythmia or ischemic ST changes; future work will evaluate BeatAware on additional public radar-ECG datasets and add noise-injection and motion-artifact robustness analyses.
+
+
+% =========================================================
+% Acknowledgments
+% =========================================================
+\begin{credits}
+
+\subsubsection{\ackname}
+This work was supported by the Department of Data Science and AI, Auckland University of Technology.
+
+% \subsubsection{\discintname}
+% The authors have no competing interests to declare that are relevant to the content of this article.
+
+\end{credits}
+
+
+% =========================================================
+% References
+% =========================================================
+\bibliographystyle{splncs04}
+\bibliography{references}
+
+\end{document}
