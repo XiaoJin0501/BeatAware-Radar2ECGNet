@@ -2,7 +2,7 @@
   "experiment_id": "q1_temporal_tolerance_curve_audit",
   "tier": "probe",
   "publishable": false,
-  "status": "REGISTERED",
+  "status": "COMPLETED",
   "question": "How much of the repaired strict-LOSO B1 continuous error can be removed by GT-assisted bounded temporal shifts?",
   "model": "Frozen B1 checkpoints from q1_continuous_ecg_b1_lososv2_baseline",
   "protocol": "MMECG loso_v2 folds 1/5/9 development validation only; test unopened",
@@ -17,5 +17,20 @@
     "JSON and CSV artifacts plus publication-style PNG/PDF"
   ],
   "interpretation_guard": "Max-lag NCC consumes validation ECG and is an oracle diagnostic, never deployable performance. A rise localizes timing sensitivity but does not by itself prove physiological EMAT or identify a radar-only correction.",
-  "test_policy": "Validation only. The script rejects any split other than val."
+  "test_policy": "Validation only. The script rejects any split other than val.",
+  "result": {
+    "raw_full_window_pcc_at_0_fold_macro": 0.2231,
+    "filtered_fixed_support_ncc": {
+      "0_ms": 0.2229,
+      "20_ms": 0.3661,
+      "50_ms": 0.5633,
+      "70_ms": 0.6243,
+      "100_ms": 0.6353
+    },
+    "fold_1": "-0.0647 at 0 ms to 0.5861 at 100 ms; median selected lag +65 ms",
+    "fold_5": "0.5150 at 0 ms to 0.6673 at 100 ms; median selected lag +10 ms",
+    "fold_9": "0.2185 at 0 ms to 0.6526 at 100 ms; median selected lag +25 ms",
+    "boundary_check": "Only 2.1% of pooled windows select either +/-100 ms boundary; fold 1 has zero boundary hits.",
+    "interpretation": "A large GT-assisted timing-sensitive ceiling exists and saturates around 70-90 ms. This supports temporal misalignment as a major error component, but the per-window oracle does not prove physiological EMAT and supplies no deployable correction."
+  }
 }
