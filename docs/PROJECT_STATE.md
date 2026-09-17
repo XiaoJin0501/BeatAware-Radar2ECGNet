@@ -87,9 +87,11 @@ global cosine means were -0.137/+0.276/+0.088 on folds 1/5/9, and no module met
 the preregistered strong-conflict threshold. PCGrad is not authorized. The full
 record is `docs/audits/Q1_SHARED_GRADIENT_CONFLICT_AUDIT.md`.
 
-The only approved next task is to specify and preflight a repaired-`loso_v2`,
-capacity-controlled B2a (WSST only) versus B2b (WSST + native RCG) gate using
-the locked MR-STFT waveform loss. No training is currently active.
+The repaired-`loso_v2`, capacity-controlled B2a-wide (WSST only) versus B2b
+(WSST + native RCG) gate passed implementation preflight and is armed in the
+detached `q1_native_rcg_gate` session. It waits for at least 12000 MiB free GPU
+memory before running six paired fold-major jobs. No model is training while
+the threshold is unmet; do not interrupt the queue or overwrite its outputs.
 
 ## Do Not Do
 

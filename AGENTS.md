@@ -57,10 +57,11 @@ Do not launch formal experiments without an approved experiment specification.
   `docs/audits/Q1_LOSS_GATING_AUDIT.md`; do not overwrite its artifacts or
   `queue.log`.
 - The read-only shared-gradient audit is complete and did not authorize PCGrad
-  or branch isolation. The next task is a preregistered, capacity-controlled
-  B2a-versus-B2b input-resolution gate on repaired `loso_v2`, with MR-STFT
-  locked as the waveform core loss. Do not launch it before its spec, registry
-  row, committed implementation, smoke validation, and preflight exist.
+  or branch isolation. The preregistered, capacity-controlled B2a-wide/B2b
+  input-resolution gate is armed in detached session `q1_native_rcg_gate` and
+  waits for at least 12000 MiB free GPU memory. Do not stop, restart, overwrite,
+  or interfere with that session or
+  `experiments_mmecg/q1_native_rcg_resolution_gate/queue.log`.
 - `scripts/audit_shared_gradient_conflict.py` is the explicitly requested,
   registered exception to the legacy-script naming rule; it is read-only and
   must not be copied into additional one-off audit scripts.
