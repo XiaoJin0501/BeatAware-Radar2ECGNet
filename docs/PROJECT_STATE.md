@@ -104,6 +104,11 @@ pass (`docs/audits/Q1_WSST8S_SUBJECT_POOL_AUDIT.md`). Do not substitute
 4-second WSST. The 11-fold benchmark remains not launched pending clean
 preflight and GPU availability.
 
+The formal runner is hardened for epoch-level recovery with atomic artifacts
+and a terminal test-access state machine. Its frozen budget is 100 maximum
+epochs with patience 15. A controlled 1-epoch interruption resumed at epoch 2
+without constructing or evaluating the test split.
+
 ## Do Not Do
 
 - Do not promote pilots.

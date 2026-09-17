@@ -9,7 +9,6 @@ the held-out test subject once. Existing completed folds are resumable.
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import subprocess
 import sys
@@ -20,6 +19,8 @@ import h5py
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from src.utils.atomic_state import atomic_csv, atomic_json  # noqa: E402
 TAG = "q1_remnet_continuous_strict_loso_seed42"
 SPEC = ROOT / "experiments" / "specs" / f"{TAG}.json"
 REGISTRY = ROOT / "experiments_mmecg" / "EXPERIMENT_REGISTRY.csv"
@@ -39,7 +40,7 @@ def capture(*cmd: str) -> str:
 
 def require_preflight() -> tuple[str, str]:
     spec = json.loads(SPEC.read_text())
-    if spec.get("status", "").startswith("PREPARED") is False:
+    if spec.get("status") not in {"DATA_READY", "PREFLIGHT_PASSED"}:
         raise SystemExit(f"Unexpected spec state: {spec.get('status')}")
     dirty = capture("git", "status", "--short", "--untracked-files=no")
     if dirty:
@@ -66,6 +67,7 @@ def require_preflight() -> tuple[str, str]:
 
 
 def update_registry(commit: str, branch: str, status: str) -> None:
+    import csv
     with REGISTRY.open(newline="") as f:
         rows = list(csv.DictReader(f))
     fields = list(rows[0])
@@ -86,18 +88,20 @@ def update_registry(commit: str, branch: str, status: str) -> None:
         rows.append(values)
     else:
         row.update(values)
-    with REGISTRY.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
+    atomic_csv(REGISTRY, fields, rows)
 
 
 def run_folds(device: str) -> None:
     for fold in FOLDS:
-        result = OUT / "L3" / f"fold_{fold:02d}" / "test_metrics.json"
-        if result.exists():
+        fold_dir = OUT / "L3" / f"fold_{fold:02d}"
+        result = fold_dir / "test_metrics.json"
+        state_path = fold_dir / "run_state.json"
+        state = json.loads(state_path.read_text()) if state_path.exists() else None
+        if state and state.get("stage") == "COMPLETE" and result.exists():
             print(f"[skip] fold {fold:02d} already has locked test metrics", flush=True)
             continue
+        if state and state.get("stage") == "COMPLETE" and not result.exists():
+            raise SystemExit(f"Corrupt COMPLETE fold without metrics: {fold_dir}")
         cmd = [
             sys.executable, "scripts/train_continuous_ecg_pilot.py",
             "--arm", "B1", "--loss_arm", "L3", "--fold", str(fold),
@@ -117,10 +121,7 @@ def aggregate() -> None:
         record = json.loads(path.read_text())
         rows.append({"fold": fold, **{k: record["metrics"].get(k) for k in METRICS}})
     OUT.mkdir(parents=True, exist_ok=True)
-    with (OUT / "test_fold_metrics.csv").open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
+    atomic_csv(OUT / "test_fold_metrics.csv", list(rows[0]), rows)
     summary = {
         "experiment_id": TAG,
         "aggregation": "fold-macro over 11 held-out test subjects",
@@ -131,7 +132,7 @@ def aggregate() -> None:
             for key in METRICS
         },
     }
-    (OUT / "test_fold_macro_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    atomic_json(OUT / "test_fold_macro_summary.json", summary)
 
 
 def main() -> None:

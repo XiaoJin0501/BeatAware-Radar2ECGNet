@@ -149,6 +149,12 @@ pass the normal clean-worktree/GPU preflight first. Four-second WSST remains
 prohibited. Full evidence is in
 `docs/audits/Q1_WSST8S_SUBJECT_POOL_AUDIT.md`.
 
+The formal budget is frozen at **100 maximum epochs / patience 15**. The runner
+uses epoch-level atomic recovery and the irreversible state sequence
+`TRAINING -> CHECKPOINT_FROZEN -> TEST_EVALUATING -> COMPLETE`. Validation
+alone selects `best_composite.pt`; the test split cannot be constructed before
+the checkpoint is frozen, and a COMPLETE fold is terminal.
+
 ## Non-negotiable reporting rules
 
 - Never present Shape-200 as continuous ECG reconstruction.

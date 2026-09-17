@@ -3,7 +3,7 @@
   "research_question": "What is the locked WSST-driven REM-Net continuous-ECG performance under the complete repaired 11-fold strict-LOSO protocol?",
   "category": "final_candidate",
   "publishable": false,
-  "status": "DATA READY; not launched; verified deduplicated subject-centric 8-second WSST pool covers all 11 subjects and all 33,257 fold references; requires registry commit stamp, clean preflight, and available GPU",
+  "status": "DATA_READY",
   "model": "REM-Net continuous B1 with WSST-only input and locked L3 MR-STFT waveform loss",
   "dataset": "MMECG public loso_v2",
   "folds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
@@ -18,9 +18,9 @@
   },
   "training": {
     "seed": "42 + fold, deterministic cuDNN",
-    "budget": "80 epochs maximum, patience 20, AdamW lr 1e-4, weight decay 1e-4, batch 16",
+    "budget": "100 epochs maximum, patience 15, AdamW lr 1e-4, weight decay 1e-4, batch 16",
     "loss": "Huber + 0.20 event BCE + 0.50 MR-STFT; FFT/window 128/256/512, hops 32/64/128",
-    "checkpoint": "maximum frozen validation composite only; Shape-200 excluded"
+    "checkpoint": "maximum frozen validation composite only; Shape-200 excluded; epoch-level atomic recovery enabled"
   },
   "metrics": {
     "primary": ["continuous per-window PCC@0", "RMSE", "NRMSE", "MAE", "R2"],
@@ -29,6 +29,6 @@
     "aggregation": "fold-macro mean and population standard deviation over 11 test subjects; per-fold values retained",
     "nan_policy": "nanmean within evaluator; record NaN/failed values before promotion"
   },
-  "artifacts": ["per-fold config", "validation history and checkpoint", "test_metrics.json", "compressed per-window test predictions", "11-fold CSV and summary JSON"],
+  "artifacts": ["per-fold config", "atomic last_state.pt", "run_state.json", "validation history and checkpoint", "test_metrics.json", "compressed per-window test predictions", "11-fold CSV and summary JSON"],
   "promotion_limit": "This seed-42 run establishes the complete-fold candidate benchmark. Headline model claims require the registered multi-seed confirmation required by METRIC_CONTRACT.md."
 }

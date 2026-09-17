@@ -28,6 +28,10 @@ from src.data.mmecg_dataset import _gaussian_mask  # noqa: E402
 from src.data.wsst8s_subject_pool import SubjectWSSTPool  # noqa: E402
 from src.utils.metrics import detect_rpeaks  # noqa: E402
 from src.losses.losses import MultiResolutionSTFTLoss  # noqa: E402
+from src.utils.atomic_state import (  # noqa: E402
+    atomic_json, atomic_npz, atomic_torch_save, capture_rng_state,
+    restore_rng_state, transition_state,
+)
 from scripts.train_anchor_head import match_counts, peaks_from_heatmap  # noqa: E402
 
 PROCESSED = Path("/home/qhh2237/Datasets/MMECG/processed")
@@ -37,7 +41,7 @@ SUBJECT_POOL = PROCESSED / "wsst8s_subject_pool"
 BROKEN_SPLIT_ROOTS = {"loso"}
 DATA = PROCESSED / "loso_v2"
 FS = 200
-BUDGET = dict(epochs=80, patience=20, lr=1e-4, weight_decay=1e-4, batch_size=16, seed=42)
+BUDGET = dict(epochs=100, patience=15, lr=1e-4, weight_decay=1e-4, batch_size=16, seed=42)
 LEGACY_TARGET_ARMS = ("B0",)
 COMPOSITE_W = dict(pcc=0.40, nrmse=0.25, r2=0.20, f1=0.15)
 EVENT_W = 0.20                       # fixed, IDENTICAL across arms (not an ablated factor)
@@ -335,6 +339,10 @@ def main():
     ap.add_argument("--smoke", action="store_true", help="reduced run; writes to a SEPARATE tree")
     ap.add_argument("--smoke_epochs", type=int, default=1)
     ap.add_argument("--smoke_limit", type=int, default=48)
+    ap.add_argument("--output_root", default=None,
+                    help="smoke-only output override for isolated recovery tests")
+    ap.add_argument("--interrupt_after_epoch", type=int, default=None,
+                    help="smoke-only controlled interruption after atomic epoch save")
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--split_root", default="loso_v2")
     ap.add_argument("--exp_tag", default=None,
@@ -362,6 +370,8 @@ def main():
         epochs, limit, tag = a.smoke_epochs, a.smoke_limit, base_tag + "_smoke"
     else:
         epochs, limit, tag = BUDGET["epochs"], None, base_tag
+    if (a.output_root or a.interrupt_after_epoch is not None) and not a.smoke:
+        raise SystemExit("--output_root/--interrupt_after_epoch are smoke-only")
 
     completed_b1_loss_gate = a.arm == "B1" and a.loss_arm in ("L1", "L2", "L3")
     native_rcg_gate = a.arm in ("B2a-wide", "B2b") and a.loss_arm == "L3"
@@ -377,10 +387,21 @@ def main():
                    "B2b": "C1_native_rcg_dual_stream"}[a.arm]
     else:
         run_arm = a.arm if a.loss_arm == "L0" else a.loss_arm
-    out = ROOT / "experiments_mmecg" / tag / run_arm / f"fold_{a.fold:02d}"
-    if (out / "best.json").exists() and not a.overwrite:
-        raise SystemExit(f"Refusing to overwrite a completed run at {out}. Pass --overwrite to replace it.")
+    output_root = Path(a.output_root) if a.output_root else ROOT / "experiments_mmecg" / tag
+    out = output_root / run_arm / f"fold_{a.fold:02d}"
+    state_path = out / "run_state.json"
+    state = json.loads(state_path.read_text()) if state_path.exists() else None
+    if state and state["stage"] == "COMPLETE":
+        print(f"[sealed] COMPLETE fold at {out}; test cannot be reopened")
+        return
+    if (out / "best.json").exists() and state is None and not a.overwrite:
+        raise SystemExit(
+            f"Refusing legacy output without a resumable state machine at {out}. "
+            "Archive it or explicitly pass --overwrite.")
     (out / "checkpoints").mkdir(parents=True, exist_ok=True)
+    if state is None:
+        state = transition_state(state_path, "TRAINING", fold=a.fold, arm=a.arm,
+                                 loss_arm=a.loss_arm, test_accessed=False)
 
     _set_split_root(a.split_root)
     seed = effective_seed(a.fold)
@@ -413,7 +434,7 @@ def main():
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     except Exception:
         commit = head = "unknown"
-    (out / "config.json").write_text(json.dumps({
+    config = {
         "arm": a.arm, "fold": a.fold, "mode": "smoke" if a.smoke else "formal",
         "epochs": epochs, "limit": limit, "effective_seed": seed,
         "seed_rule": "BUDGET.seed + fold; identical across arms within a fold (paired)",
@@ -437,56 +458,115 @@ def main():
         "val_file_sha256": _split_sha(a.fold, "val"),
         "code_commit": commit, "code_commit_is": "last commit touching src/scripts/tests/configs",
         "runtime_head": head,
-    }, indent=2, default=str) + "\n")
+    }
+    config_path = out / "config.json"
+    if config_path.exists() and not a.overwrite:
+        prior = json.loads(config_path.read_text())
+        identity = ("arm", "fold", "loss_arm", "budget", "effective_seed",
+                    "split_root", "wsst_source")
+        mismatch = [key for key in identity if prior.get(key) != config.get(key)]
+        if mismatch:
+            raise SystemExit(f"Resume contract mismatch in {mismatch}: {out}")
+    else:
+        atomic_json(config_path, config)
 
+    scheduler = None  # Frozen protocol uses constant LR; state records this explicitly.
     best, best_ep, bad, hist, initial_components = -1e9, -1, 0, [], None
-    for ep in range(1, epochs + 1):
-        model.train(); tot = nb = 0; t0 = time.time()
-        for b in ltr:
-            kw = {"rcg": b["rcg"].to(dev)} if "rcg" in b else {}
-            y, ev = model(b["wsst"].to(dev), **kw)
-            target, event_target = b["y"].to(dev), b["event"].to(dev)
-            base_loss = F.huber_loss(y, target)
-            event_loss = EVENT_W * F.binary_cross_entropy_with_logits(ev, event_target)
-            aux_loss = auxiliary_waveform_loss(a.loss_arm, y, target, mrstft)
-            loss = base_loss + event_loss + aux_loss
-            if initial_components is None:
-                initial_components = {"huber": float(base_loss.detach()),
-                                      "weighted_event_bce": float(event_loss.detach()),
-                                      "weighted_auxiliary": float(aux_loss.detach()),
-                                      "total": float(loss.detach())}
-            opt.zero_grad(); loss.backward(); opt.step()
-            tot += float(loss); nb += 1
-        m = evaluate(model, lva, dev, compute_shape200=not a.arm.startswith("P"))
-        hist.append({"epoch": ep, "train_loss": tot / max(nb, 1), **m})
-        print(f"  ep{ep:3d} loss {tot/max(nb,1):.4f} | PCC {m['pcc']:.4f} NRMSE {m['nrmse']:.4f} "
-              f"R2 {m['r2']:+.3f} F1@100 {m['f1_100ms']:.3f} evF1 {m['event_f1_100ms']:.3f} "
-              f"| S {m['composite']:.4f} ({time.time()-t0:.0f}s)")
-        if m["composite"] > best:
-            best, best_ep, bad = m["composite"], ep, 0
-            torch.save({"model_state_dict": model.state_dict(), "epoch": ep,
-                        "composite": best, "arm": a.arm, "fold": a.fold},
-                       out / "checkpoints" / "best_composite.pt")
-        else:
-            bad += 1
+    start_epoch = 1
+    last_state_path = out / "checkpoints" / "last_state.pt"
+    if state["stage"] == "TRAINING" and last_state_path.exists() and not a.overwrite:
+        saved = torch.load(last_state_path, map_location=dev, weights_only=False)
+        expected = {"fold": a.fold, "arm": a.arm, "loss_arm": a.loss_arm,
+                    "max_epochs": epochs, "patience": BUDGET["patience"]}
+        mismatch = [key for key, value in expected.items() if saved.get(key) != value]
+        if mismatch:
+            raise SystemExit(f"Checkpoint resume contract mismatch in {mismatch}: {last_state_path}")
+        model.load_state_dict(saved["model_state_dict"])
+        opt.load_state_dict(saved["optimizer_state_dict"])
+        if scheduler is not None and saved["scheduler_state_dict"] is not None:
+            scheduler.load_state_dict(saved["scheduler_state_dict"])
+        best, best_ep = float(saved["best_val"]), int(saved["best_epoch"])
+        bad, hist = int(saved["patience_counter"]), saved["history"]
+        initial_components = saved["initial_loss_components"]
+        restore_rng_state(saved["rng_state"], g)
+        start_epoch = int(saved["epoch"]) + 1
+        print(f"[resume] fold{a.fold:02d} from epoch {start_epoch} "
+              f"(best={best:.4f}@{best_ep}, patience={bad})")
+
+    if state["stage"] == "TRAINING":
+        for ep in range(start_epoch, epochs + 1):
+            model.train(); tot = nb = 0; t0 = time.time()
+            for b in ltr:
+                kw = {"rcg": b["rcg"].to(dev)} if "rcg" in b else {}
+                y, ev = model(b["wsst"].to(dev), **kw)
+                target, event_target = b["y"].to(dev), b["event"].to(dev)
+                base_loss = F.huber_loss(y, target)
+                event_loss = EVENT_W * F.binary_cross_entropy_with_logits(ev, event_target)
+                aux_loss = auxiliary_waveform_loss(a.loss_arm, y, target, mrstft)
+                loss = base_loss + event_loss + aux_loss
+                if initial_components is None:
+                    initial_components = {"huber": float(base_loss.detach()),
+                                          "weighted_event_bce": float(event_loss.detach()),
+                                          "weighted_auxiliary": float(aux_loss.detach()),
+                                          "total": float(loss.detach())}
+                opt.zero_grad(); loss.backward(); opt.step()
+                tot += float(loss); nb += 1
+            m = evaluate(model, lva, dev, compute_shape200=not a.arm.startswith("P"))
+            hist.append({"epoch": ep, "train_loss": tot / max(nb, 1), **m})
+            print(f"  ep{ep:3d} loss {tot/max(nb,1):.4f} | PCC {m['pcc']:.4f} NRMSE {m['nrmse']:.4f} "
+                  f"R2 {m['r2']:+.3f} F1@100 {m['f1_100ms']:.3f} evF1 {m['event_f1_100ms']:.3f} "
+                  f"| S {m['composite']:.4f} ({time.time()-t0:.0f}s)")
+            if m["composite"] > best:
+                best, best_ep, bad = m["composite"], ep, 0
+                atomic_torch_save(out / "checkpoints" / "best_composite.pt", {
+                    "model_state_dict": model.state_dict(), "epoch": ep,
+                    "composite": best, "arm": a.arm, "fold": a.fold})
+            else:
+                bad += 1
+            atomic_torch_save(last_state_path, {
+                "epoch": ep, "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": opt.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
+                "patience_counter": bad, "best_val": best, "best_epoch": best_ep,
+                "history": hist, "initial_loss_components": initial_components,
+                "rng_state": capture_rng_state(g), "fold": a.fold, "arm": a.arm,
+                "loss_arm": a.loss_arm, "max_epochs": epochs,
+                "patience": BUDGET["patience"],
+            })
+            if a.interrupt_after_epoch == ep:
+                print(f"[controlled-interrupt] after atomic epoch {ep}")
+                raise SystemExit(75)
             if bad >= BUDGET["patience"]:
                 print(f"  early stop at ep{ep}"); break
-    (out / "history.json").write_text(json.dumps(hist, indent=2) + "\n")
-    (out / "initial_loss_components.json").write_text(
-        json.dumps(initial_components, indent=2) + "\n")
-    (out / "best.json").write_text(json.dumps({
-        "arm": a.arm, "loss_arm": a.loss_arm, "fold": a.fold,
-        "mode": "smoke" if a.smoke else "formal",
-        "best_epoch": best_ep, "best_composite": best, "code_commit": commit,
-        "runtime_head": head, "max_epochs": epochs, "patience": BUDGET["patience"],
-        "hit_epoch_cap": best_ep == epochs, "stopped_at_epoch": len(hist),
-        "early_stopped": len(hist) < epochs,
-        "selected_by": "full-waveform validation composite (Shape-200 excluded)",
-        "metrics": hist[best_ep - 1] if best_ep > 0 else None}, indent=2) + "\n")
+        atomic_json(out / "history.json", hist)
+        atomic_json(out / "initial_loss_components.json", initial_components)
+        atomic_json(out / "best.json", {
+            "arm": a.arm, "loss_arm": a.loss_arm, "fold": a.fold,
+            "mode": "smoke" if a.smoke else "formal",
+            "best_epoch": best_ep, "best_composite": best, "code_commit": commit,
+            "runtime_head": head, "max_epochs": epochs, "patience": BUDGET["patience"],
+            "hit_epoch_cap": best_ep == epochs, "stopped_at_epoch": len(hist),
+            "early_stopped": len(hist) < epochs,
+            "selected_by": "full-waveform validation composite (Shape-200 excluded)",
+            "metrics": hist[best_ep - 1] if best_ep > 0 else None})
+        state = transition_state(state_path, "CHECKPOINT_FROZEN", fold=a.fold,
+                                 arm=a.arm, loss_arm=a.loss_arm,
+                                 best_epoch=best_ep, test_accessed=False)
+    else:
+        frozen = json.loads((out / "best.json").read_text())
+        best, best_ep, hist = (float(frozen["best_composite"]),
+                               int(frozen["best_epoch"]),
+                               json.loads((out / "history.json").read_text()))
 
     if official_final:
         # The held-out test split is constructed only after the validation-best
         # epoch is frozen. Test metrics cannot influence training or selection.
+        if state["stage"] == "CHECKPOINT_FROZEN":
+            state = transition_state(state_path, "TEST_EVALUATING", fold=a.fold,
+                                     arm=a.arm, loss_arm=a.loss_arm,
+                                     best_epoch=best_ep, test_accessed=True)
+        if state["stage"] != "TEST_EVALUATING":
+            raise RuntimeError(f"Test access denied in state {state['stage']}")
         checkpoint = torch.load(out / "checkpoints" / "best_composite.pt",
                                 map_location=dev, weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
@@ -495,8 +575,8 @@ def main():
         lte = DataLoader(te, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
         test_metrics, arrays = evaluate(
             model, lte, dev, compute_shape200=False, return_outputs=True)
-        np.savez_compressed(out / "test_predictions.npz", **arrays)
-        (out / "test_metrics.json").write_text(json.dumps({
+        atomic_npz(out / "test_predictions.npz", arrays)
+        atomic_json(out / "test_metrics.json", {
             "arm": a.arm,
             "loss_arm": a.loss_arm,
             "fold": a.fold,
@@ -507,14 +587,18 @@ def main():
             "aggregation_within_fold": "per-window metrics averaged within held-out test subject",
             "shape200_excluded": True,
             "metrics": test_metrics,
-        }, indent=2) + "\n")
-        config_path = out / "config.json"
+        })
         config = json.loads(config_path.read_text())
         config.update({"split_used": ["train", "val", "test"],
                        "test_accessed": True,
                        "test_access_rule": "once, after validation checkpoint selection",
                        "test_file_sha256": _split_sha(a.fold, "test")})
-        config_path.write_text(json.dumps(config, indent=2, default=str) + "\n")
+        atomic_json(config_path, config)
+        state = transition_state(state_path, "COMPLETE", fold=a.fold,
+                                 arm=a.arm, loss_arm=a.loss_arm,
+                                 best_epoch=best_ep, test_accessed=True,
+                                 test_metrics="test_metrics.json",
+                                 test_predictions="test_predictions.npz")
         print(f"[test] B1 fold{a.fold}: PCC={test_metrics['pcc']:.4f} "
               f"R2={test_metrics['r2']:+.4f} -> {out / 'test_metrics.json'}")
     print(f"[done] {a.arm} fold{a.fold} ({'smoke' if a.smoke else 'formal'}): "
