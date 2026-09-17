@@ -1,0 +1,21 @@
+{
+  "experiment_id": "q1_temporal_tolerance_curve_audit",
+  "tier": "probe",
+  "publishable": false,
+  "status": "REGISTERED",
+  "question": "How much of the repaired strict-LOSO B1 continuous error can be removed by GT-assisted bounded temporal shifts?",
+  "model": "Frozen B1 checkpoints from q1_continuous_ecg_b1_lososv2_baseline",
+  "protocol": "MMECG loso_v2 folds 1/5/9 development validation only; test unopened",
+  "preprocessing": "Fourth-order zero-phase Butterworth 0.5-40 Hz applied independently to prediction and target, followed by per-window z-scoring",
+  "tolerances_ms": [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+  "correlation_rule": "For every window and tolerance, maximize PCC over integer lags within the tolerance. All lags use the same samples 20:1580 of the target and a shifted 1560-sample prediction support, so support length never changes with lag.",
+  "aggregation": "Window PCC first; mean within fold; then equal-weight fold-macro mean across folds. Per-window best lags at +/-100 ms are retained.",
+  "required_outputs": [
+    "raw unfiltered full-window PCC@0 for continuity with the primary metric",
+    "filtered fixed-support NCC curve per fold and fold-macro",
+    "best-lag histogram at +/-100 ms",
+    "JSON and CSV artifacts plus publication-style PNG/PDF"
+  ],
+  "interpretation_guard": "Max-lag NCC consumes validation ECG and is an oracle diagnostic, never deployable performance. A rise localizes timing sensitivity but does not by itself prove physiological EMAT or identify a radar-only correction.",
+  "test_policy": "Validation only. The script rejects any split other than val."
+}
