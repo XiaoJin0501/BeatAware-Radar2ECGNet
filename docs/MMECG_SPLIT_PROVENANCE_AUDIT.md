@@ -37,7 +37,7 @@ So a single fold, taken alone, is a valid strict-LOSO fold.
 
 **1. Validation diversity.** Model selection is calibrated on 2 subjects out of 11.
 
-**2. Cross-fold selection leakage in the aggregate.**
+**2. Cross-fold model-selection bias in the aggregate.**
 
 | subject | validation in folds | test in fold | consequence |
 |---|---|---|---|
@@ -45,7 +45,14 @@ So a single fold, taken alone, is a valid strict-LOSO fold.
 | S9 | 3, 7, 8, 9, 10, 11 | **4** | selection saw S9 in 6 folds before testing on it |
 
 Each fold is individually clean, but the 11-fold aggregate is not: checkpoints and
-hyperparameters were chosen using subjects that later appear as test subjects.
+hyperparameters were chosen using subjects that later appear as test subjects in other
+folds.
+
+**Terminology.** This is a *repeated / non-representative validation assignment* causing
+*cross-fold model-selection bias*. It is NOT test leakage: there is no within-fold
+train/val/test subject overlap in any of the 11 folds (invariant I1, verified
+programmatically). Calling it leakage would overstate the defect and misdescribe the
+test partition, which is a correct LOSO.
 
 **3. The recent pilots' "3 folds" are not 3 folds.** Folds 1, 5, 9 → validation
 subjects 14, 14, 9. Folds 1 and 5 have **byte-identical** validation data. Every
