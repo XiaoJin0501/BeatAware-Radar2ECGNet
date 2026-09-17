@@ -3,7 +3,8 @@
   "research_question": "Under repaired subject-independent validation, does native 200-Hz RCG add transferable continuous-ECG morphology information beyond a capacity-matched WSST-only model?",
   "category": "pilot",
   "publishable": false,
-  "status": "REGISTERED DESIGN ONLY; implementation, tests, code commit, smoke, and preflight required before launch",
+  "status": "READY TO LAUNCH; implementation, 4 tests, paired real-data smoke, and data preflight passed; formal queue may start when >=12000 MiB GPU memory is free",
+  "implementation_commit": "089d9e1fcf24ac44074fbb102d9d67c2a433e57a",
   "historical_constraint": "The earlier B2b pilot was protocol-invalid because its three folds contained only two distinct repeated validation subjects. Its negative result motivates caution but cannot decide this gate. The later raw-RCG timing gate reduced some signed bias without improving precision or detection; native RCG information remains unproven.",
   "protocol": {
     "dataset": "MMECG public loso_v2",
