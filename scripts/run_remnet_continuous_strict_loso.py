@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from statistics import mean, pstdev
 
+import h5py
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TAG = "q1_remnet_continuous_strict_loso_seed42"
@@ -43,12 +45,23 @@ def require_preflight() -> tuple[str, str]:
     if dirty:
         raise SystemExit("Refusing formal launch with uncommitted tracked files:\n" + dirty)
     split_root = Path("/home/qhh2237/Datasets/MMECG/processed/loso_v2")
+    pool_root = split_root.parent / "wsst8s_subject_pool"
+    pool_files = sorted(pool_root.glob("subject_*.h5"))
+    if len(pool_files) != 11:
+        raise SystemExit(f"Subject pool incomplete: expected 11 files, found {len(pool_files)}")
+    subjects = set()
+    for path in pool_files:
+        with h5py.File(path, "r") as h:
+            if h.attrs.get("support") != "full_window_samples_0_1600":
+                raise SystemExit(f"Invalid pool support: {path}")
+            subjects.add(int(h.attrs["subject_id"]))
+    if len(subjects) != 11:
+        raise SystemExit(f"Subject pool IDs are not unique: {sorted(subjects)}")
     for fold in FOLDS:
         for split in ("train", "val", "test"):
-            for suffix in (".h5", "_wsst8s.h5"):
-                path = split_root / f"fold_{fold:02d}" / f"{split}{suffix}"
-                if not path.exists():
-                    raise SystemExit(f"Missing required input: {path}")
+            path = split_root / f"fold_{fold:02d}" / f"{split}.h5"
+            if not path.exists():
+                raise SystemExit(f"Missing required input: {path}")
     return capture("git", "rev-parse", "HEAD"), capture("git", "branch", "--show-current")
 
 
@@ -89,7 +102,7 @@ def run_folds(device: str) -> None:
             sys.executable, "scripts/train_continuous_ecg_pilot.py",
             "--arm", "B1", "--loss_arm", "L3", "--fold", str(fold),
             "--split_root", "loso_v2", "--exp_tag", TAG,
-            "--final_test", "--device", device,
+            "--final_test", "--wsst_source", "subject_pool", "--device", device,
         ]
         print("+ " + " ".join(cmd), flush=True)
         subprocess.run(cmd, cwd=ROOT, check=True)

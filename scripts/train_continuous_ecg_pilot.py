@@ -25,11 +25,13 @@ from src.models.continuous.ce_net import (  # noqa: E402
     CENet, param_report, reset_module_parameters_paired, WIN,
 )
 from src.data.mmecg_dataset import _gaussian_mask  # noqa: E402
+from src.data.wsst8s_subject_pool import SubjectWSSTPool  # noqa: E402
 from src.utils.metrics import detect_rpeaks  # noqa: E402
 from src.losses.losses import MultiResolutionSTFTLoss  # noqa: E402
 from scripts.train_anchor_head import match_counts, peaks_from_heatmap  # noqa: E402
 
 PROCESSED = Path("/home/qhh2237/Datasets/MMECG/processed")
+SUBJECT_POOL = PROCESSED / "wsst8s_subject_pool"
 # The original `loso` split is PROTOCOL-INVALID: only 2 distinct validation subjects
 # across 11 folds (docs/MMECG_SPLIT_PROVENANCE_AUDIT.md). loso_v2 is the repaired split.
 BROKEN_SPLIT_ROOTS = {"loso"}
@@ -102,21 +104,30 @@ class Fold(Dataset):
     """
 
     def __init__(self, fold: int, split: str, arm: str, scaler: tuple[float, float] | None,
-                 limit=None, allow_test: bool = False):
+                 limit=None, allow_test: bool = False, wsst_source: str = "per_split"):
         if split == "test" and not allow_test:
             raise AssertionError("test split requires registered final-candidate mode")
         self.h5p = DATA / f"fold_{fold:02d}" / f"{split}.h5"
         self.wp = DATA / f"fold_{fold:02d}" / f"{split}_wsst8s.h5"
         self.arm, self.scaler = arm, scaler
         self.needs_rcg = arm in ("B2b", "P0-naive", "P1-gated")
-        with h5py.File(self.wp, "r") as w:
-            a = dict(w.attrs)
-            assert a["support"] == "full_window_samples_0_1600", f"{self.wp} is not full-support"
-            assert float(a["supported_fraction_of_target"]) == 1.0
-            n = w["wsst"].shape[0]
+        t0 = time.time()
+        if wsst_source == "subject_pool":
+            full_wsst = SubjectWSSTPool(SUBJECT_POOL).load_for_split(self.h5p)
+            n = len(full_wsst)
             self.n = min(limit, n) if limit else n
-            t0 = time.time()
-            self.wsst = np.asarray(w["wsst"][: self.n])            # float16 in RAM
+            self.wsst = full_wsst[:self.n]
+            self.wp = SUBJECT_POOL
+        elif wsst_source == "per_split":
+            with h5py.File(self.wp, "r") as w:
+                a = dict(w.attrs)
+                assert a["support"] == "full_window_samples_0_1600", f"{self.wp} is not full-support"
+                assert float(a["supported_fraction_of_target"]) == 1.0
+                n = w["wsst"].shape[0]
+                self.n = min(limit, n) if limit else n
+                self.wsst = np.asarray(w["wsst"][: self.n])        # float16 in RAM
+        else:
+            raise ValueError(f"Unknown wsst_source={wsst_source}")
         with h5py.File(self.h5p, "r") as h:
             self.ecg = np.asarray(h["ecg"][: self.n, 0], np.float32)
             self.rpk = [np.sort(np.unique(np.asarray(h["rpeak_indices"][i], np.int64)))
@@ -331,6 +342,7 @@ def main():
     ap.add_argument("--loss_arm", choices=["L0", "L1", "L2", "L3"], default="L0",
                     help="registered single-term loss ablation; L0 preserves the original objective")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--wsst_source", choices=["per_split", "subject_pool"], default="per_split")
     ap.add_argument(
         "--final_test", action="store_true",
         help="registered final-candidate mode: select on validation, then open test once")
@@ -344,6 +356,8 @@ def main():
         raise SystemExit(
             "--final_test is restricted to registered B1/L3 experiment "
             "q1_remnet_continuous_strict_loso_seed42")
+    if official_final and a.wsst_source != "subject_pool":
+        raise SystemExit("Official 11-fold final candidate requires --wsst_source subject_pool")
     if a.smoke:
         epochs, limit, tag = a.smoke_epochs, a.smoke_limit, base_tag + "_smoke"
     else:
@@ -373,7 +387,8 @@ def main():
     set_seed(seed)
     dev = torch.device(a.device)
     scaler = None if a.arm in LEGACY_TARGET_ARMS else fit_scaler(a.fold)
-    tr, va = Fold(a.fold, "train", a.arm, scaler, limit), Fold(a.fold, "val", a.arm, scaler, limit)
+    tr = Fold(a.fold, "train", a.arm, scaler, limit, wsst_source=a.wsst_source)
+    va = Fold(a.fold, "val", a.arm, scaler, limit, wsst_source=a.wsst_source)
     g = torch.Generator(); g.manual_seed(seed)
     ltr = DataLoader(tr, batch_size=BUDGET["batch_size"], shuffle=True, num_workers=0,
                      drop_last=True, generator=g)
@@ -404,6 +419,7 @@ def main():
         "seed_rule": "BUDGET.seed + fold; identical across arms within a fold (paired)",
         "cudnn_deterministic": True, "split_used": ["train", "val"], "test_accessed": False,
         "final_candidate_mode": official_final,
+        "wsst_source": a.wsst_source,
         "input_pipeline": "RAM-preloaded per fold (HDF5 was the bottleneck at ~269 s/epoch, 0% GPU)",
         "num_workers": 0,
         "scaler_median_iqr": scaler, "scaler_source": "ENTIRE training fold",
@@ -474,7 +490,8 @@ def main():
         checkpoint = torch.load(out / "checkpoints" / "best_composite.pt",
                                 map_location=dev, weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
-        te = Fold(a.fold, "test", a.arm, scaler, allow_test=True)
+        te = Fold(a.fold, "test", a.arm, scaler, allow_test=True,
+                  wsst_source=a.wsst_source)
         lte = DataLoader(te, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
         test_metrics, arrays = evaluate(
             model, lte, dev, compute_shape200=False, return_outputs=True)
