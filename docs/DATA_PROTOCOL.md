@@ -46,18 +46,16 @@ Forbidden in final inference:
 Shape-200 is a beat-normalized morphology protocol. It can support morphology
 claims but cannot by itself support final long-term continuous ECG claims.
 
-## Long-Term Assembly
+## Current output protocols
 
-Long-term assembly protocol is not yet locked. The next formal task is to
-define:
+The active protocol has three explicitly separated tiers:
 
-- anchor source: oracle or predicted;
-- cycle placement;
-- overlap handling;
-- trial/window stitching;
-- metric aggregation;
-- failure handling.
+1. Shape-200 is a known-cycle, beat-normalized morphology upper bound.
+2. Strict blind continuous ECG is the native 8-second, 1600-sample full-window
+   output under repaired LOSO, without ECG-derived alignment at inference.
+3. Temporal-tolerance analysis permits GT-selected lag only as a diagnostic
+   upper bound and must never be reported as achievable performance.
 
-Until this is done, long-term continuous ECG superiority claims remain
-untested. Shape-200 morphology claims may still support the Q1 model if the
-manuscript clearly labels them as morphology evidence.
+The former anchor-guided Route C assembly and learned delay-warp designs are
+closed. They are not pending interfaces or next experiments. Historical
+artifacts are retained in `archive/deprecated_docs/` and the claim ledger.

@@ -35,7 +35,8 @@ questions:
 
 - representation analysis explains why the model works;
 - event/morphology supervision supports the model mechanism;
-- long-term ECG assembly explains the remaining continuous-reconstruction gap;
+- strict blind continuous reconstruction and temporal-tolerance diagnostics
+  quantify the remaining waveform/timing gap without promoting an assembly route;
 - CR_RVS validation demonstrates cross-radar-modality robustness.
 
 ## Dataset Roles
@@ -53,7 +54,7 @@ in some external papers.
 | Model | Role |
 |---|---|
 | BeatAware | ICONIP baseline with raw/FMCW physiology-aware modules |
-| radarODE-MTL | Strong pipeline baseline; final paper comparison requires its long-term assembly protocol |
+| radarODE-MTL | Strong adapted morphology baseline; its official long-term assembly is not locally reproducible and must not be claimed |
 | REM-Net (code: REMAlignMTLNet; formerly "REM-AlignNet-MTL") | Q1 main model: morphology-first, beat-structured multi-task reconstruction |
 
 Canonical paper model name (locked 2026-08-10): **REM-Net**
@@ -61,9 +62,11 @@ Canonical paper model name (locked 2026-08-10): **REM-Net**
 beat-structured** radar-to-ECG reconstruction. The former working name
 "REM-AlignNet-MTL" and the code class `REMAlignMTLNet` refer to the same model;
 "Align" was dropped because the electromechanical-alignment/continuous thesis was
-demoted (see `docs/PAPER_CLAIM_LEDGER.md`, `docs/Q1_MANUSCRIPT_BLUEPRINT.md`).
-Anchor-guided continuous assembly (route C) is a mechanism analysis, not the main
-model. Do not introduce other names without a separate naming decision.
+closed (see `docs/PAPER_CLAIM_LEDGER.md` and `docs/Q1_JOURNAL_MASTER_PLAN.md`).
+The delay-warp and anchor-guided Route C assembly designs are closed historical
+routes. Their retained audits document negative evidence; they are not candidate
+models, next experiments, or manuscript performance claims. Do not introduce
+other names without a separate naming decision.
 
 ## Non-Negotiable Caveat
 
@@ -73,5 +76,7 @@ as final long-term continuous ECG reconstruction results.
 The current locked RQ1 main evidence uses Shape-200 beat morphology as the
 primary supervised output formulation: MMECG seed-42 final-test PCC 0.882 ±
 0.061 with 3-seed stability 0.885 ± 0.002, and CR_RVS seed-42 final-test PCC
-0.881 ± 0.013 with 3-seed stability 0.886 ± 0.001. Continuous ECG assembly is
-reported as a diagnostic/mechanism analysis, not as the main performance claim.
+0.881 ± 0.013 with 3-seed stability 0.886 ± 0.001. Current continuous ECG work
+uses the three-tier benchmark in `docs/Q1_JOURNAL_MASTER_PLAN.md`: Shape-200
+morphology, strict blind full-window reconstruction, and GT-assisted temporal
+tolerance diagnostics. Max-Lag NCC is diagnostic only.

@@ -2,8 +2,8 @@
 
 Status: draft spine for positioning only. This file is grounded in
 `docs/PAPER_CLAIM_LEDGER.md`, `docs/T1_MMECG_MORPHOLOGY_LOCKED.md`,
-`docs/T3_CRRVS_EXTERNAL_AUDIT.md`, `docs/ASSEMBLY_DESIGN.md`, and
-`docs/RESULTS_SKELETON.md`. It deliberately separates beat-morphology evidence
+`docs/T3_CRRVS_EXTERNAL_AUDIT.md`, `docs/PAPER_CLAIM_LEDGER.md`, and
+`docs/Q1_JOURNAL_MASTER_PLAN.md`. It deliberately separates beat-morphology evidence
 from continuous ECG evidence. Do not copy this into a manuscript without a final
 claim audit.
 

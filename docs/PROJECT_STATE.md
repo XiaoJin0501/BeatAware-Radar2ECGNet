@@ -6,18 +6,16 @@
 > They are excluded from model-quality claims. Shape-200 results and all CR_RVS
 > results are NOT affected. See `docs/PROTOCOL_CONFOUND_4S_INPUT.md`.
 
-Last updated: 2026-08-27
+Last updated: 2026-09-17
 Active branch: exp/rem-shape-guided-continuous-decoder
 Active GitHub issue: none
 
 ## Current Research Objective
 
-Serve RQ1: a new representation-aware radar-to-ECG model with strong **beat
-morphology** reconstruction on MMECG and CR_RVS under subject-independent
-protocols, favorable vs published/reproduced baselines, plus a mechanistic
-**discovery** about the continuous-ECG bottleneck. Main line = morphology +
-external validation + fair comparison (claims M1–M4). Anchor-guided continuous
-assembly (route C) is a demoted discovery/mechanism section (D1–D2).
+Serve RQ1 with REM-Net and the factorized three-tier benchmark locked in
+`docs/Q1_JOURNAL_MASTER_PLAN.md`: Shape-200 morphology, strict blind continuous
+ECG, and GT-assisted temporal-tolerance diagnostics. Delay-warp and Route C
+assembly are closed historical routes, not candidates for revival.
 
 ## Verified Evidence
 
@@ -72,24 +70,23 @@ assembly (route C) is a demoted discovery/mechanism section (D1–D2).
   audited if needed.
 - radarODE long-assembly not faithfully reproducible → compare in Shape-200 space,
   labeled adapted.
-- Robust sub-50 ms anchor localization under LOSO is unsolved (route C future work).
+- Robust sub-50 ms anchor localization under LOSO remains unsolved; the former
+  Route C implementation path is closed rather than retained as queued work.
 
-## Next Approved Tasks (main line)
+## Only approved next task
 
-1. Run eval-only expansion on frozen outputs using the ICONIP-style metric spirit:
-   PCC/RMSE plus QMR, R-F1, RR/HR, coverage, and reliable fiducial/region metrics.
-2. Run the `q1_remnet_multimetric_ablation_gate` 3-fold pilot before making causal
-   module claims.
-3. Promote only supported ablation arms to final all-fold experiments.
-4. After ablation audit, update `docs/paper/RQ1.tex` and publication figures.
+The detached `q1_loss_gate` session is waiting for GPU release. It will run the
+registered L1/L2/L3 single-loss comparison on repaired folds 1/5/9. Apply its
+pre-registered multi-metric decision rule; only a passing winner may be proposed
+for 11 folds. Do not launch another route while this gate is unresolved.
 
 ## Do Not Do
 
 - Do not promote pilots.
-- Do not claim component causality before `docs/RQ1_ABLATION_AND_METRIC_PLAN.md`
-  is satisfied.
+- Do not claim component causality before the current registered loss gate and
+  its multi-metric promotion rule are satisfied.
 - Do not optimize or narrate RQ1 around PCC alone.
-- Do not present route C as the Q1 main continuous model (demoted).
-- Do not scale route C to 11-fold or Stage 2 unless anchor precision generalization
-  is solved first.
+- Do not revive or scale Route C assembly or the learned delay-warp design.
+- Do not treat an archived roadmap, matrix, ADR, or change log as current
+  authorization. The master plan is the sole roadmap.
 - Do not describe Shape-200 as long-term continuous ECG evidence.

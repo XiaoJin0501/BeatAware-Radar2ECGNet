@@ -13,6 +13,7 @@ Read these files first:
 AGENTS.md
 CLAUDE.md
 docs/agent/SHARED_CONTEXT.md
+docs/Q1_JOURNAL_MASTER_PLAN.md
 docs/PROJECT_STATE.md
 docs/RESEARCH_CONTRACT.md
 docs/DATA_PROTOCOL.md
@@ -20,8 +21,6 @@ docs/METRIC_CONTRACT.md
 docs/EXPERIMENT_POLICY.md
 docs/AGENT_DEVELOPMENT_GUIDE.md
 docs/PAPER_CLAIM_LEDGER.md
-docs/PROJECT_STRUCTURE_Q1.md
-docs/NEXT_EXPERIMENTS_Q1.md
 docs/GITHUB_WORKFLOW.md
 experiments_mmecg/EXPERIMENT_REGISTRY.csv
 experiments_mmecg/README.md
@@ -34,12 +33,14 @@ reference_papers/README.md
 
 ## Current Claim Status
 
-The current strongest local result is Shape-200 beat morphology reconstruction,
-not final long-term continuous ECG reconstruction.
+The project uses a three-tier benchmark: Shape-200 morphology, strict blind
+full-window continuous ECG, and GT-assisted temporal-tolerance diagnostics.
+These endpoints must never be conflated.
 
 ```text
-MMECG REM-AlignNet-MTL Shape-200 PCC ~= 0.8898
-CR_RVS REM-AlignNet-MTL Shape-200 PCC ~= 0.8865
+MMECG REM-Net Shape-200 PCC ~= 0.885 (multi-seed stability result)
+CR_RVS REM-Net Shape-200 PCC ~= 0.886 (multi-seed stability result)
+MMECG repaired-split continuous PCC@0 = 0.223 (folds 1/5/9 diagnostic baseline)
 ```
 
 All current results are treated as `pilot` unless explicitly promoted in
@@ -47,10 +48,10 @@ All current results are treated as `pilot` unless explicitly promoted in
 
 ## Main Model
 
-`REM-AlignNet-MTL`:
+`REM-Net`:
 
 ```text
-Rhythm-Event-Morphology Alignment Network with Multi-Task Learning
+Representation–Event–Morphology Network
 ```
 
 The intended Q1 framing is a new representation-aware, event/morphology-guided
@@ -65,18 +66,18 @@ radar-to-ECG model validated on two datasets.
 
 ## Next Formal Milestone
 
-The next paper-critical experiment is to lock the final evaluation protocol.
-If the manuscript directly compares with radarODE-MTL's final long-ECG result,
-this requires a fair radarODE-style long-term ECG assembly evaluation:
+The only active experiment is the registered `q1_loss_gate`, currently waiting
+for GPU release. It compares three single-term waveform objectives on repaired
+MMECG folds 1/5/9:
 
 ```text
-radarODE-MTL original-style long ECG protocol
-REM-AlignNet-MTL under the same long ECG protocol
-MMECG strict LOSO
-CR_RVS 5-fold subject-independent validation
+L1: PCC loss
+L2: first-derivative loss
+L3: multi-resolution STFT loss
 ```
 
-Only after this should results be promoted from `pilot` to `final`.
+Only a term satisfying the preregistered multi-metric rule may advance. The
+former delay-warp and Route C assembly plans are archived, not pending work.
 
 ## Hygiene Rules
 

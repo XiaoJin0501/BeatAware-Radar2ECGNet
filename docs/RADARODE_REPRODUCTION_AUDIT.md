@@ -78,5 +78,6 @@ the same ranking column.
 ## F. Open items
 
 - Recover SST preprocessing from `MMECG_to_SST.m` to check input parity.
-- Decide whether to implement long-term assembly ourselves; if so it is *our*
+- Long-term assembly is not an active implementation route. If a future user
+  explicitly reopens it, any implementation would be *our*
   protocol, not the official one, and must be labelled as such.

@@ -28,7 +28,7 @@ subject-independent protocols, compares favorably with published/reproduced
 baselines. The continuous-ECG gap is reported as a **bounded diagnostic** with at
 least three components — morphology, beat timing, and per-cycle amplitude/baseline —
 and no component is currently claimed as dominant. See
-`docs/Q1_EXPERIMENT_MATRIX.md`, `docs/ASSEMBLY_DESIGN.md`.
+the archived historical designs under `archive/deprecated_docs/`.
 
 > Demoted (2026-08-10): "anchor-guided assembly as the main continuous model" is
 > NOT the main claim. 3-fold LOSO showed anchor detection recall generalizes but
@@ -36,7 +36,7 @@ and no component is currently claimed as dominant. See
 > continuous OLA ~0 on 2/3 folds even after recall is restored). Route C is kept
 > as a discovery + mechanism/future-direction section, not the Q1 main model.
 > The earlier "electromechanical delay `δ(t)`" thesis was falsified before this
-> (see `docs/ALIGNMENT_DESIGN.md` §7b).
+> (see `archive/deprecated_docs/ALIGNMENT_DESIGN.md` §7b).
 
 ## Main claims
 
@@ -83,5 +83,5 @@ and no component is currently claimed as dominant. See
 - No RQ1 performance claim may rely on PCC alone. Morphology claims require
   RMSE/MAE/R² support where available; monitoring claims require QMR/R-F1/RR or
   documented coverage; component claims require the ablation plan in
-  `docs/RQ1_ABLATION_AND_METRIC_PLAN.md`.
+  the current registered specification and `docs/Q1_JOURNAL_MASTER_PLAN.md`.
 - Promotion from pilot→final only via the result-promotion workflow.
