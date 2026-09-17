@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
 from src.models.continuous.ce_net import CENet, param_report, WIN  # noqa: E402
 from src.data.mmecg_dataset import _gaussian_mask  # noqa: E402
 from src.utils.metrics import detect_rpeaks  # noqa: E402
+from src.losses.losses import MultiResolutionSTFTLoss  # noqa: E402
 from scripts.train_anchor_head import match_counts, peaks_from_heatmap  # noqa: E402
 
 PROCESSED = Path("/home/qhh2237/Datasets/MMECG/processed")
@@ -39,6 +40,9 @@ R_SIGMA, QRS_SIGMA = 4.0, 16.0
 QRS_HALF = int(0.050 * FS)           # R +/- 50 ms
 STT_LO, STT_HI = int(0.080 * FS), int(0.400 * FS)   # R+80 ms .. R+400 ms
 REGION_DEF = {"qrs": "R +/- 50 ms", "stt": "R+80 ms .. R+400 ms"}
+LOSS_WEIGHTS = {"L1": 0.30, "L2": 0.10, "L3": 0.50}
+MRSTFT_CONFIG = {"fft_sizes": [128, 256, 512], "hop_sizes": [32, 64, 128],
+                  "win_lengths": [128, 256, 512]}
 
 
 def effective_seed(fold: int) -> int:
@@ -160,6 +164,46 @@ def waveform_metrics(pred, gt) -> dict:
             enumerate(("pcc", "rmse", "nrmse", "mae", "r2"))}
 
 
+def smoothing_diagnostics(pred: np.ndarray, gt: np.ndarray, fs: int = FS) -> dict:
+    """Direct tests for amplitude compression and high-frequency smoothing.
+
+    Ratios are computed per window and then averaged, so large-amplitude windows
+    cannot dominate a fold.  A value below one means the prediction carries less
+    variance / relative >10-Hz energy than its paired ground truth.
+    """
+    eps = 1e-12
+    var_ratio = np.var(pred, axis=1) / np.maximum(np.var(gt, axis=1), eps)
+    freq = np.fft.rfftfreq(pred.shape[1], d=1.0 / fs)
+    pp = np.abs(np.fft.rfft(pred - pred.mean(1, keepdims=True), axis=1)) ** 2
+    gg = np.abs(np.fft.rfft(gt - gt.mean(1, keepdims=True), axis=1)) ** 2
+    hi = freq > 10.0
+    pfrac = pp[:, hi].sum(1) / np.maximum(pp.sum(1), eps)
+    gfrac = gg[:, hi].sum(1) / np.maximum(gg.sum(1), eps)
+    hf_ratio = pfrac / np.maximum(gfrac, eps)
+    return {"amplitude_variance_ratio": float(np.nanmean(var_ratio)),
+            "above_10hz_energy_ratio": float(np.nanmean(hf_ratio))}
+
+
+def auxiliary_waveform_loss(arm: str, pred: torch.Tensor, target: torch.Tensor,
+                            mrstft: MultiResolutionSTFTLoss | None = None) -> torch.Tensor:
+    """One and only one registered loss-side intervention."""
+    if arm == "L0":
+        return pred.new_zeros(())
+    if arm == "L1":
+        pc = pred - pred.mean(dim=-1, keepdim=True)
+        tc = target - target.mean(dim=-1, keepdim=True)
+        rho = (pc * tc).sum(-1) / (
+            torch.sqrt((pc.square().sum(-1) * tc.square().sum(-1)).clamp_min(1e-12)))
+        return LOSS_WEIGHTS[arm] * (1.0 - rho).mean()
+    if arm == "L2":
+        return LOSS_WEIGHTS[arm] * F.l1_loss(torch.diff(pred, dim=-1), torch.diff(target, dim=-1))
+    if arm == "L3":
+        if mrstft is None:
+            raise ValueError("L3 requires the locked MR-STFT module")
+        return LOSS_WEIGHTS[arm] * mrstft(pred, target)
+    raise ValueError(f"unknown loss arm: {arm}")
+
+
 def region_errors(pred, gt, rps) -> dict:
     qrs, stt = [], []
     for p, y, r in zip(pred, gt, rps):
@@ -249,6 +293,7 @@ def evaluate(model, loader, dev, compute_shape200: bool = True) -> dict:
             r = b["rpeaks"][j].numpy(); RP.append(r[r >= 0].astype(float))
     P, G, EV = np.concatenate(P), np.concatenate(G), np.concatenate(EV)
     m = waveform_metrics(P, G)
+    m.update(smoothing_diagnostics(P, G))
     m.update(timing_metrics(P, EV, RP))
     m.update(region_errors(P, G, RP))
     if compute_shape200:
@@ -269,6 +314,8 @@ def main():
     ap.add_argument("--split_root", default="loso_v2")
     ap.add_argument("--exp_tag", default=None,
                     help="output tree name; defaults to the pilot tag, or <tag>_smoke in smoke mode")
+    ap.add_argument("--loss_arm", choices=["L0", "L1", "L2", "L3"], default="L0",
+                    help="registered single-term loss ablation; L0 preserves the original objective")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
 
@@ -279,7 +326,10 @@ def main():
     else:
         epochs, limit, tag = BUDGET["epochs"], None, base_tag
 
-    out = ROOT / "experiments_mmecg" / tag / a.arm / f"fold_{a.fold:02d}"
+    if a.loss_arm != "L0" and a.arm != "B1":
+        raise SystemExit("Loss ablation arms L1-L3 are registered only for architecture B1")
+    run_arm = a.arm if a.loss_arm == "L0" else a.loss_arm
+    out = ROOT / "experiments_mmecg" / tag / run_arm / f"fold_{a.fold:02d}"
     if (out / "best.json").exists() and not a.overwrite:
         raise SystemExit(f"Refusing to overwrite a completed run at {out}. Pass --overwrite to replace it.")
     (out / "checkpoints").mkdir(parents=True, exist_ok=True)
@@ -296,6 +346,7 @@ def main():
     lva = DataLoader(va, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
 
     model = CENet(a.arm).to(dev)
+    mrstft = MultiResolutionSTFTLoss(**MRSTFT_CONFIG).to(dev) if a.loss_arm == "L3" else None
     opt = torch.optim.AdamW(model.parameters(), lr=BUDGET["lr"], weight_decay=BUDGET["weight_decay"])
     # The commit that last touched EXECUTABLE code, not bare HEAD: later
     # spec/registry-only commits must not appear to change the implementation.
@@ -316,6 +367,8 @@ def main():
         "scaler_median_iqr": scaler, "scaler_source": "ENTIRE training fold",
         "budget": BUDGET, "params": param_report(model),
         "composite_weights": COMPOSITE_W, "event_loss_weight": EVENT_W,
+        "loss_arm": a.loss_arm, "loss_weight": LOSS_WEIGHTS.get(a.loss_arm, 0.0),
+        "mrstft_config": MRSTFT_CONFIG if a.loss_arm == "L3" else None,
         "region_definitions": REGION_DEF, "rpeak_readout": "waveform-derived",
         "metric_space": "raw ECG units for ALL arms (per-arm inverse applied)",
         "b0_inverse_is_oracle": a.arm in LEGACY_TARGET_ARMS,
@@ -326,14 +379,22 @@ def main():
         "runtime_head": head,
     }, indent=2, default=str) + "\n")
 
-    best, best_ep, bad, hist = -1e9, -1, 0, []
+    best, best_ep, bad, hist, initial_components = -1e9, -1, 0, [], None
     for ep in range(1, epochs + 1):
         model.train(); tot = nb = 0; t0 = time.time()
         for b in ltr:
             kw = {"rcg": b["rcg"].to(dev)} if "rcg" in b else {}
             y, ev = model(b["wsst"].to(dev), **kw)
-            loss = (F.huber_loss(y, b["y"].to(dev))
-                    + EVENT_W * F.binary_cross_entropy_with_logits(ev, b["event"].to(dev)))
+            target, event_target = b["y"].to(dev), b["event"].to(dev)
+            base_loss = F.huber_loss(y, target)
+            event_loss = EVENT_W * F.binary_cross_entropy_with_logits(ev, event_target)
+            aux_loss = auxiliary_waveform_loss(a.loss_arm, y, target, mrstft)
+            loss = base_loss + event_loss + aux_loss
+            if initial_components is None:
+                initial_components = {"huber": float(base_loss.detach()),
+                                      "weighted_event_bce": float(event_loss.detach()),
+                                      "weighted_auxiliary": float(aux_loss.detach()),
+                                      "total": float(loss.detach())}
             opt.zero_grad(); loss.backward(); opt.step()
             tot += float(loss); nb += 1
         m = evaluate(model, lva, dev, compute_shape200=not a.arm.startswith("P"))
@@ -351,8 +412,11 @@ def main():
             if bad >= BUDGET["patience"]:
                 print(f"  early stop at ep{ep}"); break
     (out / "history.json").write_text(json.dumps(hist, indent=2) + "\n")
+    (out / "initial_loss_components.json").write_text(
+        json.dumps(initial_components, indent=2) + "\n")
     (out / "best.json").write_text(json.dumps({
-        "arm": a.arm, "fold": a.fold, "mode": "smoke" if a.smoke else "formal",
+        "arm": a.arm, "loss_arm": a.loss_arm, "fold": a.fold,
+        "mode": "smoke" if a.smoke else "formal",
         "best_epoch": best_ep, "best_composite": best, "code_commit": commit,
         "runtime_head": head, "max_epochs": epochs, "patience": BUDGET["patience"],
         "hit_epoch_cap": best_ep == epochs, "stopped_at_epoch": len(hist),

@@ -166,12 +166,14 @@ def test_registered_metric_set_is_complete():
     m = T.waveform_metrics(pred, gt)
     m.update(T.timing_metrics(pred, ev, rps))
     m.update(T.region_errors(pred, gt, rps))
+    m.update(T.smoothing_diagnostics(pred, gt))
     m["shape200_pcc_auxiliary"] = T.shape200_pcc(pred, gt, rps)
     required = {"pcc", "rmse", "nrmse", "mae", "r2",
                 "f1_50ms", "f1_100ms", "f1_150ms",
                 "event_f1_50ms", "event_f1_100ms", "event_f1_150ms",
                 "rr_error_ms", "hr_error_bpm", "rr_coverage",
-                "qrs_region_mae", "stt_region_mae", "shape200_pcc_auxiliary"}
+                "qrs_region_mae", "stt_region_mae", "shape200_pcc_auxiliary",
+                "amplitude_variance_ratio", "above_10hz_energy_ratio"}
     assert required <= set(m), f"missing: {required - set(m)}"
 
 
@@ -236,6 +238,28 @@ def test_broken_split_root_is_refused():
     assert "loso" in T.BROKEN_SPLIT_ROOTS
     with pytest.raises(SystemExit):
         T._set_split_root("loso")
+
+
+def test_loss_ablation_is_single_term_and_locked():
+    pred = torch.randn(3, 1, 1600, requires_grad=True)
+    target = torch.randn(3, 1, 1600)
+    assert T.auxiliary_waveform_loss("L0", pred, target).item() == 0.0
+    assert T.auxiliary_waveform_loss("L1", pred, target).item() > 0
+    assert T.auxiliary_waveform_loss("L2", pred, target).item() > 0
+    mr = T.MultiResolutionSTFTLoss(**T.MRSTFT_CONFIG)
+    assert T.auxiliary_waveform_loss("L3", pred, target, mr).item() > 0
+    assert T.MRSTFT_CONFIG == {"fft_sizes": [128, 256, 512],
+                               "hop_sizes": [32, 64, 128],
+                               "win_lengths": [128, 256, 512]}
+
+
+def test_smoothing_diagnostics_identify_attenuation():
+    t = np.arange(1600) / T.FS
+    gt = np.stack([np.sin(2*np.pi*2*t) + 0.5*np.sin(2*np.pi*20*t)] * 3)
+    pred = 0.5 * np.stack([np.sin(2*np.pi*2*t) + 0.1*np.sin(2*np.pi*20*t)] * 3)
+    d = T.smoothing_diagnostics(pred, gt)
+    assert d["amplitude_variance_ratio"] < 1.0
+    assert d["above_10hz_energy_ratio"] < 1.0
 
 
 def test_run_records_validation_file_hash():
