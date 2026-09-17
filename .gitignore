@@ -10,6 +10,14 @@ experiments_mmecg/*
 experiments/manifests/artifacts/
 experiments/manifests/predictions/
 
+# Archived experiment artifacts remain on disk for traceability but can contain
+# multi-gigabyte checkpoints/arrays. Version only the migration manifest; the
+# canonical registry records every archived destination.
+archive/legacy_experiments/pilots_and_gates/*
+archive/legacy_experiments/failed_and_trash/*
+archive/legacy_experiments/tuning_runs/*
+!archive/legacy_experiments/ARCHIVE_MANIFEST.tsv
+
 # ── 本地文献 PDF（保留 README/BibTeX，PDF 不进 GitHub）──────────
 reference_papers/*.pdf
 

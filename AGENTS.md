@@ -38,3 +38,25 @@ After each change:
 - report files, commands, results, and remaining risks.
 
 Do not launch formal experiments without an approved experiment specification.
+
+## Repository sanitation and experiment governance
+
+- Do not create independent scripts or result directories whose names begin
+  with `probe_`, `smoke_`, `pilot_`, or `gate_`. Auxiliary checks must use an
+  existing registered entry point, in-memory analysis, or temporary parameters.
+- Do not create an unregistered directory under `experiments_mmecg/`. Only an
+  approved, registered formal experiment may persist there. Smoke output must
+  be isolated inside its registered experiment directory and is never evidence.
+- Failed and historical work remains traceable under `archive/`; move it there
+  rather than deleting it. Update `EXPERIMENT_REGISTRY.csv` to say `Archived`
+  and retain the destination.
+- The canonical paper roadmap is `docs/Q1_JOURNAL_MASTER_PLAN.md`. The model
+  name is REM-Net; do not revive REM-AlignNet or invent a replacement name.
+- The only active task is the detached `q1_loss_gate` session, waiting for GPU
+  release to execute the registered L1/L2/L3 loss gate on folds 1/5/9. Never
+  stop, restart, overwrite, or interfere with that session or its `queue.log`.
+- Temporary compatibility exception until that session completes:
+  `scripts/run_continuous_loss_ablation_queue.sh`,
+  `scripts/train_continuous_ecg_pilot.py`, and
+  `scripts/train_anchor_head.py` must remain at their current paths because the
+  live queue references them. Archive/rename them only after verified completion.
