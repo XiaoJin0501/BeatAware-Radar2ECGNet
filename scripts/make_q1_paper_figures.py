@@ -25,7 +25,6 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "experiments_mmecg" / "q1_paper_figures"
-OUT.mkdir(parents=True, exist_ok=True)
 plt.rcParams.update({"font.size": 11, "axes.grid": True, "grid.alpha": 0.3, "figure.dpi": 150})
 
 TIER_COLOR = {"proposed": "#1f77b4", "adapted": "#ff7f0e", "baseline": "#7f7f7f",
@@ -33,6 +32,7 @@ TIER_COLOR = {"proposed": "#1f77b4", "adapted": "#ff7f0e", "baseline": "#7f7f7f"
 
 
 def _save(fig, name):
+    OUT.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(OUT / f"{name}.png", bbox_inches="tight")
     fig.savefig(OUT / f"{name}.pdf", bbox_inches="tight")
