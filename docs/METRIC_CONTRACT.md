@@ -92,6 +92,56 @@ current gate is defined by
 The former long-OLA/Route C assembly is withdrawn from the active metric
 contract. Do not invoke its archived evaluator as a required endpoint.
 
+## Continuous benchmark reporting rules
+
+Binding from 2026-09-18. Derived from
+`docs/audits/Q1_REMNET_CONTINUOUS_11FOLD_METRIC_AUDIT.md`, which audited
+`q1_remnet_continuous_strict_loso_seed42`. These rules govern reporting; they do
+not alter the frozen evaluator.
+
+### Definitions previously missing from this contract
+
+| Metric | Definition |
+|---|---|
+| `nrmse` | window RMSE divided by the **IQR of that window's ground truth**, then averaged over windows. Not range- or mean-normalized. |
+| `amplitude_variance_ratio` | `var(pred)/var(gt)` per window, averaged. Below 1 means amplitude compression / regression toward the mean. |
+| `above_10hz_energy_ratio` | (predicted >10 Hz energy fraction) / (ground-truth >10 Hz energy fraction), per window, averaged. A ratio of ratios, therefore heavy-tailed. |
+| `rr_coverage` | fraction of windows in which both the prediction and the ground truth yield >=2 detected R peaks, i.e. the denominator behind RR/HR. |
+| `f1_*ms` vs `event_f1_*ms` | `f1_*ms` uses peaks detected **on the reconstructed waveform**; `event_f1_*ms` uses peaks from the **event head**. They are different readouts and must never be merged, renamed into one another, or reported without saying which is which. |
+
+### Units
+
+The stored MMECG ECG is z-scored per record. `rmse`, `mae`, `qrs_region_mae` and
+`stt_region_mae` are therefore in standard-deviation units of the subject's own
+ECG, **not millivolts**. Every table must say so.
+
+### Aggregation labels
+
+Continuous-benchmark metrics do not share one aggregation style: waveform and
+smoothing metrics are window-macro, all F1 values are pooled across windows
+(micro), and region MAE is pooled across beats. Each table entry states its
+style, and the across-fold line states `population std across N folds` whenever
+the frozen summary artifact is the source.
+
+### Coverage gating for rate metrics
+
+RR and HR errors are aggregated only over folds with `rr_coverage >= 0.80`.
+Excluded folds are listed individually and reported as failure cases, never
+silently dropped and never averaged in. A gated aggregate must state how many
+folds it covers.
+
+### Heavy-tailed ratio metrics
+
+`above_10hz_energy_ratio` is reported as median with IQR, plus per-fold values
+and the maximum. Its mean ± std may not appear alone.
+
+### Composite disclosure
+
+When a validation composite contains clipped terms that are inactive in the
+observed operating range, the manuscript methods section must say which terms
+were effectively inactive. A frozen composite is never edited after a run to
+make the description tidier.
+
 ## Shape-200 vs Continuous
 
 Shape-200 (beat-normalized, amplitude-normalized morphology) is an **easier**

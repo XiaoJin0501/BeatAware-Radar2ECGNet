@@ -137,6 +137,37 @@ R² 0.018 ± 0.181, NRMSE 2.151 ± 0.360, and waveform F1@100 ms 0.750 ± 0.265.
 These values freeze the proposed-model seed-42 endpoint; they do not establish
 superiority or authorize further model tuning.
 
+### Metric audit of the completed benchmark (2026-09-18)
+
+`docs/audits/Q1_REMNET_CONTINUOUS_11FOLD_METRIC_AUDIT.md` audited definitions,
+units, aggregation, and NaN handling for this run; the manifest is
+`experiments/manifests/q1_remnet_continuous_strict_loso_seed42.json`. Protocol
+checks passed: 11/11 folds `COMPLETE`, all validation and all test file hashes
+distinct, test opened once per fold after checkpoint freezing, zero NaN.
+
+Locked wording for this result:
+
+- R² is **centred near zero across folds**, not reliably positive: mean 0.018,
+  population std 0.181, negative on folds 1, 2, 3, 10 and 11.
+- The **amplitude variance ratio 0.312 ± 0.150** is the mechanism evidence that
+  the prediction retains roughly a third of ground-truth variance, i.e.
+  substantial residual regression toward the mean. Amplitude collapse is
+  mitigated, not resolved.
+- RMSE/MAE/region MAE are in per-record **z-score units**, not millivolts.
+- The validation composite is partially degenerate — its NRMSE term is
+  identically zero because NRMSE > 1 throughout — and the methods section must
+  say so rather than paraphrase the formula as fully active.
+
+Two reporting rules are binding for every continuous table (now in
+`docs/METRIC_CONTRACT.md`): RR/HR aggregate only over folds with
+`rr_coverage >= 0.80`, with fold 7 (coverage 0.0039) reported as a failure case
+and the gated values RR 44.5 ± 30.1 ms / HR 3.39 ± 1.83 bpm over 10 folds; and
+`above_10hz_energy_ratio` is reported as median 0.122, IQR [0.083, 0.195],
+because fold 5 reaches 1.702.
+
+These rules apply unchanged to the matched-protocol baselines below, so that
+baseline and REM-Net numbers remain directly comparable.
+
 **Data preparation complete (2026-09-18):** the deduplicated subject-centric
 8-second WSST pool contains all 11 subjects and 16,682 unique windows in 23.95
 GiB. All 33,257 train/validation/test fold references resolve without a missing

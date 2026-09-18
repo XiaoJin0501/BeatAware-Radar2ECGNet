@@ -98,6 +98,32 @@ The frozen WSST-driven REM-Net B1 + L3 MR-STFT candidate completed all 11
 R² 0.018, NRMSE 2.151, and F1@100 ms 0.750. REM-Net tuning and new-mechanism
 exploration are stopped.
 
+The metric audit of that run is complete
+(`docs/audits/Q1_REMNET_CONTINUOUS_11FOLD_METRIC_AUDIT.md`; manifest
+`experiments/manifests/q1_remnet_continuous_strict_loso_seed42.json`). Permitted
+interpretation: R² is **centred near zero across folds**, not reliably positive
+— negative on folds 1, 2, 3, 10 and 11 with population std 0.181 — and the
+amplitude variance ratio **0.312 ± 0.150** documents substantial residual
+regression toward the mean. Amplitude collapse is mitigated, not resolved.
+Units: RMSE/MAE/region MAE are in per-record z-score units, not millivolts.
+
+Two reporting rules are binding from this audit (see the new "Continuous
+benchmark reporting rules" section of `docs/METRIC_CONTRACT.md`):
+
+- RR/HR aggregate only over folds with `rr_coverage >= 0.80`. Fold 7 collapsed
+  to 0.0039 (waveform F1@50 0.003 while its event head still reached F1@100
+  0.410) and is reported as a failure case, not averaged in. Gated values: RR
+  **44.5 ± 30.1 ms**, HR **3.39 ± 1.83 bpm** over 10 folds; the ungated 218.9 ms
+  / 6.09 bpm in the frozen summary JSON must not be tabulated.
+- `above_10hz_energy_ratio` is reported as **median 0.122, IQR [0.083, 0.195]**
+  with per-fold values, because fold 5 reaches 1.702; its mean ± std may not
+  stand alone.
+
+The validation composite is partially degenerate and must be described as such
+in the methods: the NRMSE term is identically zero because NRMSE > 1 throughout,
+so selection was effectively driven by PCC and waveform F1@100. It was frozen
+before the run and is not edited retroactively.
+
 The only approved next task is matched-protocol baseline alignment. Audit and
 then adapt radarODE-MTL, AirECG, RSSRNet, and retained generic baselines to the
 same repaired split, 8-second input/output support, validation-only checkpoint

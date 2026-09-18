@@ -1,0 +1,193 @@
+{
+  "experiment_id": "q1_remnet_continuous_strict_loso_seed42",
+  "category": "final_candidate",
+  "publishable": false,
+  "commit_id": "a76bd22676cbd0452bc7af3f70a3d4e6039910bb",
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "spec": "experiments/specs/q1_remnet_continuous_strict_loso_seed42.json",
+  "registry_row": "experiments_mmecg/EXPERIMENT_REGISTRY.csv:105",
+  "audit": "docs/audits/Q1_REMNET_CONTINUOUS_11FOLD_METRIC_AUDIT.md",
+  "completed": "2026-09-18T03:41+12:00",
+  "model": "REM-Net continuous B1 (WSST-only) with locked L3 MR-STFT waveform core",
+  "loss": "Huber + 0.20 event BCE + 0.50 MR-STFT (FFT/window 128/256/512, hops 32/64/128)",
+  "entry_points": [
+    "scripts/run_remnet_continuous_strict_loso.py",
+    "scripts/train_continuous_ecg_pilot.py --arm B1 --loss_arm L3 --final_test"
+  ],
+  "data_provenance": {
+    "split_root": "/home/qhh2237/Datasets/MMECG/processed/loso_v2",
+    "input_source": "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool (8 s full-window WSST, (50,71,240) float16)",
+    "target": "stored MMECG ECG, 1x1600 at 200 Hz, per-record z-scored; trained in train-fold robust-scaled space and inverted before scoring",
+    "scaler": "median/IQR over the ENTIRE training fold only (fit_scaler)",
+    "four_second_wsst": "prohibited and not used",
+    "split_hashes": "per-fold val/test SHA256 recorded below; all 11 validation files and all 11 test files are distinct"
+  },
+  "protocol": {
+    "folds": 11,
+    "design": "strict LOSO on loso_v2; each subject is validation once and test once",
+    "checkpoint_selection": "validation composite only (0.40 PCC + 0.25 (1-min(NRMSE,1)) + 0.20 max(R2,0) + 0.15 F1@100); Shape-200 excluded",
+    "composite_disclosure": "NRMSE term is identically zero because NRMSE > 1 throughout; max(R2,0) is zero on negative-R2 epochs; selection is effectively PCC + waveform F1@100 (audit 2.5)",
+    "budget": "100 epochs max, patience 15, AdamW lr 1e-4, weight decay 1e-4, batch 16",
+    "seed": "42 + fold, deterministic cuDNN",
+    "state_machine": "TRAINING -> CHECKPOINT_FROZEN -> TEST_EVALUATING -> COMPLETE; all 11 folds COMPLETE",
+    "validation_test_access": true,
+    "test_access_rule": "opened exactly once per fold, after the validation-best checkpoint was frozen"
+  },
+  "metrics": {
+    "scoring_space": "raw stored ECG units (per-record z-score domain, NOT millivolts)",
+    "within_fold_aggregation": {
+      "waveform_and_smoothing": "per-window then nanmean over the held-out subject's windows",
+      "f1": "TP/FP/FN pooled across windows (micro)",
+      "region_mae": "pooled across all beats in the fold"
+    },
+    "across_fold_aggregation": "fold-macro mean with POPULATION standard deviation over 11 test subjects",
+    "nan_policy": "nanmean inside the evaluator; observed NaN count is 0 for all 19 metrics in all 11 folds",
+    "summary_artifacts": [
+      "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/test_fold_metrics.csv",
+      "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/test_fold_macro_summary.json"
+    ],
+    "reporting_rules": {
+      "R1_rr_hr_coverage_gate": "Only folds with rr_coverage >= 0.80 enter RR/HR aggregation. Fold 7 (coverage 0.0039) is excluded and reported as a failure case. Gated values: RR 44.5 +/- 30.1 ms, HR 3.39 +/- 1.83 bpm over 10 folds. Thresholds 0.5/0.8/0.9 give the same partition. The ungated 218.9 +/- 552.3 ms and 6.09 +/- 8.70 bpm in the frozen summary JSON must not be tabulated.",
+      "R2_high_frequency_ratio": "above_10hz_energy_ratio is reported as median 0.122 with IQR [0.083, 0.195] plus per-fold values and the maximum (1.702, fold 5). The mean 0.270 +/- 0.460 must not stand alone.",
+      "R3_labels": "Tables must state z-score units for RMSE/MAE/region MAE, the aggregation style per metric, 'population std across 11 folds', and keep waveform F1 separate from event-head F1."
+    }
+  },
+  "headline_fold_macro": {
+    "pcc": "0.3048 +/- 0.1733",
+    "r2": "0.0184 +/- 0.1809 (negative in folds 1,2,3,10,11)",
+    "rmse_zscore": "0.9786 +/- 0.0920",
+    "nrmse": "2.1507 +/- 0.3596",
+    "amplitude_variance_ratio": "0.3119 +/- 0.1496",
+    "waveform_f1_50_100_150ms": "0.5531 / 0.7499 / 0.7887",
+    "event_f1_50_100_150ms": "0.6136 / 0.8158 / 0.8543",
+    "rr_error_ms_gated": "44.5 +/- 30.1 (10 folds)",
+    "hr_error_bpm_gated": "3.39 +/- 1.83 (10 folds)",
+    "qrs_region_mae_zscore": "1.7113 +/- 0.2513",
+    "stt_region_mae_zscore": "0.6105 +/- 0.1133"
+  },
+  "permitted_interpretation": "R2 is centred near zero across folds rather than reliably positive; the amplitude variance ratio of 0.31 documents substantial residual regression toward the mean. Amplitude collapse is mitigated, not resolved.",
+  "failure_cases": [
+    "Fold 7: waveform R-peak readout failed (F1@50 = 0.0026, rr_coverage = 0.0039, lowest amplitude variance ratio 0.032) while its event head still reached F1@100 = 0.410.",
+    "Folds 2 and 3: PCC 0.021 / 0.030 with R2 -0.167 / -0.273."
+  ],
+  "limitations": [
+    "Single seed (42 + fold). Headline claims require the >=3-seed confirmation in docs/METRIC_CONTRACT.md.",
+    "No same-protocol continuous baseline exists on loso_v2; the old loso baseline aggregates are BLOCKED (docs/MMECG_SPLIT_PROVENANCE_AUDIT.md).",
+    "Validation composite is partially degenerate (see composite_disclosure); it was frozen before the run and was not changed.",
+    "Coverage gate R1 was defined after observing the coverage distribution; its insensitivity over 0.5-0.9 is documented in the audit.",
+    "MMECG only; no CR_RVS continuous evidence."
+  ],
+  "folds": [
+    {
+      "fold": 1,
+      "seed": 43,
+      "epochs_run": 47,
+      "best_epoch": 32,
+      "val_file_sha256": "acdd39f823506c26f377536d6ecedeb6dae97c174a977868aa96f4815c28bf1d",
+      "test_file_sha256": "a354e77f77e296fa3b8dfe4d2945cfb089144bc3670d4980860e523ab49c5af6",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_01/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_01/test_predictions.npz"
+    },
+    {
+      "fold": 2,
+      "seed": 44,
+      "epochs_run": 39,
+      "best_epoch": 24,
+      "val_file_sha256": "a71378946f6ccf86ba341ba7f1d8290dabd12f270b8602863cc32fac21bd729f",
+      "test_file_sha256": "acdd39f823506c26f377536d6ecedeb6dae97c174a977868aa96f4815c28bf1d",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_02/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_02/test_predictions.npz"
+    },
+    {
+      "fold": 3,
+      "seed": 45,
+      "epochs_run": 49,
+      "best_epoch": 34,
+      "val_file_sha256": "255300e8f1684ba192cc8317795d76bd25b7e287e6a4eb3230e9b983936acd19",
+      "test_file_sha256": "a71378946f6ccf86ba341ba7f1d8290dabd12f270b8602863cc32fac21bd729f",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_03/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_03/test_predictions.npz"
+    },
+    {
+      "fold": 4,
+      "seed": 46,
+      "epochs_run": 43,
+      "best_epoch": 28,
+      "val_file_sha256": "ef67a85bc8e5c2289d4666a58cf3911014b5d21a4c2eab924a8c81863ee92045",
+      "test_file_sha256": "255300e8f1684ba192cc8317795d76bd25b7e287e6a4eb3230e9b983936acd19",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_04/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_04/test_predictions.npz"
+    },
+    {
+      "fold": 5,
+      "seed": 47,
+      "epochs_run": 79,
+      "best_epoch": 64,
+      "val_file_sha256": "af44ba76b6d4ea5fc81a87a044f35b6823707159f1caec38a15bc539f3d8968c",
+      "test_file_sha256": "ef67a85bc8e5c2289d4666a58cf3911014b5d21a4c2eab924a8c81863ee92045",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_05/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_05/test_predictions.npz"
+    },
+    {
+      "fold": 6,
+      "seed": 48,
+      "epochs_run": 35,
+      "best_epoch": 20,
+      "val_file_sha256": "6f3df0e7a74fda282d898abf2e761cb9764d7e38e86ecc5d0daeb96008151cf3",
+      "test_file_sha256": "af44ba76b6d4ea5fc81a87a044f35b6823707159f1caec38a15bc539f3d8968c",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_06/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_06/test_predictions.npz"
+    },
+    {
+      "fold": 7,
+      "seed": 49,
+      "epochs_run": 31,
+      "best_epoch": 16,
+      "val_file_sha256": "6772b41a023effee43fb9d193871462adedc683cc05f93adc6630872f68301bf",
+      "test_file_sha256": "6f3df0e7a74fda282d898abf2e761cb9764d7e38e86ecc5d0daeb96008151cf3",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_07/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_07/test_predictions.npz"
+    },
+    {
+      "fold": 8,
+      "seed": 50,
+      "epochs_run": 36,
+      "best_epoch": 21,
+      "val_file_sha256": "02e86baa268f07eeadbfd538738c90e62fe54806def7065a28b0fcf71c230425",
+      "test_file_sha256": "6772b41a023effee43fb9d193871462adedc683cc05f93adc6630872f68301bf",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_08/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_08/test_predictions.npz"
+    },
+    {
+      "fold": 9,
+      "seed": 51,
+      "epochs_run": 28,
+      "best_epoch": 13,
+      "val_file_sha256": "e8afcc53b07e89451ab57f49cde22dc91d7541daf5007ea6bfd4f28b41c26d80",
+      "test_file_sha256": "02e86baa268f07eeadbfd538738c90e62fe54806def7065a28b0fcf71c230425",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_09/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_09/test_predictions.npz"
+    },
+    {
+      "fold": 10,
+      "seed": 52,
+      "epochs_run": 36,
+      "best_epoch": 21,
+      "val_file_sha256": "e1584a236df9be902b8752644621c80ddd3fbc304c1f92523064b066a8052ae7",
+      "test_file_sha256": "e8afcc53b07e89451ab57f49cde22dc91d7541daf5007ea6bfd4f28b41c26d80",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_10/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_10/test_predictions.npz"
+    },
+    {
+      "fold": 11,
+      "seed": 53,
+      "epochs_run": 56,
+      "best_epoch": 41,
+      "val_file_sha256": "a354e77f77e296fa3b8dfe4d2945cfb089144bc3670d4980860e523ab49c5af6",
+      "test_file_sha256": "e1584a236df9be902b8752644621c80ddd3fbc304c1f92523064b066a8052ae7",
+      "test_metrics": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_11/test_metrics.json",
+      "test_predictions": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_11/test_predictions.npz"
+    }
+  ],
+  "status": "completed; metric audit done; awaiting multi-seed confirmation and same-protocol baselines"
+}
