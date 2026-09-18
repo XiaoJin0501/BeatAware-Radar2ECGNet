@@ -15,5 +15,13 @@
     "no model weight updates",
     "pilot cannot support a manuscript claim or authorize scaling"
   ],
-  "falsification_note": "circular autocorrelation is shift invariant and the event/waveform heads may share an offset; a near-zero tau or no PCC gain falsifies this self-calibration mechanism"
+  "falsification_note": "circular autocorrelation is shift invariant and the event/waveform heads may share an offset; a near-zero tau or no PCC gain falsifies this self-calibration mechanism",
+  "result": {
+    "status": "failed_route_closed",
+    "tau_ms": 11.561555862426758,
+    "baseline_query_pcc": 0.021232059225440025,
+    "tta_query_pcc": -0.04082401469349861,
+    "delta_pcc": -0.06205607391893864,
+    "audit": "docs/audits/Q1_ZERO_LABEL_TTA_FOLD02_AUDIT.md"
+  }
 }
