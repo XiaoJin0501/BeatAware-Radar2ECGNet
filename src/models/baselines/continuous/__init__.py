@@ -69,6 +69,9 @@ ADAPTATIONS = {
         "decoder built from the authors' own DeconvBlock/ConvBlock stack emits 1x1600.",
         "D3 multitask: EGA gradient alignment across ECG_shape/PPI/anchor is not exercised, "
         "because only the continuous task is scored. Label the row 'adapted (continuous head)'.",
+        "D4 decoder resolution: a third transposed stage takes the decoder to ~1600 samples "
+        "natively. Two stages reach 549 and the remaining 3x would have to be interpolated, "
+        "band-limiting the output below the QRS and handicapping the baseline.",
     ],
     "wavegru_net": [
         "D1 input: MIMO beamforming to one phase channel is replaced by this dataset's 50 "
@@ -100,6 +103,13 @@ ADAPTATIONS = {
         "the paper's deep-feature loss. Set --pretrain_epochs 0 to disable, which drops the "
         "deep-feature term and must then be reported as a removed component.",
         "D3 loss: waveform MSE + STFT-magnitude MSE, as published.",
+        "D4 term scaling: the spectrogram and deep-feature terms are divided by their own "
+        "target energy. Unnormalised, the spectrogram MSE dominates in robust-scaled units "
+        "and, being sign-blind, drives the waveform to an inverted solution (measured: "
+        "F1@100 0.92 with PCC -0.16). The published composition is unchanged.",
+        "D5 decoder resolution: the convolutional subsampling divides time by 8, so the "
+        "decoder mirrors it with transposed convolutions. Synthesising the ECG by "
+        "interpolating the 25 Hz latent would band-limit the output below the QRS.",
     ],
 }
 

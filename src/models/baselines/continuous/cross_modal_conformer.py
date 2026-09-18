@@ -101,6 +101,21 @@ class _ConvSubsampling(nn.Module):
         return self.drop(self.proj(h))                      # (B, T', dim)
 
 
+class _ConvUpsampling(nn.Module):
+    """Transposed-convolution mirror of `_ConvSubsampling` (three stride-2 stages)."""
+
+    def __init__(self, dim: int, stride: int = 2) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.ConvTranspose1d(dim, 32, 4, stride=stride, padding=1), nn.BatchNorm1d(32), nn.SiLU(),
+            nn.ConvTranspose1d(32, 32, 4, stride=stride, padding=1), nn.BatchNorm1d(32), nn.SiLU(),
+            nn.ConvTranspose1d(32, dim, 4, stride=stride, padding=1), nn.BatchNorm1d(dim), nn.SiLU(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
 class CrossModalConformer(nn.Module):
     """mmWave encoder (conv subsampling + 2 Conformer blocks) and shared ECG decoder."""
 
@@ -113,6 +128,10 @@ class CrossModalConformer(nn.Module):
                                       for _ in range(2)])
         self.decoder = nn.ModuleList([ConformerBlock(dim, n_heads, dropout=dropout)
                                       for _ in range(2)])
+        # The convolutional subsampling divides time by 8, so the decoder mirrors it with
+        # transposed convolutions. Synthesising the ECG by interpolating the 25 Hz latent
+        # instead would band-limit the output below the QRS, handicapping the baseline.
+        self.upsample = _ConvUpsampling(dim, stride=2)
         self.out = nn.Linear(dim, 1)
 
     def embed(self, rcg: torch.Tensor) -> torch.Tensor:
@@ -124,8 +143,11 @@ class CrossModalConformer(nn.Module):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         for block in self.decoder:
             z = block(z)
-        y = self.out(z).transpose(1, 2)                     # (B, 1, T')
-        return F.interpolate(y, size=WIN, mode="linear", align_corners=False)
+        y = self.upsample(z.transpose(1, 2))                # mirror of the subsampling
+        y = self.out(y.transpose(1, 2)).transpose(1, 2)     # (B, 1, T)
+        if y.shape[-1] != WIN:
+            y = F.interpolate(y, size=WIN, mode="linear", align_corners=False)
+        return y
 
     def forward(self, wsst: torch.Tensor | None = None, rcg: torch.Tensor | None = None,
                 return_embedding: bool = False):
@@ -155,6 +177,7 @@ class ECGAutoEncoder(nn.Module):
                                       for _ in range(2)])
         self.decoder = nn.ModuleList([ConformerBlock(dim, n_heads, dropout=dropout)
                                       for _ in range(2)])
+        self.upsample = _ConvUpsampling(dim, stride=2)
         self.out = nn.Linear(dim, 1)
 
     def embed(self, ecg: torch.Tensor) -> torch.Tensor:
@@ -168,8 +191,11 @@ class ECGAutoEncoder(nn.Module):
         h = z
         for block in self.decoder:
             h = block(h)
-        y = self.out(h).transpose(1, 2)
-        return F.interpolate(y, size=WIN, mode="linear", align_corners=False), z
+        h = self.upsample(h.transpose(1, 2))
+        y = self.out(h.transpose(1, 2)).transpose(1, 2)
+        if y.shape[-1] != WIN:
+            y = F.interpolate(y, size=WIN, mode="linear", align_corners=False)
+        return y, z
 
 
 def stft_magnitude(x: torch.Tensor, n_fft: int = 256, hop: int = 64) -> torch.Tensor:

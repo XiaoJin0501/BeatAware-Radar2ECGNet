@@ -82,6 +82,9 @@ class RadarODEMTLContinuous(nn.Module):
         self.decoder = nn.Sequential(
             _DeconvBlock1d(1024, 512, kernel_size=5, stride=3, padding=1),
             _DeconvBlock1d(512, 256, kernel_size=5, stride=3, padding=1),
+            # A third transposed stage reaches ~1600 samples natively; stopping at 549 and
+            # interpolating would band-limit the output below the QRS.
+            _DeconvBlock1d(256, 256, kernel_size=5, stride=3, padding=1),
             _ConvBlock1d(256, 128, kernel_size=7, stride=1, padding=3),
             nn.Dropout(dropout),
             _ConvBlock1d(128, 64, kernel_size=7, stride=1, padding=3),

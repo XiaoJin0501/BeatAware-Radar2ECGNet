@@ -90,12 +90,20 @@ def baseline_loss(name: str, y: torch.Tensor, target: torch.Tensor,
         return loss, {"mse": float(loss.detach())}
     if name == "cross_modal_conformer":
         wave = F.mse_loss(y, target)
-        spec = F.mse_loss(stft_magnitude(y), stft_magnitude(target))
-        parts = {"waveform_mse": float(wave.detach()), "spectrogram_mse": float(spec.detach())}
+        # Scale-normalise the auxiliary terms. The paper sums waveform, spectrogram and
+        # deep-feature MSE over ECG normalised to a small range; in the contract's
+        # robust-scaled space the raw spectrogram MSE is orders of magnitude larger and
+        # dominates, and because spectrogram magnitude is sign-blind the waveform then
+        # trains to an inverted solution (observed: F1@100 0.92 with PCC -0.16).
+        # Dividing each auxiliary term by its own target energy keeps the published
+        # composition while making the sum scale-free. Recorded as adaptation D4.
+        spec_pred, spec_target = stft_magnitude(y), stft_magnitude(target)
+        spec = F.mse_loss(spec_pred, spec_target) / spec_target.pow(2).mean().detach().clamp_min(1e-8)
+        parts = {"waveform_mse": float(wave.detach()), "spectrogram_mse_normalised": float(spec.detach())}
         loss = wave + spec
         if "deep_feature" in extras:
             df = extras["deep_feature"]
-            parts["deep_feature_mse"] = float(df.detach())
+            parts["deep_feature_mse_normalised"] = float(df.detach())
             loss = loss + df
         return loss, parts
     if name == "attention_dcgan":
@@ -151,6 +159,9 @@ def main() -> None:
 
     if a.final_test and a.smoke:
         raise SystemExit("--final_test cannot be combined with --smoke")
+    if a.final_test and a.overwrite:
+        raise SystemExit("--overwrite cannot be combined with --final_test: a frozen or "
+                         "COMPLETE registered fold is never restarted in place")
     if a.final_test and a.exp_tag != REGISTERED_TAG:
         raise SystemExit(f"--final_test is restricted to registered tag {REGISTERED_TAG}")
     tag = a.exp_tag + ("_smoke" if a.smoke else "")
@@ -164,7 +175,9 @@ def main() -> None:
         print(f"[sealed] COMPLETE fold at {out}; test cannot be reopened")
         return
     (out / "checkpoints").mkdir(parents=True, exist_ok=True)
-    if state is None:
+    if state is None or a.overwrite:
+        # --overwrite restarts an unregistered (smoke / validation-only) fold from scratch;
+        # it is refused above in final-test mode, so no frozen fold can be reopened.
         state = transition_state(state_path, "TRAINING", fold=a.fold, arm=a.baseline,
                                  loss_arm="native", test_accessed=False)
 
@@ -296,7 +309,8 @@ def main() -> None:
                 if ecg_ae is not None:
                     z_ecg = ecg_ae.embed(target)
                     z_radar = model.core.embed(rcg)
-                    extras["deep_feature"] = F.mse_loss(z_radar, z_ecg)
+                    extras["deep_feature"] = (F.mse_loss(z_radar, z_ecg)
+                                              / z_ecg.pow(2).mean().detach().clamp_min(1e-8))
                 loss, parts = baseline_loss(a.baseline, y, target, extras)
                 if initial_components is None:
                     initial_components = {**parts, "total": float(loss.detach())}
