@@ -94,6 +94,14 @@ ADAPTATIONS = {
         "train-fold robust-scaled units rather than the paper's [-1, 1] range.",
         "D3 optimiser: the paper's Adam lr 3e-4 / batch 32 is replaced by the protocol budget "
         "(AdamW lr 1e-4, batch 16, 100 epochs, patience 15), identical to every other arm.",
+        "D4 objective: an L1 reconstruction term (weight 10) accompanies the published purely "
+        "adversarial generator loss, which carries no paired signal and does not converge on "
+        "this task.",
+        "D5 encoder: the paper's dense layer mixes a whole 200-sample beat before the "
+        "deconvolutions. On continuous windows a stride-1 stack sees ~16 samples of context "
+        "and cannot form a beat (measured: PCC ~0, variance ratio drifting past 1), so a "
+        "four-stage strided encoder feeds the four published deconvolution layers, which now "
+        "upsample back to 1600.",
     ],
     "cross_modal_conformer": [
         "D1 input: the paper's 1x1000 single-channel mmWave slice becomes the 50-bin RCG at "

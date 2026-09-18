@@ -57,12 +57,27 @@ class AttentionDCGANGenerator(nn.Module):
         # train-fold robust-scaled target instead, so Tanh is followed by a fixed gain
         # fitted on the TRAINING fold only; the evaluator's inverse is unchanged.
         self.register_buffer("out_gain", torch.tensor(float(out_gain)))
-        self.stem = nn.Conv1d(in_bins, 512, 1)              # the paper's dense layer
+        # The paper's dense layer mixes a whole 200-sample beat fragment before the
+        # deconvolutions. Mapping a continuous 8 s window instead, a stride-1 stack would
+        # see only ~16 samples of context and cannot reconstruct a beat (measured: PCC ~0
+        # with the variance ratio drifting past 1). A strided encoder restores that global
+        # context, and the four published deconvolution layers upsample back to 1600.
+        self.stem = nn.Sequential(
+            nn.Conv1d(in_bins, 128, 5, stride=2, padding=2),
+            nn.BatchNorm1d(128), nn.LeakyReLU(negative_slope, inplace=True),
+            nn.Conv1d(128, 256, 5, stride=2, padding=2),
+            nn.BatchNorm1d(256), nn.LeakyReLU(negative_slope, inplace=True),
+            nn.Conv1d(256, 512, 5, stride=2, padding=2),
+            nn.BatchNorm1d(512), nn.LeakyReLU(negative_slope, inplace=True),
+            nn.Conv1d(512, 512, 5, stride=2, padding=2),
+            nn.BatchNorm1d(512), nn.LeakyReLU(negative_slope, inplace=True),
+        )
         widths = [(512, 512), (512, 256), (256, 128), (128, 64)]
         blocks = []
         for in_ch, out_ch in widths:
             blocks += [
-                nn.ConvTranspose1d(in_ch, out_ch, kernel_size=5, stride=1, padding=2),
+                nn.ConvTranspose1d(in_ch, out_ch, kernel_size=5, stride=2,
+                                   padding=2, output_padding=1),
                 nn.BatchNorm1d(out_ch),
                 nn.Dropout(dropout),
                 nn.LeakyReLU(negative_slope, inplace=True),
