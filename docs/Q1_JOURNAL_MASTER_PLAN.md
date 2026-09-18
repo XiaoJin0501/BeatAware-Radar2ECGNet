@@ -123,30 +123,26 @@ failure bounds the tested direct-fusion formulation; it does not establish
 that native radar contains no useful information. The immutable six-run table
 and decision are in `docs/audits/Q1_NATIVE_RCG_GATE_AUDIT.md`.
 
-## Official continuous model and next benchmark
+## Official continuous model and completed benchmark
 
 The official continuous candidate is now frozen as **WSST-driven REM-Net
 (continuous B1) with the L3 MR-STFT waveform core**. “Official” means the
 architecture, loss, normalization, checkpoint rule, and evaluation contract
-are frozen for the next benchmark; it does not claim that the model has
-already achieved publishable performance.
+are frozen. It does not by itself claim publishable superiority.
 
-The next authorized experiment is
-`q1_remnet_continuous_strict_loso_seed42`: all 11 repaired `loso_v2` folds,
-validation-only checkpoint selection, followed by one-time held-out test
-evaluation. Primary reporting is fold-macro across 11 test subjects and keeps
-PCC, R2, NRMSE, regional error, smoothing diagnostics, and event/timing metrics
-together. Shape-200 remains auxiliary and excluded from selection. Seed 42 is
-a complete-fold final candidate; any headline model claim still requires the
-multi-seed confirmation mandated by `METRIC_CONTRACT.md`.
+`q1_remnet_continuous_strict_loso_seed42` completed all 11 repaired `loso_v2`
+folds with validation-only checkpoint selection followed by one-time held-out
+test evaluation. Its fold-macro continuous results are PCC@0 0.305 ± 0.173,
+R² 0.018 ± 0.181, NRMSE 2.151 ± 0.360, and waveform F1@100 ms 0.750 ± 0.265.
+These values freeze the proposed-model seed-42 endpoint; they do not establish
+superiority or authorize further model tuning.
 
 **Data preparation complete (2026-09-18):** the deduplicated subject-centric
 8-second WSST pool contains all 11 subjects and 16,682 unique windows in 23.95
 GiB. All 33,257 train/validation/test fold references resolve without a missing
 key; reused formal-cache values and the loader smoke batch are bit-identical.
-The data blocker is removed. The 11-fold run is still **not launched** and must
-pass the normal clean-worktree/GPU preflight first. Four-second WSST remains
-prohibited. Full evidence is in
+The data blocker was removed and the completed run used this pool. Four-second
+WSST remains prohibited. Full preparation evidence is in
 `docs/audits/Q1_WSST8S_SUBJECT_POOL_AUDIT.md`.
 
 The formal budget is frozen at **100 maximum epochs / patience 15**. The runner
@@ -154,6 +150,29 @@ uses epoch-level atomic recovery and the irreversible state sequence
 `TRAINING -> CHECKPOINT_FROZEN -> TEST_EVALUATING -> COMPLETE`. Validation
 alone selects `best_composite.pt`; the test split cannot be constructed before
 the checkpoint is frozen, and a COMPLETE fold is terminal.
+
+## Current priority — matched-protocol baselines
+
+All REM-Net hyperparameter tuning and new-mechanism exploration are stopped.
+The sole active path is to align strong baselines to the exact same continuous
+protocol as the frozen REM-Net result: repaired `loso_v2` folds,
+subject-centric 8-second WSST input, identical train/validation/test subjects,
+validation-only checkpoint selection, one-time test evaluation, and the same
+metric and fold-macro aggregation code.
+
+The first action is a read-only compatibility audit of radarODE-MTL, AirECG,
+RSSRNet, and the retained generic baselines. Each must be classified as
+directly runnable, requiring a documented adapter, or task-incompatible. Old
+split outputs and reported-paper numbers cannot enter the matched comparison.
+Adaptations must preserve the baseline's defining mechanism and be labeled
+**adapted reproduction**. Any necessary code change requires a registered,
+controlled specification before training.
+
+The completed 60-second paired-ECG calibration is retained only as Discussion
+evidence. It improved fold-macro PCC from 0.305 to 0.327 but improved only 5/11
+folds and degraded R², NRMSE, and F1 on average. Its evaluator is archived at
+`archive/legacy_scripts/audits/eval_60s_calibration_loso.py`; it is not an
+active method, tuning surface, or alternative headline protocol.
 
 ## Non-negotiable reporting rules
 

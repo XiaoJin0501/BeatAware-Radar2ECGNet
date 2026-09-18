@@ -61,10 +61,13 @@ Do not launch formal experiments without an approved experiment specification.
   runs and failed its promotion rule. B2b direct native-RCG fusion is closed;
   do not tune or scale it. Its immutable audit is
   `docs/audits/Q1_NATIVE_RCG_GATE_AUDIT.md`.
-- The next authorized candidate is WSST-driven continuous REM-Net B1 with
-  locked L3 MR-STFT on all 11 repaired `loso_v2` folds. Validation selects the
-  checkpoint; test is opened once afterward. Do not launch until its registered
-  preflight and clean committed-code checks pass.
+- The WSST-driven continuous REM-Net B1 with locked L3 MR-STFT has completed
+  all 11 repaired `loso_v2` folds. Stop REM-Net tuning and all new-mechanism
+  exploration. The only active path is matched-protocol baseline alignment,
+  beginning with a read-only compatibility audit and registered specs.
+- The 60-second paired-ECG calibration is closed Discussion-only evidence. Its
+  evaluator is archived under `archive/legacy_scripts/audits/`; do not tune,
+  promote, or restore it to the active script surface.
 - `scripts/audit_shared_gradient_conflict.py` is the explicitly requested,
   registered exception to the legacy-script naming rule; it is read-only and
   must not be copied into additional one-off audit scripts.

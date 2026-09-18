@@ -6,7 +6,7 @@
 > They are excluded from model-quality claims. Shape-200 results and all CR_RVS
 > results are NOT affected. See `docs/PROTOCOL_CONFOUND_4S_INPUT.md`.
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 Active branch: exp/rem-shape-guided-continuous-decoder
 Active GitHub issue: none
 
@@ -93,16 +93,28 @@ did not improve R2 or QRS-region MAE consistently, and failed its preregistered
 promotion rule. The native-RCG direct-fusion route is closed; see
 `docs/audits/Q1_NATIVE_RCG_GATE_AUDIT.md`.
 
-The next authorized task is to preflight and then run the frozen WSST-driven
-REM-Net B1 + L3 MR-STFT candidate on all 11 `loso_v2` folds. Validation selects
-the checkpoint; held-out test is opened once afterward. The seed-42 complete
-benchmark is not a headline claim until the required multi-seed confirmation.
+The frozen WSST-driven REM-Net B1 + L3 MR-STFT candidate completed all 11
+`loso_v2` folds. Its seed-42 fold-macro continuous endpoint is PCC@0 0.305,
+R² 0.018, NRMSE 2.151, and F1@100 ms 0.750. REM-Net tuning and new-mechanism
+exploration are stopped.
+
+The only approved next task is matched-protocol baseline alignment. Audit and
+then adapt radarODE-MTL, AirECG, RSSRNet, and retained generic baselines to the
+same repaired split, 8-second input/output support, validation-only checkpoint
+selection, one-time test opening, evaluator, and fold-macro aggregation. Old
+split results and reported literature values cannot enter the matched table.
+No baseline training starts until its compatibility audit, registered spec,
+and clean preflight are complete.
+
+The 60-second paired-ECG calibration is a closed Discussion-only experiment:
+PCC improved from 0.305 to 0.327 in the macro aggregate but only 5/11 folds
+improved, while R², NRMSE, and F1 worsened. Its script is archived under
+`archive/legacy_scripts/audits/`; do not tune or promote this route.
 The data blocker was removed on 2026-09-18. The subject-centric 8-second WSST
 pool contains 11 files, 16,682 unique windows, and resolves all 33,257 fold
 references in 23.95 GiB. Bitwise reuse and a real-loader CPU forward smoke both
 pass (`docs/audits/Q1_WSST8S_SUBJECT_POOL_AUDIT.md`). Do not substitute
-4-second WSST. The 11-fold benchmark remains not launched pending clean
-preflight and GPU availability.
+4-second WSST. The 11-fold benchmark is complete.
 
 The formal runner is hardened for epoch-level recovery with atomic artifacts
 and a terminal test-access state machine. Its frozen budget is 100 maximum

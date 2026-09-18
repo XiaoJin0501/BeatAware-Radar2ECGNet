@@ -1,6 +1,6 @@
 import numpy as np
 
-from scripts.eval_60s_calibration_loso import (
+from archive.legacy_scripts.audits.eval_60s_calibration_loso import (
     BOUNDARY,
     chronological_masks,
     estimate_calibration,
