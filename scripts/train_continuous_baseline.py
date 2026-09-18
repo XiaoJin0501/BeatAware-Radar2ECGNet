@@ -175,9 +175,17 @@ def main() -> None:
         print(f"[sealed] COMPLETE fold at {out}; test cannot be reopened")
         return
     (out / "checkpoints").mkdir(parents=True, exist_ok=True)
-    if state is None or a.overwrite:
-        # --overwrite restarts an unregistered (smoke / validation-only) fold from scratch;
-        # it is refused above in final-test mode, so no frozen fold can be reopened.
+    if a.overwrite and state is not None:
+        # The state machine forbids stage regression, so a restart clears the fold's
+        # artifacts instead of rewinding them. --final_test is refused above, so this can
+        # never reopen a registered frozen or COMPLETE fold.
+        for stale in (state_path, out / "best.json", out / "history.json",
+                      out / "initial_loss_components.json",
+                      out / "checkpoints" / "last_state.pt",
+                      out / "checkpoints" / "best_composite.pt"):
+            stale.unlink(missing_ok=True)
+        state = None
+    if state is None:
         state = transition_state(state_path, "TRAINING", fold=a.fold, arm=a.baseline,
                                  loss_arm="native", test_accessed=False)
 
