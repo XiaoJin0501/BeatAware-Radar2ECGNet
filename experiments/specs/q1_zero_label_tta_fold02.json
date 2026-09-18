@@ -1,0 +1,19 @@
+{
+  "experiment_id": "q1_zero_label_tta_fold02",
+  "category": "pilot",
+  "publishable": false,
+  "question": "Can a scalar zero-label test-time shift inferred from frozen REM-Net event-waveform self-consistency recover Fold-2 continuous PCC without test ECG adaptation labels?",
+  "checkpoint": "q1_remnet_continuous_strict_loso_seed42/L3/fold_02/checkpoints/best_composite.pt",
+  "adaptation_input": "the first K=2 held-out-subject WSST windows and frozen model outputs only",
+  "adapted_parameter": "one scalar circular Fourier shift tau_sub initialized at zero; all REM-Net weights frozen",
+  "optimizer": "Adam, 20 steps, lr=1e-2",
+  "loss": "event-morphology derivative-energy cosine loss + 0.5 times waveform autocorrelation prominence",
+  "evaluation": "freeze tau, exclude the first K adaptation windows, then load ECG solely to report per-window mean PCC@0 on the remaining Fold-2 windows",
+  "prohibitions": [
+    "no ECG tensor may be constructed or loaded before tau is frozen",
+    "no GT-derived lag, affine map, checkpoint, stopping rule, or hyperparameter selection",
+    "no model weight updates",
+    "pilot cannot support a manuscript claim or authorize scaling"
+  ],
+  "falsification_note": "circular autocorrelation is shift invariant and the event/waveform heads may share an offset; a near-zero tau or no PCC gain falsifies this self-calibration mechanism"
+}
