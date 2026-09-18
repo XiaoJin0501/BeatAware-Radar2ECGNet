@@ -48,9 +48,13 @@ def require_preflight() -> tuple[str, str]:
     spec = json.loads(SPEC.read_text())
     if spec.get("status") not in {"DATA_READY", "PREFLIGHT_PASSED"}:
         raise SystemExit(f"Spec status {spec.get('status')!r} does not authorise training")
-    dirty = subprocess.check_output(["git", "status", "--short"], text=True).strip()
+    dirty = [line for line in
+             subprocess.check_output(["git", "status", "--short"], text=True).splitlines()
+             # The registry is this runner's own bookkeeping file: it writes the row's
+             # status before training, so its own edit must not block a resumed run.
+             if line.strip() and not line.endswith("experiments_mmecg/EXPERIMENT_REGISTRY.csv")]
     if dirty:
-        raise SystemExit(f"Refusing to train from a dirty worktree:\n{dirty}")
+        raise SystemExit("Refusing to train from a dirty worktree:\n" + "\n".join(dirty))
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     branch = subprocess.check_output(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
