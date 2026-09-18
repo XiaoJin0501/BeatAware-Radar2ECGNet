@@ -30,6 +30,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -48,6 +49,9 @@ from src.models.baselines.continuous import (  # noqa: E402
 )
 from src.models.baselines.continuous.cross_modal_conformer import (  # noqa: E402
     ECGAutoEncoder, stft_magnitude,
+)
+from src.models.baselines.continuous.radarode_mtl import (  # noqa: E402
+    SHAPE_LEN, TASKS, anchor_loss, ppi_loss, shape_loss,
 )
 from src.utils.atomic_state import (  # noqa: E402
     atomic_json, atomic_npz, atomic_torch_save, capture_rng_state, restore_rng_state,
@@ -79,6 +83,38 @@ class BaselineAdapter(nn.Module):
             ev = torch.full((y.shape[0], 2, y.shape[-1]), -10.0,
                             device=y.device, dtype=y.dtype)
         return y, ev
+
+
+def radarode_targets(batch: dict, dev: torch.device) -> dict:
+    """Targets for radarODE-MTL's three published tasks, from the fold's own labels.
+
+    ECG_shape: the centre cardiac cycle resampled to 200 samples, as in the authors'
+    dataset. PPI: that cycle's length in samples, which is the class their 260-way
+    head predicts. Anchor: the R-peak position signal, taken from the fold's Gaussian
+    R-peak mask. Windows with fewer than two R peaks carry `valid = False` and are
+    dropped from the beat-level losses only.
+    """
+    raw = batch["raw"].to(dev)                                   # (B, 1, 1600) raw ECG
+    peaks = batch["rpeaks"]
+    shapes, lengths, valid = [], [], []
+    for i in range(raw.shape[0]):
+        rp = peaks[i].numpy()
+        rp = rp[rp >= 0]
+        if len(rp) < 2:
+            shapes.append(torch.zeros(SHAPE_LEN, device=dev))
+            lengths.append(1); valid.append(False)
+            continue
+        pairs = np.stack([rp[:-1], rp[1:]], 1)
+        j = int(np.argmin(np.abs(pairs.mean(1) - WIN // 2)))      # the centre cycle
+        a, b = int(pairs[j, 0]), int(pairs[j, 1])
+        cycle = raw[i, 0, a:b].unsqueeze(0).unsqueeze(0)
+        shapes.append(F.interpolate(cycle, size=SHAPE_LEN, mode="linear",
+                                    align_corners=False)[0, 0])
+        lengths.append(b - a); valid.append(True)
+    return {"ECG_shape": torch.stack(shapes).unsqueeze(1),
+            "PPI": torch.tensor(lengths, device=dev),
+            "Anchor": batch["event"][:, 0:1].to(dev),
+            "valid": torch.tensor(valid, device=dev)}
 
 
 def baseline_loss(name: str, y: torch.Tensor, target: torch.Tensor,
@@ -209,11 +245,13 @@ def main() -> None:
     if a.baseline == "attention_dcgan":
         # Fixed Tanh gain from the TRAINING fold only (ADAPTATIONS D2).
         import h5py
-        import numpy as np
         with h5py.File(DATA / f"fold_{a.fold:02d}" / "train.h5", "r") as h:
             raw = np.asarray(h["ecg"][:, 0], np.float64).reshape(-1)
         med, iqr = scaler
         kwargs["out_gain"] = float(np.percentile(np.abs((raw - med) / iqr), 99.9))
+    is_mtl = a.baseline == "radarode_mtl"
+    if is_mtl:
+        kwargs["max_epochs"] = epochs
     model = BaselineAdapter(build_baseline(a.baseline, **kwargs), key).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=BUDGET["lr"],
                             weight_decay=BUDGET["weight_decay"])
@@ -288,6 +326,12 @@ def main() -> None:
         best, best_ep = float(saved["best_val"]), int(saved["best_epoch"])
         bad, hist = int(saved["patience_counter"]), saved["history"]
         initial_components = saved["initial_loss_components"]
+        if is_mtl and saved.get("train_loss_buffer") is not None:
+            model.core.train_loss_buffer = np.asarray(saved["train_loss_buffer"])
+            model.core.average_loss = saved["ega_average_loss"]
+            model.core.average_loss_count = saved["ega_average_loss_count"]
+            model.core.nadir_vector = (None if saved["ega_nadir_vector"] is None
+                                       else saved["ega_nadir_vector"].to(dev))
         restore_rng_state(saved["rng_state"], g)
         start_epoch = int(saved["epoch"]) + 1
         print(f"[resume] {a.baseline} fold{a.fold:02d} from epoch {start_epoch} "
@@ -296,6 +340,9 @@ def main() -> None:
     if state["stage"] == "TRAINING":
         for ep in range(start_epoch, epochs + 1):
             model.train(); tot = nb = 0; t0 = time.time()
+            epoch_task_losses = np.zeros(len(TASKS))
+            if is_mtl:
+                model.core.epoch = ep - 1
             for b in ltr:
                 target = b["y"].to(dev)
                 wsst = b["wsst"].to(dev) if key == "wsst" else None
@@ -309,6 +356,32 @@ def main() -> None:
                     d_loss = (F.binary_cross_entropy_with_logits(d_real, torch.ones_like(d_real))
                               + F.binary_cross_entropy_with_logits(d_fake, torch.zeros_like(d_fake)))
                     disc_opt.zero_grad(); d_loss.backward(); disc_opt.step()
+                if is_mtl:
+                    outs = model.core.all_tasks(wsst)
+                    tgt = radarode_targets(b, dev)
+                    keep = tgt["valid"]
+                    beat = (lambda fn, key: fn(outs[key][keep], tgt[key][keep])
+                            if bool(keep.any()) else outs[key].sum() * 0.0)
+                    task_losses = torch.stack([
+                        F.mse_loss(outs["continuous"], target),
+                        beat(shape_loss, "ECG_shape"),
+                        (ppi_loss(outs["PPI"][keep], tgt["PPI"][keep])
+                         if bool(keep.any()) else outs["PPI"].sum() * 0.0),
+                        anchor_loss(outs["Anchor"], tgt["Anchor"]),
+                    ])
+                    parts = {t: float(l.detach()) for t, l in zip(TASKS, task_losses)}
+                    # EGA replaces loss.backward(): it aligns the four task gradients on
+                    # the shared backbone before the optimiser step.
+                    model.core._compute_grad_dim()
+                    opt.zero_grad()
+                    model.core.backward(task_losses, EGA_temp=model.core.ega_temp)
+                    opt.step()
+                    loss = task_losses.sum()
+                    if initial_components is None:
+                        initial_components = {**parts, "total": float(loss.detach())}
+                    epoch_task_losses += np.array([parts[t] for t in TASKS])
+                    tot += float(loss); nb += 1
+                    continue
                 y, _ = model(wsst, rcg)
                 if disc is not None:
                     d_out = disc(y)
@@ -324,6 +397,8 @@ def main() -> None:
                     initial_components = {**parts, "total": float(loss.detach())}
                 opt.zero_grad(); loss.backward(); opt.step()
                 tot += float(loss); nb += 1
+            if is_mtl:
+                model.core.train_loss_buffer[:, ep - 1] = epoch_task_losses / max(nb, 1)
             m = evaluate(model, lva, dev, compute_shape200=False)
             hist.append({"epoch": ep, "train_loss": tot / max(nb, 1), **m})
             print(f"  ep{ep:3d} loss {tot/max(nb,1):.4f} | PCC {m['pcc']:.4f} "
@@ -346,6 +421,10 @@ def main() -> None:
                 "history": hist, "initial_loss_components": initial_components,
                 "rng_state": capture_rng_state(g), "fold": a.fold, "baseline": a.baseline,
                 "max_epochs": epochs, "patience": BUDGET["patience"],
+                "train_loss_buffer": model.core.train_loss_buffer if is_mtl else None,
+                "ega_average_loss": model.core.average_loss if is_mtl else None,
+                "ega_average_loss_count": model.core.average_loss_count if is_mtl else None,
+                "ega_nadir_vector": model.core.nadir_vector if is_mtl else None,
             })
             if bad >= BUDGET["patience"]:
                 print(f"  early stop at ep{ep}"); break

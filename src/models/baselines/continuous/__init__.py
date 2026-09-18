@@ -62,16 +62,25 @@ ADAPTATIONS = {
     "radarode_mtl": [
         "D1 input: WSST (50, 71, 240) covering the full 8 s window instead of the 4 s "
         "(50, 71, 120) tensor, matching the support REM-Net receives.",
-        "D2 output: the published ECG_shape (200) / PPI (260) / anchor (800) heads cannot "
-        "produce a continuous 1600-sample stream without the long-term assembly this project "
-        "could not faithfully reproduce (claim ledger F2). The official DCNResNet + squeeze "
-        "backbone is kept verbatim from the authors' repository and an adapted continuous "
-        "decoder built from the authors' own DeconvBlock/ConvBlock stack emits 1x1600.",
-        "D3 multitask: EGA gradient alignment across ECG_shape/PPI/anchor is not exercised, "
-        "because only the continuous task is scored. Label the row 'adapted (continuous head)'.",
-        "D4 decoder resolution: a third transposed stage takes the decoder to ~1600 samples "
-        "natively. Two stages reach 549 and the remaining 3x would have to be interpolated, "
-        "band-limiting the output below the QRS and handicapping the baseline.",
+        "D2 added head: the published ECG_shape (200) / PPI (260) / Anchor heads are "
+        "beat-level and reach a continuous stream only through the long-term assembly this "
+        "project could not faithfully reproduce (claim ledger F2). A continuous 1x1600 head, "
+        "built from the authors' own DeconvBlock/ConvBlock primitives, is added as a fourth "
+        "task and is the one scored. The three published heads, the ODE inside the PPI head "
+        "and EGA gradient alignment all train jointly and shape the shared backbone.",
+        "D3 task targets: ECG_shape is the centre cardiac cycle resampled to 200 samples and "
+        "PPI is that cycle's length in samples (the class the 260-way head predicts), both "
+        "read from the fold's R peaks rather than the authors' precomputed per-cycle files. "
+        "Anchor uses the fold's Gaussian R-peak mask, the quantity their anchor segment "
+        "encodes. Windows with fewer than two R peaks are dropped from the beat-level losses "
+        "only.",
+        "D4 head interfaces: the shape head emits 403 samples on an 8 s representation and is "
+        "resized to 200; the PPI head's linear layer is sized for the authors' 31-frame "
+        "representation, so the shared representation is average-pooled to 31 frames for that "
+        "head; the anchor head emits 1610 and is resized to 1600.",
+        "D5 decoder resolution: the continuous head uses three transposed stages to reach "
+        "~1600 samples natively; stopping at 549 and interpolating would band-limit the "
+        "output below the QRS.",
     ],
     "wavegru_net": [
         "D1 input: MIMO beamforming to one phase channel is replaced by this dataset's 50 "
