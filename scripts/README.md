@@ -20,6 +20,7 @@ Use this file as the entry point before launching experiments.
 | `evaluate_mmecg_shape200.py` | active | Unified Shape-200 evaluator for continuous-output baselines and radarODE-MTL |
 | `evaluate_remalign_shape_head.py` | active | Direct Shape-200 head evaluator for REM-AlignNet-MTL |
 | `eval_tta_pilot.py` | pilot | Registered Fold-2 zero-label scalar-shift TTA falsification test |
+| `eval_60s_calibration_loso.py` | report | Registered 60-s paired-ECG priming calibration over frozen 11-fold outputs |
 
 ## radarODE-MTL Baseline
 

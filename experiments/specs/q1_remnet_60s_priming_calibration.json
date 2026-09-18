@@ -1,0 +1,14 @@
+{
+  "experiment_id": "q1_remnet_60s_priming_calibration",
+  "category": "paired_calibration_posthoc",
+  "publishable": false,
+  "question": "How much does a clinically explicit 60-second paired ECG priming session improve frozen REM-Net continuous reconstruction?",
+  "source": "all 11 completed test prediction artifacts from q1_remnet_continuous_strict_loso_seed42",
+  "calibration": "first chronological record, all 8-second windows ending at or before 60 seconds",
+  "boundary_rule": "discard windows crossing 60 seconds; query begins at start_idx >= 60 seconds, so calibration and query share no source samples",
+  "parameters": "one subject-level integer lag selected on [-150,+150] ms in 5-ms steps by calibration PCC; one global multiplicative std ratio",
+  "query": "remaining windows of the first record plus every later record; calibration windows excluded",
+  "metrics": ["continuous PCC@0", "R2", "NRMSE", "waveform F1@100ms"],
+  "aggregation": "per-window within fold, then fold-macro mean and population standard deviation over 11 held-out subjects",
+  "interpretation": "paired calibration track only; must not replace or be described as strict zero-shot LOSO"
+}
