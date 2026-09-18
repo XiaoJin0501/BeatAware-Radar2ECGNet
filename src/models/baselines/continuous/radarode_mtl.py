@@ -106,9 +106,14 @@ class RadarODEMTLContinuous(_EGA):
     continuous head for the scored task."""
 
     def __init__(self, in_bins: int = 50, dropout: float = 0.1, max_epochs: int = 100,
-                 ega_temp: float = 1.0) -> None:
+                 ega_temp: float = 1.0, grad_checkpoint: bool = True) -> None:
         super().__init__()
         self.in_bins = in_bins
+        # EGA computes one backward pass per task with the graph retained, so the
+        # backbone's activations would be held four times over. Checkpointing recomputes
+        # them instead, which keeps the authors' rep_grad=False setting and the protocol
+        # batch size of 16 affordable on a 16 GB card. Numerically identical, ~30% slower.
+        self.grad_checkpoint = grad_checkpoint
         self.backbone = _DCNResNet(in_bins)
         self.squeeze_module = _SqueezeModule(in_channels=1024, out_channels=1024)
 
@@ -155,7 +160,12 @@ class RadarODEMTLContinuous(_EGA):
     def represent(self, wsst: torch.Tensor) -> torch.Tensor:
         if wsst.ndim != 4 or wsst.shape[1] != self.in_bins:
             raise ValueError(f"wsst must be [B,{self.in_bins},F,T], got {tuple(wsst.shape)}")
-        return self.squeeze_module(self.backbone(wsst))          # (B, 1024, T')
+        if self.grad_checkpoint and self.training:
+            features = torch.utils.checkpoint.checkpoint(
+                self.backbone, wsst, use_reentrant=False)
+        else:
+            features = self.backbone(wsst)
+        return self.squeeze_module(features)                     # (B, 1024, T')
 
     def continuous(self, rep: torch.Tensor) -> torch.Tensor:
         h = self.continuous_decoder(rep)
