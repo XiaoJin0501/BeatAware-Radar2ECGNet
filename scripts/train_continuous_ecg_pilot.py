@@ -108,15 +108,25 @@ class Fold(Dataset):
     """
 
     def __init__(self, fold: int, split: str, arm: str, scaler: tuple[float, float] | None,
-                 limit=None, allow_test: bool = False, wsst_source: str = "per_split"):
+                 limit=None, allow_test: bool = False, wsst_source: str = "per_split",
+                 needs_rcg: bool | None = None, load_wsst: bool = True):
+        """`needs_rcg` / `load_wsst` are additive overrides for the matched-protocol
+        baselines, which consume the native-rate rcg instead of WSST. Left at their
+        defaults the arm-driven behaviour of the frozen REM-Net path is unchanged."""
         if split == "test" and not allow_test:
             raise AssertionError("test split requires registered final-candidate mode")
         self.h5p = DATA / f"fold_{fold:02d}" / f"{split}.h5"
         self.wp = DATA / f"fold_{fold:02d}" / f"{split}_wsst8s.h5"
         self.arm, self.scaler = arm, scaler
-        self.needs_rcg = arm in ("B2b", "P0-naive", "P1-gated")
+        self.needs_rcg = (arm in ("B2b", "P0-naive", "P1-gated")
+                          if needs_rcg is None else bool(needs_rcg))
         t0 = time.time()
-        if wsst_source == "subject_pool":
+        if not load_wsst:
+            with h5py.File(self.h5p, "r") as h:
+                n = h["ecg"].shape[0]
+            self.n = min(limit, n) if limit else n
+            self.wsst = np.zeros((self.n, 1, 1, 1), np.float16)   # unused placeholder
+        elif wsst_source == "subject_pool":
             full_wsst = SubjectWSSTPool(SUBJECT_POOL).load_for_split(self.h5p)
             n = len(full_wsst)
             self.n = min(limit, n) if limit else n
