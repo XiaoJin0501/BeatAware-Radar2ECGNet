@@ -1,0 +1,135 @@
+{
+  "experiment_id": "q1_matched_baselines_continuous_strict_loso_seed2024",
+  "research_question": "Under the frozen continuous protocol that produced the REM-Net seed-42 benchmark, how do five published radar-to-ECG families perform on the same 11 loso_v2 folds?",
+  "category": "baseline",
+  "publishable": false,
+  "status": "DATA_READY",
+  "comparator": "q1_remnet_continuous_strict_loso_seed2024",
+  "reproduction_lane": "common-protocol (adapted) per docs/BASELINE_REPRODUCTION_POLICY.md",
+  "baselines": {
+    "mmecg_tcn": {
+      "paper": "Chen et al., Contactless ECG Monitoring With Millimeter Wave Radar, IEEE TMC 2024",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 input: the paper's 50 K-means voxel signals at length 640 are replaced by this dataset's 50 range-bin RCG at length 1600 (the same tensor every other baseline sees).",
+        "D2 decoding: the paper's autoregressive 256-way mu-law softmax over previous ECG samples is replaced by a parallel continuous head. Autoregressive decoding of 1600 steps per window is computationally prohibitive at 11-fold scale, and the frozen contract scores continuous raw-ECG regression, not mu-law classes. The causal dilated TCN stack, the CNN-Transformer spatio-temporal encoder and the receptive field are kept.",
+        "D3 position embedding: the paper embeds each voxel's 3D coordinates; range-bin index embeddings are used instead because the processed dataset exposes bins, not voxels."
+      ]
+    },
+    "radarode_mtl": {
+      "paper": "Zhang et al., radarODE-MTL, IEEE TIM 2025",
+      "input_tensor": "wsst",
+      "adaptations": [
+        "D1 input: WSST (50, 71, 240) covering the full 8 s window instead of the 4 s (50, 71, 120) tensor, matching the support REM-Net receives.",
+        "D2 output: the published ECG_shape (200) / PPI (260) / anchor (800) heads cannot produce a continuous 1600-sample stream without the long-term assembly this project could not faithfully reproduce (claim ledger F2). The official DCNResNet + squeeze backbone is kept verbatim from the authors' repository and an adapted continuous decoder built from the authors' own DeconvBlock/ConvBlock stack emits 1x1600.",
+        "D3 multitask: EGA gradient alignment across ECG_shape/PPI/anchor is not exercised, because only the continuous task is scored. Label the row 'adapted (continuous head)'."
+      ]
+    },
+    "wavegru_net": {
+      "paper": "Xu et al., WaveGRU-Net, Signal Processing 2025",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 input: MIMO beamforming to one phase channel is replaced by this dataset's 50 range-bin RCG; MODWT is applied per bin.",
+        "D2 transform: MODWT is realised as a fixed a-trous (undecimated) sym4 filter bank with 5 levels (6 bands) running inside the model on GPU, checked against pywt.swt. The paper's basis, level count and shift invariance are preserved.",
+        "D3 length: the paper's 1x1024 slices become the contract's 1x1600 windows.",
+        "D4 width: 50 bins x 6 bands would make the published 64-tap convolutions disproportionately wide, so a 1x1 band-mixing layer reduces 300 channels to 32 before the published 3-block CNN. The CNN, transposed-convolution module, Bi-GRU and dropout head keep the published structure."
+      ]
+    },
+    "attention_dcgan": {
+      "paper": "Jin et al., Attention-DCGAN, IEEE Sensors Journal 2025",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 segmentation: the paper feeds 200-sample fragments centred on ECG R peaks. Under the strict continuous contract that segmentation is a ground-truth oracle, so the generator maps the whole 8 s window instead.",
+        "D2 output activation: the paper's Tanh output is kept and followed by a fixed gain fitted on the TRAINING fold only, because the contract's target lives in train-fold robust-scaled units rather than the paper's [-1, 1] range.",
+        "D3 optimiser: the paper's Adam lr 3e-4 / batch 32 is replaced by the protocol budget (AdamW lr 1e-4, batch 16, 100 epochs, patience 15), identical to every other arm."
+      ]
+    },
+    "cross_modal_conformer": {
+      "paper": "Liu et al., Cross-Modal Autoencoder, IEEE Sensors Journal 2024",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 input: the paper's 1x1000 single-channel mmWave slice becomes the 50-bin RCG at length 1600.",
+        "D2 pretraining: the ECG-to-ECG autoencoder and the cardiac-event predictor are pretrained per fold on TRAINING-fold ECG only (never validation or test), preserving the paper's deep-feature loss. Set --pretrain_epochs 0 to disable, which drops the deep-feature term and must then be reported as a removed component.",
+        "D3 loss: waveform MSE + STFT-magnitude MSE, as published."
+      ]
+    }
+  },
+  "dataset": "MMECG public loso_v2",
+  "folds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+  ],
+  "protocol": {
+    "train": "nine subjects per fold",
+    "validation": "one distinct subject per fold; checkpoint selection only",
+    "test": "one held-out subject per fold; opened exactly once after checkpoint selection",
+    "split_invariants": "identical fold files, hashes and subject assignment as the REM-Net run",
+    "input": "WSST (50,71,240) full-window for radarode_mtl; native-rate rcg (50,1600) for the other four, exactly as each paper's modality requires",
+    "target": "blind continuous 1x1600 ECG in train-fold robust-scaled space; reported in raw ECG units",
+    "test_oracles_prohibited": "No test-derived scaler, lag, affine map, range-bin selection, threshold, checkpoint, or model choice. R-peak-centred segmentation is prohibited for every baseline."
+  },
+  "training": {
+    "seed": "2024 + fold, deterministic cuDNN",
+    "budget": "100 epochs maximum, patience 15, AdamW lr 1e-4, weight decay 1e-4, batch 16",
+    "objective": "each baseline's own published objective (MSE; waveform+spectrogram MSE with deep-feature loss for cross_modal_conformer; adversarial + L1 for attention_dcgan)",
+    "checkpoint": "maximum frozen validation composite, the same 0.40 PCC + 0.25 (1-min(NRMSE,1)) + 0.20 max(R2,0) + 0.15 F1@100 rule as REM-Net; Shape-200 excluded",
+    "composite_disclosure": "The NRMSE term is identically zero in the observed operating range and max(R2,0) is zero on negative-R2 epochs, so selection is effectively PCC + waveform F1@100 for every arm alike."
+  },
+  "metrics": {
+    "evaluator": "scripts/train_continuous_ecg_pilot.evaluate, imported rather than copied, so baseline and REM-Net numbers come from one implementation",
+    "primary": [
+      "continuous per-window PCC@0",
+      "RMSE",
+      "NRMSE",
+      "MAE",
+      "R2"
+    ],
+    "event": [
+      "waveform R-F1@50/100/150 ms",
+      "RR MAE",
+      "HR MAE",
+      "coverage"
+    ],
+    "event_head": "absent in all five baselines; event_f1_* is NOT APPLICABLE and must be left blank in tables, never reported as zero",
+    "mechanism": [
+      "QRS-region MAE",
+      "ST/T-region MAE",
+      "amplitude variance ratio",
+      "relative above-10-Hz energy ratio"
+    ],
+    "aggregation": "fold-macro mean and population standard deviation over 11 test subjects; per-fold values retained",
+    "binding_reporting_rules": [
+      "RR/HR aggregate only over folds with rr_coverage >= 0.80; excluded folds are listed as failure cases (METRIC_CONTRACT R1).",
+      "above_10hz_energy_ratio is reported as median with IQR plus per-fold values (METRIC_CONTRACT R2).",
+      "RMSE/MAE/region MAE are in per-record z-score units; every table states units, aggregation style and the population-std convention (METRIC_CONTRACT R3)."
+    ],
+    "nan_policy": "nanmean within evaluator; record NaN/failed values before promotion"
+  },
+  "artifacts": [
+    "per-fold config with its adaptation list",
+    "atomic last_state.pt",
+    "run_state.json",
+    "validation history and checkpoint",
+    "test_metrics.json",
+    "compressed per-window test predictions",
+    "per-baseline 11-fold CSV and summary JSON",
+    "benchmark_summary.json"
+  ],
+  "promotion_limit": "One seed of the registered three-seed audit; conclusions use all three seeds.",
+  "multi_seed_audit": {
+    "seed_base": 2024,
+    "seed_rule": "2024 + fold",
+    "family": "42 / 123 / 2024",
+    "frozen_from": "q1_matched_baselines_continuous_strict_loso_seed42",
+    "changes": "seed base only; model, loss, budget, split, scaler, evaluator and checkpoint rule are identical"
+  }
+}

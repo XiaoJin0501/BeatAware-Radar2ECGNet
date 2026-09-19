@@ -23,10 +23,20 @@ import h5py
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.utils.atomic_state import atomic_csv, atomic_json, atomic_text  # noqa: E402
+SEED_BASE = 42
 TAG = "q1_remnet_continuous_strict_loso_seed42"
 SPEC = ROOT / "experiments" / "specs" / f"{TAG}.json"
 REGISTRY = ROOT / "experiments_mmecg" / "EXPERIMENT_REGISTRY.csv"
 OUT = ROOT / "experiments_mmecg" / TAG
+
+
+def configure(seed_base: int) -> None:
+    """Point the runner at one registered seed of the continuous REM-Net benchmark."""
+    global SEED_BASE, TAG, SPEC, OUT
+    SEED_BASE = seed_base
+    TAG = f"q1_remnet_continuous_strict_loso_seed{seed_base}"
+    SPEC = ROOT / "experiments" / "specs" / f"{TAG}.json"
+    OUT = ROOT / "experiments_mmecg" / TAG
 FOLDS = tuple(range(1, 12))
 METRICS = (
     "pcc", "rmse", "nrmse", "mae", "r2", "amplitude_variance_ratio",
@@ -44,7 +54,10 @@ def require_preflight() -> tuple[str, str]:
     spec = json.loads(SPEC.read_text())
     if spec.get("status") not in {"DATA_READY", "PREFLIGHT_PASSED"}:
         raise SystemExit(f"Unexpected spec state: {spec.get('status')}")
-    dirty = capture("git", "status", "--short", "--untracked-files=no")
+    dirty = "\n".join(line for line in capture(
+        "git", "status", "--short", "--untracked-files=no").splitlines()
+        # the registry is this runner's own bookkeeping file
+        if not line.endswith("experiments_mmecg/EXPERIMENT_REGISTRY.csv"))
     if dirty:
         raise SystemExit("Refusing formal launch with uncommitted tracked files:\n" + dirty)
     split_root = Path("/home/qhh2237/Datasets/MMECG/processed/loso_v2")
@@ -81,7 +94,8 @@ def update_registry(commit: str, branch: str, status: str) -> None:
         "branch": branch,
         "role": "Official WSST-driven continuous REM-Net B1 + locked L3 MR-STFT",
         "status": status,
-        "reason": "Frozen seed-42 full-fold candidate; headline claim awaits metric audit and multi-seed confirmation.",
+        "reason": (f"Frozen seed-{SEED_BASE} full-fold candidate of the registered three-seed "
+                   "audit (42/123/2024); headline claim awaits all three seeds."),
     }
     encoded = io.StringIO()
     writer = csv.DictWriter(encoded, fieldnames=fields, lineterminator="")
@@ -114,6 +128,7 @@ def run_folds(device: str) -> None:
             "--arm", "B1", "--loss_arm", "L3", "--fold", str(fold),
             "--split_root", "loso_v2", "--exp_tag", TAG,
             "--final_test", "--wsst_source", "subject_pool", "--device", device,
+            "--seed_base", str(SEED_BASE),
         ]
         print("+ " + " ".join(cmd), flush=True)
         subprocess.run(cmd, cwd=ROOT, check=True)
@@ -147,7 +162,9 @@ def main() -> None:
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--preflight_only", action="store_true")
     parser.add_argument("--aggregate_only", action="store_true")
+    parser.add_argument("--seed_base", type=int, default=42, choices=(42, 123, 2024))
     args = parser.parse_args()
+    configure(args.seed_base)
     if args.aggregate_only:
         aggregate()
         return

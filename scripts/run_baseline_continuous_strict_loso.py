@@ -28,9 +28,19 @@ if str(ROOT) not in sys.path:
 from src.models.baselines.continuous import BASELINES  # noqa: E402
 from src.utils.atomic_state import atomic_csv, atomic_json, atomic_text  # noqa: E402
 
+SEED_BASE = 42
 TAG = "q1_matched_baselines_continuous_strict_loso_seed42"
 OUT = ROOT / "experiments_mmecg" / TAG
 SPEC = ROOT / "experiments" / "specs" / f"{TAG}.json"
+
+
+def configure(seed_base: int) -> None:
+    """Point the runner at one registered seed of the matched baseline benchmark."""
+    global SEED_BASE, TAG, OUT, SPEC
+    SEED_BASE = seed_base
+    TAG = f"q1_matched_baselines_continuous_strict_loso_seed{seed_base}"
+    OUT = ROOT / "experiments_mmecg" / TAG
+    SPEC = ROOT / "experiments" / "specs" / f"{TAG}.json"
 REGISTRY = ROOT / "experiments_mmecg" / "EXPERIMENT_REGISTRY.csv"
 FOLDS = list(range(1, 12))
 RR_COVERAGE_GATE = 0.80          # METRIC_CONTRACT: binding rate-metric gate
@@ -68,7 +78,7 @@ def update_registry(commit: str, branch: str, status: str) -> None:
            f'Matched-protocol continuous baselines (adapted): '
            f'{" / ".join(sorted(BASELINES))},{status},'
            f'"Same split, scaler, evaluator, budget, checkpoint rule and aggregation as '
-           f'q1_remnet_continuous_strict_loso_seed42. Adapted reproductions per '
+           f'q1_remnet_continuous_strict_loso_seed{SEED_BASE}. Adapted reproductions per '
            f'docs/BASELINE_REPRODUCTION_POLICY.md; deviations recorded in each config.json. '
            f'No event head, so event_f1_* is not applicable."')
     replaced = False
@@ -94,7 +104,8 @@ def run_folds(baseline: str, device: str, pretrain_epochs: int) -> None:
             raise SystemExit(f"Corrupt COMPLETE fold without metrics: {fold_dir}")
         cmd = [sys.executable, "scripts/train_continuous_baseline.py",
                "--baseline", baseline, "--fold", str(fold), "--split_root", "loso_v2",
-               "--exp_tag", TAG, "--final_test", "--device", device,
+               "--exp_tag", TAG, "--seed_base", str(SEED_BASE), "--final_test",
+               "--device", device,
                "--pretrain_epochs", str(pretrain_epochs)]
         print("+ " + " ".join(cmd), flush=True)
         subprocess.run(cmd, cwd=ROOT, check=True)
@@ -151,7 +162,9 @@ def main() -> None:
                         choices=sorted(BASELINES))
     parser.add_argument("--pretrain_epochs", type=int, default=10)
     parser.add_argument("--preflight_only", action="store_true")
+    parser.add_argument("--seed_base", type=int, default=42, choices=(42, 123, 2024))
     args = parser.parse_args()
+    configure(args.seed_base)
 
     commit, branch = require_preflight()
     update_registry(commit, branch, "preflight-passed" if args.preflight_only else "running")
@@ -166,7 +179,7 @@ def main() -> None:
         summaries[baseline] = aggregate(baseline)
     atomic_json(OUT / "benchmark_summary.json", {
         "experiment_id": TAG,
-        "comparator": "q1_remnet_continuous_strict_loso_seed42 (REM-Net, same protocol)",
+        "comparator": f"q1_remnet_continuous_strict_loso_seed{SEED_BASE} (REM-Net, same protocol)",
         "baselines": summaries})
     update_registry(commit, branch, "completed; awaiting metric audit")
     for name, summary in summaries.items():

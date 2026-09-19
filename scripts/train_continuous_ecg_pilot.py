@@ -53,16 +53,26 @@ LOSS_WEIGHTS = {"L1": 0.30, "L2": 0.10, "L3": 0.50}
 MRSTFT_CONFIG = {"fft_sizes": [128, 256, 512], "hop_sizes": [32, 64, 128],
                   "win_lengths": [128, 256, 512]}
 FINAL_CONTINUOUS_TAG = "q1_remnet_continuous_strict_loso_seed42"
+REGISTERED_SEED_BASES = (42, 123, 2024)       # METRIC_CONTRACT: >= 3 seeds for headlines
+
+
+def final_continuous_tag(seed_base: int) -> str:
+    return f"q1_remnet_continuous_strict_loso_seed{seed_base}"
 
 
 def is_registered_final_mode(final_test: bool, smoke: bool, arm: str,
-                             loss_arm: str, tag: str) -> bool:
-    return final_test and not smoke and arm == "B1" and loss_arm == "L3" and tag == FINAL_CONTINUOUS_TAG
+                             loss_arm: str, tag: str, seed_base: int = BUDGET["seed"]) -> bool:
+    return (final_test and not smoke and arm == "B1" and loss_arm == "L3"
+            and seed_base in REGISTERED_SEED_BASES and tag == final_continuous_tag(seed_base))
 
 
-def effective_seed(fold: int) -> int:
-    """Same for every arm within a fold, so arms are paired; varies across folds."""
-    return BUDGET["seed"] + fold
+def effective_seed(fold: int, base: int | None = None) -> int:
+    """Same for every arm within a fold, so arms are paired; varies across folds.
+
+    `base` defaults to the frozen BUDGET seed (42), so seed-42 runs are unchanged;
+    the registered multi-seed audit passes 123 and 2024.
+    """
+    return (BUDGET["seed"] if base is None else base) + fold
 
 
 def set_seed(s: int):
@@ -361,6 +371,8 @@ def main():
                     help="registered single-term loss ablation; L0 preserves the original objective")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--wsst_source", choices=["per_split", "subject_pool"], default="per_split")
+    ap.add_argument("--seed_base", type=int, default=BUDGET["seed"],
+                    help="per-fold seed is seed_base + fold; registered bases 42/123/2024")
     ap.add_argument(
         "--final_test", action="store_true",
         help="registered final-candidate mode: select on validation, then open test once")
@@ -369,11 +381,11 @@ def main():
     # ---- formal / smoke parameter isolation: a formal run CANNOT be shrunk ----
     base_tag = a.exp_tag or "q1_continuous_ecg_b0_b2_pilot"
     official_final = is_registered_final_mode(
-        a.final_test, a.smoke, a.arm, a.loss_arm, base_tag)
+        a.final_test, a.smoke, a.arm, a.loss_arm, base_tag, a.seed_base)
     if a.final_test and not official_final:
         raise SystemExit(
             "--final_test is restricted to registered B1/L3 experiment "
-            "q1_remnet_continuous_strict_loso_seed42")
+            f"{final_continuous_tag(a.seed_base)} with seed_base in {REGISTERED_SEED_BASES}")
     if official_final and a.wsst_source != "subject_pool":
         raise SystemExit("Official 11-fold final candidate requires --wsst_source subject_pool")
     if a.smoke:
@@ -414,7 +426,7 @@ def main():
                                  loss_arm=a.loss_arm, test_accessed=False)
 
     _set_split_root(a.split_root)
-    seed = effective_seed(a.fold)
+    seed = effective_seed(a.fold, a.seed_base)
     set_seed(seed)
     dev = torch.device(a.device)
     scaler = None if a.arm in LEGACY_TARGET_ARMS else fit_scaler(a.fold)

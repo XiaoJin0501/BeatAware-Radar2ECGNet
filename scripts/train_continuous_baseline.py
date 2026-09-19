@@ -59,6 +59,11 @@ from src.utils.atomic_state import (  # noqa: E402
 )
 
 REGISTERED_TAG = "q1_matched_baselines_continuous_strict_loso_seed42"
+REGISTERED_SEED_BASES = (42, 123, 2024)
+
+
+def registered_tag(seed_base: int) -> str:
+    return f"q1_matched_baselines_continuous_strict_loso_seed{seed_base}"
 GAN_L1_WEIGHT = 10.0          # see ADAPTATIONS["attention_dcgan"] D4
 PRETRAIN_EPOCHS = 10          # cross-modal conformer ECG autoencoder, train fold only
 
@@ -180,7 +185,10 @@ def main() -> None:
     ap.add_argument("--baseline", required=True, choices=sorted(BASELINES))
     ap.add_argument("--fold", type=int, required=True)
     ap.add_argument("--split_root", default="loso_v2")
-    ap.add_argument("--exp_tag", default=REGISTERED_TAG)
+    ap.add_argument("--exp_tag", default=None,
+                    help="defaults to the registered benchmark tag for --seed_base")
+    ap.add_argument("--seed_base", type=int, default=42,
+                    help="per-fold seed is seed_base + fold; registered bases 42/123/2024")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--final_test", action="store_true",
                     help="registered mode: select on validation, then open test once")
@@ -198,8 +206,11 @@ def main() -> None:
     if a.final_test and a.overwrite:
         raise SystemExit("--overwrite cannot be combined with --final_test: a frozen or "
                          "COMPLETE registered fold is never restarted in place")
-    if a.final_test and a.exp_tag != REGISTERED_TAG:
-        raise SystemExit(f"--final_test is restricted to registered tag {REGISTERED_TAG}")
+    a.exp_tag = a.exp_tag or registered_tag(a.seed_base)
+    if a.final_test and (a.seed_base not in REGISTERED_SEED_BASES
+                         or a.exp_tag != registered_tag(a.seed_base)):
+        raise SystemExit(f"--final_test is restricted to registered tag "
+                         f"{registered_tag(a.seed_base)} with seed_base in {REGISTERED_SEED_BASES}")
     tag = a.exp_tag + ("_smoke" if a.smoke else "")
     epochs = a.smoke_epochs if a.smoke else BUDGET["epochs"]
     limit = a.smoke_limit if a.smoke else None
@@ -226,7 +237,7 @@ def main() -> None:
                                  loss_arm="native", test_accessed=False)
 
     _set_split_root(a.split_root)
-    seed = effective_seed(a.fold)          # identical per-fold seed as REM-Net
+    seed = effective_seed(a.fold, a.seed_base)   # identical per-fold seed as REM-Net
     set_seed(seed)
     dev = torch.device(a.device)
     key = input_key(a.baseline)
