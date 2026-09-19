@@ -1,0 +1,27 @@
+{
+  "experiment_id": "q1_crrvs_diagnostics_seed42",
+  "research_question": "Do the MMECG findings -- template-saturated beat metrics and a timing-dominated continuous gap -- hold on CW radar, and is the timing error a per-subject systematic latency (EMAT-like, calibratable) or per-beat jitter?",
+  "category": "analysis",
+  "publishable": false,
+  "status": "DATA_READY",
+  "no_training": "Frozen seed-42 test predictions and training-fold labels only; nothing is trained, tuned or selected.",
+  "inputs": {
+    "crrvs_models": ["q1_remnet_continuous_crrvs_seed42 (rem_net)", "q1_matched_baselines_continuous_crrvs_seed42 (mmecg_tcn, wavegru_net)"],
+    "mmecg_models": ["q1_remnet_continuous_strict_loso_seed42", "q1_matched_baselines_continuous_strict_loso_seed42"],
+    "row_alignment": "prediction rows equal test.h5 rows; verified by exact equality of stored ground truth"
+  },
+  "analyses": {
+    "A1_scenario_readout": "CR_RVS continuous metrics per scenario (Resting / Valsalva / Apnea; stored codes NB / IB / SP) with the frozen evaluator functions; Resting-only is the like-for-like comparison with the cited literature",
+    "A2_tier1_template_floor": "Tier-1 Shape-200 readout of the three CR_RVS models and the training-label template floor on the same test beats, centre cycle cut by GT R peaks (identical definition to the MMECG readout)",
+    "A3_template_timing": "training-fold template placed at GT peaks (T0, oracle), REM-Net event-head peaks (T1), REM-Net waveform peaks (T2), Chen-TCN waveform peaks (T3), WaveGRU-Net waveform peaks (T4); T4 is added for MMECG too, leaving T0-T3 unchanged",
+    "A4_timing_error_decomposition": "radar-derived peaks matched to GT R peaks within +/-150 ms; signed offset radar minus GT decomposed into global bias, per-subject bias spread and within-subject jitter; match rate",
+    "A5_bias_corrected_oracle": "T1 and T3 peaks shifted by each test subject's own median offset (GT-derived, ORACLE) before placing the template; the recovery toward T0 measures how much of the gap a perfect per-subject latency calibration could remove"
+  },
+  "pre_declared_readings": [
+    "If A5 recovers most of the gap between T1/T3 and T0, the bottleneck is a per-subject systematic latency (EMAT-like) that calibration could address.",
+    "If A5 recovers little, the bottleneck is within-subject jitter that no constant offset can remove.",
+    "EMAT is not identified by any of these analyses; a per-subject offset is only compatible with an electromechanical delay among other causes."
+  ],
+  "statistics": "fold-macro with population std; CR_RVS has 5 folds, so paired comparisons report fold wins and effect sizes, not Wilcoxon p-values",
+  "output_dirs": ["experiments_mmecg/q1_tier1_readout_crrvs_seed42", "experiments_mmecg/q1_template_timing_crrvs_seed42", "experiments_mmecg/q1_scenario_readout_crrvs_seed42"]
+}

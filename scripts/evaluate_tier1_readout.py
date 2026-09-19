@@ -13,6 +13,7 @@ Usage:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -76,6 +77,22 @@ def fold_readout(npz_path: Path) -> dict:
 
 MMECG_SPLITS = Path("/home/qhh2237/Datasets/MMECG/processed/loso_v2")
 CRRVS_SPLITS = Path("/home/qhh2237/Datasets/CR_RVS/processed/q1_shape_kfold")
+CRRVS_CONTINUOUS = Path("/home/qhh2237/Datasets/CR_RVS/processed/q1_continuous_kfold")
+
+
+def configure(dataset: str) -> None:
+    """Point the readout at one dataset's frozen continuous benchmark."""
+    global TAG, OUT, FOLDS, MODELS
+    if dataset == "mmecg":
+        return
+    TAG = "q1_tier1_readout_crrvs_seed42"
+    OUT = ROOT / "experiments_mmecg" / TAG
+    FOLDS = list(range(1, 6))
+    MODELS = {
+        "rem_net": ROOT / "experiments_mmecg" / "q1_remnet_continuous_crrvs_seed42" / "L3",
+        **{name: ROOT / "experiments_mmecg" / "q1_matched_baselines_continuous_crrvs_seed42" / name
+           for name in ("mmecg_tcn", "wavegru_net")},
+    }
 
 
 def _beats(h5_path: Path, use_stored_bounds: bool) -> np.ndarray:
@@ -130,6 +147,10 @@ def template_floor(root: Path, folds: list[int], use_stored_bounds: bool) -> dic
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--dataset", choices=("mmecg", "crrvs"), default="mmecg")
+    dataset = ap.parse_args().dataset
+    configure(dataset)
     rows, per_model = [], {}
     for model, root in MODELS.items():
         per_model[model] = []
@@ -161,9 +182,20 @@ def main() -> None:
                 "wilcoxon_p": float(wilcoxon(a, b).pvalue),
                 "rem_net_wins": int(((better * d) > 0).sum()),
             }
-    floors = {"mmecg_loso_v2": template_floor(MMECG_SPLITS, FOLDS, use_stored_bounds=False),
-              "crrvs_5fold": template_floor(CRRVS_SPLITS, list(range(1, 6)),
-                                            use_stored_bounds=True)}
+    if dataset == "mmecg":
+        floors = {"mmecg_loso_v2": template_floor(MMECG_SPLITS, FOLDS, use_stored_bounds=False),
+                  "crrvs_5fold": template_floor(CRRVS_SPLITS, list(range(1, 6)),
+                                                use_stored_bounds=True)}
+    else:
+        # Same test beats and the same cycle definition as the model readout.
+        floors = {"crrvs_continuous_kfold": template_floor(CRRVS_CONTINUOUS, FOLDS,
+                                                           use_stored_bounds=False)}
+        tmpl = floors["crrvs_continuous_kfold"]["per_fold"]
+        for model, rs in per_model.items():
+            a = np.array([r["shape200_pcc"] for r in rs]); t = np.array([r["shape200_pcc"] for r in tmpl])
+            comparisons.setdefault("versus_template", {})[model] = {
+                "model_minus_template_pcc": float((a - t).mean()),
+                "folds_above_template": int((a > t).sum()), "folds": len(a)}
     atomic_json(OUT / "tier1_summary.json", {
         "experiment_id": TAG,
         "definition": "known-cycle Shape-200 morphology of frozen continuous test predictions",
@@ -186,11 +218,16 @@ def main() -> None:
         print(f"{'TEMPLATE ' + name:24s} {fl['shape200_pcc']['mean']:.4f} ± "
               f"{fl['shape200_pcc']['std_population']:.4f} {fl['shape200_rmse']['mean']:.4f} "
               f"{fl['shape200_mae']['mean']:.4f}   (radar-free control)")
-    print("\nREM-Net vs baseline (paired Wilcoxon, 11 folds):")
+    print(f"\nREM-Net vs baseline (paired Wilcoxon, {len(FOLDS)} folds):")
     for m, c in comparisons.items():
+        if m == "versus_template":
+            continue
         print(f"  {m:24s} " + " | ".join(
             f"{k.split('_')[1]}: Δ{v['rem_minus_baseline']:+.4f} p={v['wilcoxon_p']:.3f} "
-            f"win {v['rem_net_wins']}/11" for k, v in c.items()))
+            f"win {v['rem_net_wins']}/{len(FOLDS)}" for k, v in c.items()))
+    for m, v in comparisons.get("versus_template", {}).items():
+        print(f"  {m:24s} vs template: Δpcc {v['model_minus_template_pcc']:+.4f}, "
+              f"above template in {v['folds_above_template']}/{v['folds']} folds")
 
 
 if __name__ == "__main__":

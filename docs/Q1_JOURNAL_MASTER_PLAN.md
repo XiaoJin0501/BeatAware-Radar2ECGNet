@@ -296,6 +296,14 @@ medians of 0.39-0.90 under leave-one-subject-out in the same paper. After W3, th
 CR_RVS results are also reported for the Resting scenario alone, the scenario every
 cited paper uses.
 
+**W3 result (2026-09-19).** CR_RVS seed 42: Chen-TCN PCC 0.506 / R² 0.254,
+WaveGRU-Net 0.503 / 0.252, REM-Net 0.442 / 0.182 (REM-Net 1/5 folds). Resting-only
+subject-level PCC 0.53-0.61, the regime of RSSRnet's own leave-one-subject-out
+result. Template floor 0.887 with 0/5 folds above it; template at GT timing reaches
+R² 0.764. Timing error is within-subject jitter plus missed beats; an oracle
+per-subject latency calibration recovers only 6-17 % of the gap on both radars. Full
+record: `docs/audits/Q1_CRRVS_DIAGNOSTICS_AUDIT.md`.
+
 **W4 — Manuscript restructure.** Rewrite `docs/paper/RQ1.tex` around the three
 tiers; rebuild `docs/PAPER_CLAIM_LEDGER.md` from the matched evidence; retire
 every "resolves collapse" or "outperforms SOTA" sentence that the tables above
