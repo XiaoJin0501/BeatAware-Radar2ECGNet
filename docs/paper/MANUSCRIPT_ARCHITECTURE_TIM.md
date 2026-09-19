@@ -73,6 +73,6 @@ three seeds, and radar-free reference floors.
 ## Open items before drafting results
 
 1. W2: seeds 123 and 2024 for all six models (queued; about 32 GPU hours).
-2. W3: CR_RVS continuous benchmark for all six models (queued after W2).
+2. W3: CR_RVS continuous benchmark for REM-Net, Chen-TCN and WaveGRU-Net (queued after W2), plus a Resting-only readout of the frozen predictions.
 3. Template-floor and template-timing diagnostics on CR_RVS (analysis only, after W3).
 4. Three-seed aggregation script with paired tests pooled appropriately (seed-averaged fold values).
