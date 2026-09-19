@@ -268,6 +268,15 @@ Tier-1 claims M1/M2/S1/S3 are suspended and **W1b is paused** pending an author
 decision on whether and how Tier 1 can carry a positive, template-referenced claim.
 Full record: `docs/audits/Q1_TIER1_TEMPLATE_FLOOR_AUDIT.md`.
 
+**Mechanism result (2026-09-19) — the continuous gap is timing.** A training-fold
+template beat placed at ground-truth R peaks reaches PCC 0.856 and R² 0.730 on
+`loso_v2`, against REM-Net's 0.305 / 0.018 (11/11 folds, p = 0.001). Placed at
+radar-derived peaks (REM-Net event head or waveform, Chen-TCN waveform) it drops to
+PCC 0.19–0.20 and R² below zero, significantly under REM-Net's own output. Beat
+timing, not beat morphology, bounds continuous reconstruction; amplitude shrinkage
+is the loss-optimal hedge against timing error. Full record:
+`docs/audits/Q1_TEMPLATE_TIMING_AUDIT.md`.
+
 **W2 — Three-seed statistical audit.** Seeds 123 and 2024 for REM-Net and all
 five baselines on the continuous benchmark, same everything else. Requires an
 additive seed-base argument; seed 42 results stay frozen. About 38 GPU hours,
