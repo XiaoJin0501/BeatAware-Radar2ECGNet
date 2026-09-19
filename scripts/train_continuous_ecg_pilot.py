@@ -40,6 +40,23 @@ SUBJECT_POOL = PROCESSED / "wsst8s_subject_pool"
 # across 11 folds (docs/MMECG_SPLIT_PROVENANCE_AUDIT.md). loso_v2 is the repaired split.
 BROKEN_SPLIT_ROOTS = {"loso"}
 DATA = PROCESSED / "loso_v2"
+# Registered continuous datasets. MMECG is the main FMCW benchmark; CR_RVS is the
+# external 24 GHz CW set, rebuilt with a per-record z-scored ECG target
+# (q1_continuous_kfold) because its Shape-200 build min-max normalises each window,
+# which the continuous contract forbids as primary ground truth.
+DATASETS = {
+    "mmecg": {"processed": PROCESSED, "split_root": "loso_v2", "in_bins": 50,
+              "wsst_source": "subject_pool", "folds": 11,
+              "invalid_roots": {"loso": "only 2 distinct validation subjects across 11 folds "
+                                        "(docs/MMECG_SPLIT_PROVENANCE_AUDIT.md)"}},
+    "crrvs": {"processed": Path("/home/qhh2237/Datasets/CR_RVS/processed"),
+              "split_root": "q1_continuous_kfold", "in_bins": 1,
+              "wsst_source": "per_split", "folds": 5,
+              "invalid_roots": {"q1_shape_kfold": "per-window min-max ECG target, forbidden as "
+                                                  "continuous ground truth "
+                                                  "(CONTINUOUS_ECG_TASK_CONTRACT sec. 3)"}},
+}
+DATASET = "mmecg"
 FS = 200
 BUDGET = dict(epochs=100, patience=15, lr=1e-4, weight_decay=1e-4, batch_size=16, seed=42)
 LEGACY_TARGET_ARMS = ("B0",)
@@ -56,14 +73,18 @@ FINAL_CONTINUOUS_TAG = "q1_remnet_continuous_strict_loso_seed42"
 REGISTERED_SEED_BASES = (42, 123, 2024)       # METRIC_CONTRACT: >= 3 seeds for headlines
 
 
-def final_continuous_tag(seed_base: int) -> str:
+def final_continuous_tag(seed_base: int, dataset: str = "mmecg") -> str:
+    if dataset == "crrvs":
+        return f"q1_remnet_continuous_crrvs_seed{seed_base}"
     return f"q1_remnet_continuous_strict_loso_seed{seed_base}"
 
 
 def is_registered_final_mode(final_test: bool, smoke: bool, arm: str,
-                             loss_arm: str, tag: str, seed_base: int = BUDGET["seed"]) -> bool:
+                             loss_arm: str, tag: str, seed_base: int = BUDGET["seed"],
+                             dataset: str = "mmecg") -> bool:
     return (final_test and not smoke and arm == "B1" and loss_arm == "L3"
-            and seed_base in REGISTERED_SEED_BASES and tag == final_continuous_tag(seed_base))
+            and seed_base in REGISTERED_SEED_BASES
+            and tag == final_continuous_tag(seed_base, dataset))
 
 
 def effective_seed(fold: int, base: int | None = None) -> int:
@@ -87,13 +108,15 @@ def _worker_init(worker_id: int):
     np.random.seed(s); random.seed(s)
 
 
-def _set_split_root(name: str) -> None:
-    global DATA
-    if name in BROKEN_SPLIT_ROOTS:
+def _set_split_root(name: str, dataset: str = "mmecg") -> None:
+    global DATA, DATASET
+    spec = DATASETS[dataset]
+    if name in spec["invalid_roots"]:
         raise SystemExit(
-            f"Refusing split_root='{name}': it has only 2 distinct validation subjects across 11 folds "
-            "and is marked PROTOCOL-INVALID (docs/MMECG_SPLIT_PROVENANCE_AUDIT.md). Use loso_v2.")
-    DATA = PROCESSED / name
+            f"Refusing split_root='{name}' for {dataset}: {spec['invalid_roots'][name]}. "
+            f"Use {spec['split_root']}.")
+    DATASET = dataset
+    DATA = spec["processed"] / name
     if not DATA.exists():
         raise SystemExit(f"split_root not found: {DATA}")
 
@@ -364,7 +387,9 @@ def main():
     ap.add_argument("--interrupt_after_epoch", type=int, default=None,
                     help="smoke-only controlled interruption after atomic epoch save")
     ap.add_argument("--overwrite", action="store_true")
-    ap.add_argument("--split_root", default="loso_v2")
+    ap.add_argument("--dataset", choices=sorted(DATASETS), default="mmecg")
+    ap.add_argument("--split_root", default=None,
+                    help="defaults to the dataset's registered split root")
     ap.add_argument("--exp_tag", default=None,
                     help="output tree name; defaults to the pilot tag, or <tag>_smoke in smoke mode")
     ap.add_argument("--loss_arm", choices=["L0", "L1", "L2", "L3"], default="L0",
@@ -380,14 +405,18 @@ def main():
 
     # ---- formal / smoke parameter isolation: a formal run CANNOT be shrunk ----
     base_tag = a.exp_tag or "q1_continuous_ecg_b0_b2_pilot"
+    a.split_root = a.split_root or DATASETS[a.dataset]["split_root"]
     official_final = is_registered_final_mode(
-        a.final_test, a.smoke, a.arm, a.loss_arm, base_tag, a.seed_base)
+        a.final_test, a.smoke, a.arm, a.loss_arm, base_tag, a.seed_base, a.dataset)
     if a.final_test and not official_final:
         raise SystemExit(
             "--final_test is restricted to registered B1/L3 experiment "
-            f"{final_continuous_tag(a.seed_base)} with seed_base in {REGISTERED_SEED_BASES}")
-    if official_final and a.wsst_source != "subject_pool":
-        raise SystemExit("Official 11-fold final candidate requires --wsst_source subject_pool")
+            f"{final_continuous_tag(a.seed_base, a.dataset)} with seed_base in "
+            f"{REGISTERED_SEED_BASES}")
+    required_source = DATASETS[a.dataset]["wsst_source"]
+    if official_final and a.wsst_source != required_source:
+        raise SystemExit(f"Official {a.dataset} final candidate requires --wsst_source "
+                         f"{required_source}")
     if a.smoke:
         epochs, limit, tag = a.smoke_epochs, a.smoke_limit, base_tag + "_smoke"
     else:
@@ -425,7 +454,7 @@ def main():
         state = transition_state(state_path, "TRAINING", fold=a.fold, arm=a.arm,
                                  loss_arm=a.loss_arm, test_accessed=False)
 
-    _set_split_root(a.split_root)
+    _set_split_root(a.split_root, a.dataset)
     seed = effective_seed(a.fold, a.seed_base)
     set_seed(seed)
     dev = torch.device(a.device)
@@ -437,7 +466,7 @@ def main():
                      drop_last=True, generator=g)
     lva = DataLoader(va, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
 
-    model = CENet(a.arm)
+    model = CENet(a.arm, in_bins=DATASETS[a.dataset]["in_bins"])
     paired_decoder_seed = None
     if native_rcg_gate:
         # Variant-specific stems consume different RNG streams. Re-initialise
@@ -476,7 +505,7 @@ def main():
         "metric_space": "raw ECG units for ALL arms (per-arm inverse applied)",
         "b0_inverse_is_oracle": a.arm in LEGACY_TARGET_ARMS,
         "wsst": "full_window_samples_0_1600",
-        "split_root": a.split_root, "split_dir": str(DATA),
+        "dataset": a.dataset, "split_root": a.split_root, "split_dir": str(DATA),
         "val_file_sha256": _split_sha(a.fold, "val"),
         "code_commit": commit, "code_commit_is": "last commit touching src/scripts/tests/configs",
         "runtime_head": head,

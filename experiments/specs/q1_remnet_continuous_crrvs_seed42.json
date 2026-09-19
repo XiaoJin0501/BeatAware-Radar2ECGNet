@@ -1,0 +1,37 @@
+{
+  "research_question": "Do the MMECG continuous findings (R2 ~ 0 for every family, timing-dominated gap, template-saturated beat metrics) hold on an external 24 GHz CW radar dataset under the same continuous contract?",
+  "status": "DATA_READY",
+  "publishable": false,
+  "workstream": "W3",
+  "dataset": "CR_RVS / Nature, processed/q1_continuous_kfold (5 subject-independent folds; windows identical to the Shape-200 set, ECG per-record z-scored)",
+  "folds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "protocol": {
+    "train": "about 22-25 subjects per fold",
+    "validation": "one subject per fold (3 records, ~195 windows); checkpoint selection only -- small, so selection is noisy and this is stated in the paper",
+    "test": "4-7 held-out subjects per fold, opened exactly once after checkpoint selection",
+    "split_invariants": "train/val/test subject-disjoint per fold (verified in preflight); the five validation subjects are distinct",
+    "input": "CW phase, per-window robust z; log-STFT (65 x 93, hop 80 ms) covering samples 0-1600, or the 1 x 1600 phase for rcg models",
+    "target": "blind continuous 1 x 1600 ECG, per-record z-scored; trained in train-fold robust-scaled space and scored in stored units",
+    "test_oracles_prohibited": "No test-derived scaler, lag, affine map, threshold, checkpoint or model choice"
+  },
+  "training": {
+    "seed": "seed_base + fold",
+    "budget": "100 epochs maximum, patience 15, AdamW lr 1e-4, weight decay 1e-4, batch 16",
+    "checkpoint": "frozen validation composite, identical to MMECG; Shape-200 excluded"
+  },
+  "metrics": {
+    "evaluator": "scripts/train_continuous_ecg_pilot.evaluate",
+    "aggregation": "fold-macro, population std over 5 folds",
+    "binding_reporting_rules": "METRIC_CONTRACT continuous rules and the template-floor rule apply unchanged",
+    "statistics": "with 5 folds a two-sided Wilcoxon cannot reach p < 0.05; fold wins and effect sizes are reported per seed and inference rests on the three-seed audit"
+  },
+  "experiment_id": "q1_remnet_continuous_crrvs_seed42",
+  "category": "final_candidate",
+  "model": "REM-Net continuous B1, locked L3 MR-STFT, in_bins = 1"
+}

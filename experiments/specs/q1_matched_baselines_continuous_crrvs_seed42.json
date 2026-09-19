@@ -1,0 +1,59 @@
+{
+  "research_question": "Do the MMECG continuous findings (R2 ~ 0 for every family, timing-dominated gap, template-saturated beat metrics) hold on an external 24 GHz CW radar dataset under the same continuous contract?",
+  "status": "DATA_READY",
+  "publishable": false,
+  "workstream": "W3",
+  "dataset": "CR_RVS / Nature, processed/q1_continuous_kfold (5 subject-independent folds; windows identical to the Shape-200 set, ECG per-record z-scored)",
+  "folds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "protocol": {
+    "train": "about 22-25 subjects per fold",
+    "validation": "one subject per fold (3 records, ~195 windows); checkpoint selection only -- small, so selection is noisy and this is stated in the paper",
+    "test": "4-7 held-out subjects per fold, opened exactly once after checkpoint selection",
+    "split_invariants": "train/val/test subject-disjoint per fold (verified in preflight); the five validation subjects are distinct",
+    "input": "CW phase, per-window robust z; log-STFT (65 x 93, hop 80 ms) covering samples 0-1600, or the 1 x 1600 phase for rcg models",
+    "target": "blind continuous 1 x 1600 ECG, per-record z-scored; trained in train-fold robust-scaled space and scored in stored units",
+    "test_oracles_prohibited": "No test-derived scaler, lag, affine map, threshold, checkpoint or model choice"
+  },
+  "training": {
+    "seed": "seed_base + fold",
+    "budget": "100 epochs maximum, patience 15, AdamW lr 1e-4, weight decay 1e-4, batch 16",
+    "checkpoint": "frozen validation composite, identical to MMECG; Shape-200 excluded"
+  },
+  "metrics": {
+    "evaluator": "scripts/train_continuous_ecg_pilot.evaluate",
+    "aggregation": "fold-macro, population std over 5 folds",
+    "binding_reporting_rules": "METRIC_CONTRACT continuous rules and the template-floor rule apply unchanged",
+    "statistics": "with 5 folds a two-sided Wilcoxon cannot reach p < 0.05; fold wins and effect sizes are reported per seed and inference rests on the three-seed audit"
+  },
+  "experiment_id": "q1_matched_baselines_continuous_crrvs_seed42",
+  "category": "baseline",
+  "comparator": "q1_remnet_continuous_crrvs_seed42",
+  "baselines": {
+    "mmecg_tcn": {
+      "paper": "Chen et al., Contactless ECG Monitoring With Millimeter Wave Radar, IEEE TMC 2024",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 input: the paper's 50 K-means voxel signals at length 640 are replaced by this dataset's 50 range-bin RCG at length 1600 (the same tensor every other baseline sees).",
+        "D2 decoding: the paper's autoregressive 256-way mu-law softmax over previous ECG samples is replaced by a parallel continuous head. Autoregressive decoding of 1600 steps per window is computationally prohibitive at 11-fold scale, and the frozen contract scores continuous raw-ECG regression, not mu-law classes. The causal dilated TCN stack, the CNN-Transformer spatio-temporal encoder and the receptive field are kept.",
+        "D3 position embedding: the paper embeds each voxel's 3D coordinates; range-bin index embeddings are used instead because the processed dataset exposes bins, not voxels."
+      ]
+    },
+    "wavegru_net": {
+      "paper": "Xu et al., WaveGRU-Net, Signal Processing 2025",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 input: MIMO beamforming to one phase channel is replaced by this dataset's 50 range-bin RCG; MODWT is applied per bin.",
+        "D2 transform: MODWT is realised as a fixed a-trous (undecimated) sym4 filter bank with 5 levels (6 bands) running inside the model on GPU, checked against pywt.swt. The paper's basis, level count and shift invariance are preserved.",
+        "D3 length: the paper's 1x1024 slices become the contract's 1x1600 windows.",
+        "D4 width: 50 bins x 6 bands would make the published 64-tap convolutions disproportionately wide, so a 1x1 band-mixing layer reduces 300 channels to 32 before the published 3-block CNN. The CNN, transposed-convolution module, Bi-GRU and dropout head keep the published structure."
+      ]
+    }
+  },
+  "scope_note": "Revised 2026-09-19: CR_RVS matched arms are REM-Net, Chen-TCN (native time-domain family) and WaveGRU-Net (MODWT wavelet family). radarODE-MTL, Attention-DCGAN and the Conformer are MMECG-only. Other CR_RVS methods enter as reported literature with their protocols (docs/audits/Q1_CRRVS_LITERATURE_PROTOCOL_AUDIT.md)."
+}
