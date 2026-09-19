@@ -282,11 +282,19 @@ five baselines on the continuous benchmark, same everything else. Requires an
 additive seed-base argument; seed 42 results stay frozen. About 38 GPU hours,
 dominated by radarODE-MTL (EGA, ~14 h per seed).
 
-**W3 — CR_RVS protocol alignment.** The CR_RVS 5-fold Shape-200 result
-(0.881 ± 0.013) is not affected by the MMECG split defect but is compared only
-with reported literature. Matched baselines on the same 5 folds (single-channel
-CW input, `in_bins = 1`) for Tier 1, and a continuous Tier 2 run, are required
-before any cross-modality claim.
+**W3 — CR_RVS protocol alignment (scope revised 2026-09-19).** The CR_RVS
+Shape-200 build min-max normalises every window, so a continuous target was rebuilt
+(`processed/q1_continuous_kfold`, same windows, per-record z-scored ECG). Matched
+arms: REM-Net, Chen-TCN (native time-domain family) and WaveGRU-Net (MODWT wavelet
+family), 5 folds, queued after W2 on branch `exp/w3-crrvs-alignment`. radarODE-MTL,
+Attention-DCGAN and the Conformer are MMECG-only. The other CR_RVS methods -- Wu 2024
+RSSRnet, Xiao 2026 CA-WTBNet, Li 2025 Radar2ECG, Chowdhury 2024 MultiResLinkNet --
+enter as reported literature with their protocols stated; the audit is
+`docs/audits/Q1_CRRVS_LITERATURE_PROTOCOL_AUDIT.md`. Its central fact: RSSRnet
+reports PCC 0.959 under a data-level split of 80 %-overlapping windows and per-subject
+medians of 0.39-0.90 under leave-one-subject-out in the same paper. After W3, the
+CR_RVS results are also reported for the Resting scenario alone, the scenario every
+cited paper uses.
 
 **W4 — Manuscript restructure.** Rewrite `docs/paper/RQ1.tex` around the three
 tiers; rebuild `docs/PAPER_CLAIM_LEDGER.md` from the matched evidence; retire

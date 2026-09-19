@@ -34,8 +34,9 @@ three seeds, and radar-free reference floors.
 | VI-B Protocol fault 2: saturated beat metric | Template floor 0.879-0.887 on both datasets; prior Tier-1 numbers at the floor; radarODE-MTL below it | C2; `docs/audits/Q1_TIER1_TEMPLATE_FLOOR_AUDIT.md` | Ready |
 | VI-C Matched continuous benchmark | Table 1: six models, eleven folds, all metrics, paired tests; R² ≈ 0 throughout | C3; W2 for seeds | Seed 42 ready; three-seed pending W2 |
 | VI-D Mechanism: timing, not morphology | Template at GT peaks R² 0.73 vs models ≈ 0; template at radar peaks R² < 0; amplitude shrinkage as loss-optimal hedge; Tier-3 tolerance curve | C4; `docs/audits/Q1_TEMPLATE_TIMING_AUDIT.md` | Ready (MMECG); CR_RVS pending W3 |
-| VI-E External validity (CR_RVS) | Same benchmark and diagnostics on CW radar | W3 | Pending W3 |
-| VI-F Engineering | Parameters, latency; radarODE-MTL EGA cost | `docs/EFFICIENCY_AUDIT.md`; W2 timing | Update with baseline params |
+| VI-E External validity (CR_RVS) | REM-Net, Chen-TCN, WaveGRU-Net on 5 subject-independent folds, overall and Resting-only; template floor and template-timing diagnostics on CW radar | W3 | Pending W3 |
+| VI-F Reported literature on CR_RVS | Protocol-annotated table of Wu 2024, Xiao 2026, Li 2025, Chowdhury 2024; RSSRnet's own 0.959 → 0.39-0.90 contrast as the field's evidence of split-driven inflation | `docs/audits/Q1_CRRVS_LITERATURE_PROTOCOL_AUDIT.md` | Ready |
+| VI-G Engineering | Parameters, latency; radarODE-MTL EGA cost | `docs/EFFICIENCY_AUDIT.md`; W2 timing | Update with baseline params |
 | VII Discussion | What the field's numbers measure; what a credible continuous claim requires (timing); recommended reporting checklist | C1-C4 | After W2/W3 |
 | VIII Limitations | Two datasets, small subject counts, single CR_RVS validation subject per fold, adapted reproductions, template is a single fixed shape | — | Draft now |
 | IX Conclusion | — | — | Last |
@@ -49,6 +50,7 @@ three seeds, and radar-free reference floors.
 | Table 3 | Template-timing diagnostics T0-T3 | Timing audit | Done (MMECG) |
 | Table 4 | CR_RVS benchmark (continuous + template floor) | W3 | Pending |
 | Table 5 | Adaptation register for the five families | `ADAPTATIONS` | Done |
+| Table 6 | Reported CR_RVS literature with protocol columns (scenario, split unit, window overlap, target normalisation, metric) | CR_RVS literature audit | Done |
 | Fig. 1 | Measurement pipeline and where each fault enters (split, metric, timing) | new diagram | To draw |
 | Fig. 2 | Per-fold PCC of six models with the template-at-GT upper bound as a reference line | W2 + timing audit | To draw |
 | Fig. 3 | Waveform examples: GT, REM-Net, Chen-TCN, template@GT, template@radar peaks, at quantitatively chosen best / median / worst folds | frozen predictions | To draw |
