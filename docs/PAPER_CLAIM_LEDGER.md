@@ -18,6 +18,25 @@
 This ledger maps manuscript claims to verified experimental evidence. Do not
 write paper claims that cannot be traced here.
 
+## Benchmark paper claims (governing, 2026-09-19)
+
+These claims govern the IEEE TIM manuscript (`docs/paper/MANUSCRIPT_ARCHITECTURE_TIM.md`).
+The older sections below are historical; where they conflict, this section wins.
+
+| ID | Manuscript claim | Evidence | Status |
+|---|---|---|---|
+| C1 | The widely used MMECG LOSO construction leaks model selection across folds (two validation subjects across eleven folds); `loso_v2` repairs it with eleven distinct validation subjects. | `docs/MMECG_SPLIT_PROVENANCE_AUDIT.md`; per-fold split hashes in `experiments/manifests/q1_remnet_continuous_strict_loso_seed42.json` | **supported** |
+| C2 | Beat-normalised PCC (Shape-200 / ECG_shape) is saturated by a radar-free training-label template: 0.879 ± 0.070 (MMECG old split), 0.881 ± 0.071 (`loso_v2`), 0.887 ± 0.013 (CR_RVS). Prior Tier-1 results are at this floor; radarODE-MTL is below it on 11/11 folds. | `q1_tier1_readout_from_continuous_seed42`; `docs/audits/Q1_TIER1_TEMPLATE_FLOOR_AUDIT.md` | **supported** |
+| C3 | Under one leak-free protocol, six models from five families all reach R² ≈ 0 on strict blind continuous ECG; REM-Net is statistically indistinguishable from Chen-TCN, radarODE-MTL and the Conformer and better than WaveGRU-Net and Attention-DCGAN. | `q1_remnet_continuous_strict_loso_seed42`, `q1_matched_baselines_continuous_strict_loso_seed42` | **seed 42 supported; three-seed confirmation pending (W2)** |
+| C4 | The continuous gap is dominated by beat timing: a fixed template at ground-truth R peaks reaches PCC 0.856 / R² 0.730, at radar-derived peaks PCC ≈ 0.20 / R² < 0; amplitude shrinkage is the loss-optimal hedge against timing error. | `q1_template_timing_diagnostics_seed42`; `docs/audits/Q1_TEMPLATE_TIMING_AUDIT.md` | **supported on MMECG; CR_RVS pending (W3)** |
+| C5 | C2-C4 hold on an external 24 GHz CW dataset. | W3: `q1_remnet_continuous_crrvs_seed42`, `q1_matched_baselines_continuous_crrvs_seed42` | **pending** |
+| E1 | REM-Net: 1.79 M parameters, 0.98 ms per window. | `docs/EFFICIENCY_AUDIT.md` | supported; engineering characterisation only |
+
+Forbidden under this positioning: any sentence that REM-Net outperforms the matched
+baselines, recovers beat morphology from radar, or resolves amplitude collapse;
+any Tier-1 number without its template floor; any CR_RVS comparison with reported
+literature presented as a matched result.
+
 ## Main thesis (revised 2026-08-10, after route-C demotion)
 > **RETRACTED 2026-09-09 (audit C).** The oracle-cycle OLA figure of 0.93-0.98 is
 > NOT raw continuous-ECG evidence. `evaluate_mmecg_long_assembly.py:373` scores it
