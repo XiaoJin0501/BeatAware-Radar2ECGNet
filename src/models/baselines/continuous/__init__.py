@@ -45,6 +45,9 @@ BASELINES = {
                               "Liu et al., Cross-Modal Autoencoder, IEEE Sensors Journal 2024"),
 }
 
+#: Dataset note: on CR_RVS every rcg baseline receives the single CW phase channel
+#: (`in_bins = 1`) in place of MMECG's 50 range bins; architectures are otherwise unchanged.
+
 #: Documented deviations from each paper, reproduced verbatim in the spec files.
 ADAPTATIONS = {
     "mmecg_tcn": [
@@ -81,6 +84,10 @@ ADAPTATIONS = {
         "D5 decoder resolution: the continuous head uses three transposed stages to reach "
         "~1600 samples natively; stopping at 549 and interpolating would band-limit the "
         "output below the QRS.",
+        "D6 CR_RVS geometry: the official squeeze kernel is (6, 1) and needs the backbone to "
+        "reduce frequency to exactly 6 bins, which holds for MMECG's 71 but not CR_RVS's 65; "
+        "on CR_RVS the log-STFT map (65 x 93) is bilinearly resampled to the MMECG grid "
+        "(71 x 240) before the backbone, so every published head sees the same geometry.",
     ],
     "wavegru_net": [
         "D1 input: MIMO beamforming to one phase channel is replaced by this dataset's 50 "

@@ -142,6 +142,11 @@ def _make_windows(record: pd.Series, args: argparse.Namespace) -> list[dict[str,
     phase = _bandpass(phase, fs, args.radar_lo_hz, args.radar_hi_hz)
     ecg = _bandpass(ecg, fs, args.ecg_lo_hz, args.ecg_hi_hz)
     rpeaks = _detect_rpeaks(ecg, fs)
+    if args.ecg_scale == "zscore_record":
+        # Continuous contract: the target keeps within-record amplitude and baseline, so it
+        # is z-scored once over the whole record (the MMECG convention) instead of min-max
+        # normalised per window, which discards both (CONTINUOUS_ECG_TASK_CONTRACT, sec. 3).
+        ecg = ((ecg - ecg.mean()) / (ecg.std() + 1e-8)).astype(np.float32)
 
     win_len = int(round(args.window_sec * fs))
     stride = int(round(args.stride_sec * fs))
@@ -158,7 +163,8 @@ def _make_windows(record: pd.Series, args: argparse.Namespace) -> list[dict[str,
         if bounds is None:
             continue
         radar_win = _robust_z(phase[start : start + win_len])
-        ecg_win = _minmax(ecg[start : start + win_len])[np.newaxis, :]
+        ecg_win = (ecg[start : start + win_len] if args.ecg_scale == "zscore_record"
+                   else _minmax(ecg[start : start + win_len]))[np.newaxis, :].astype(np.float32)
         local_r = (rpeaks[(rpeaks >= start) & (rpeaks < start + win_len)] - start).astype(np.int32)
         rows.append(
             {
@@ -178,7 +184,8 @@ def _make_windows(record: pd.Series, args: argparse.Namespace) -> list[dict[str,
     return rows
 
 
-def _write_split(rows: list[dict[str, Any]], h5_path: Path, wsst_path: Path) -> None:
+def _write_split(rows: list[dict[str, Any]], h5_path: Path, wsst_path: Path,
+                 wsst_attrs: dict[str, Any] | None = None) -> None:
     h5_path.parent.mkdir(parents=True, exist_ok=True)
     vlen_i32 = h5py.vlen_dtype(np.dtype("int32"))
     str_dt = h5py.string_dtype(encoding="utf-8")
@@ -200,6 +207,8 @@ def _write_split(rows: list[dict[str, Any]], h5_path: Path, wsst_path: Path) -> 
                 ds[i] = row["rpeak_indices"] if key == "rpeak_indices" else np.asarray([], dtype=np.int32)
     with h5py.File(wsst_path, "w") as f:
         f.create_dataset("wsst", data=np.stack([r["wsst"] for r in rows], axis=0), compression="gzip")
+        for key, value in (wsst_attrs or {}).items():
+            f.attrs[key] = value
 
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
@@ -229,12 +238,23 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             if not rows:
                 raise RuntimeError(f"No windows generated for fold {fold} split {split}")
             fold_dir = out_root / f"fold_{int(fold):02d}"
-            _write_split(rows, fold_dir / f"{split}.h5", fold_dir / f"{split}_wsst.h5")
+            if args.ecg_scale == "zscore_record":
+                # The continuous loader asserts full-window support; the STFT frames tile
+                # samples 0..1599 without padding, so the whole 8 s target is covered.
+                wsst_file = fold_dir / f"{split}_wsst8s.h5"
+                wsst_attrs = {"support": "full_window_samples_0_1600",
+                              "supported_fraction_of_target": 1.0,
+                              "representation": "stft_log_magnitude",
+                              "stft_nperseg": args.stft_nperseg,
+                              "stft_noverlap": args.stft_noverlap}
+            else:
+                wsst_file, wsst_attrs = fold_dir / f"{split}_wsst.h5", None
+            _write_split(rows, fold_dir / f"{split}.h5", wsst_file, wsst_attrs)
             manifest["folds"][str(int(fold))][split] = {
                 "records": int(len(recs)),
                 "windows": int(len(rows)),
                 "h5": str(fold_dir / f"{split}.h5"),
-                "wsst": str(fold_dir / f"{split}_wsst.h5"),
+                "wsst": str(wsst_file),
             }
             print(f"fold {fold} {split}: records={len(recs)} windows={len(rows)}")
     (out_root / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str))
@@ -258,6 +278,10 @@ def main() -> None:
     parser.add_argument("--ecg_hi_hz", type=float, default=40.0)
     parser.add_argument("--stft_nperseg", type=int, default=128)
     parser.add_argument("--stft_noverlap", type=int, default=112)
+    parser.add_argument("--ecg_scale", choices=("minmax_window", "zscore_record"),
+                        default="minmax_window",
+                        help="minmax_window reproduces the Shape-200 set; zscore_record builds the "
+                             "continuous-contract target")
     args = parser.parse_args()
     manifest = build(args)
     print(json.dumps(manifest["folds"], indent=2))

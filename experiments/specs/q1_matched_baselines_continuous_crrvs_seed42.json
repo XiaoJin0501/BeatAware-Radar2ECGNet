@@ -1,0 +1,92 @@
+{
+  "research_question": "Do the MMECG continuous findings (R2 ~ 0 for every family, timing-dominated gap, template-saturated beat metrics) hold on an external 24 GHz CW radar dataset under the same continuous contract?",
+  "status": "DATA_READY",
+  "publishable": false,
+  "workstream": "W3",
+  "dataset": "CR_RVS / Nature, processed/q1_continuous_kfold (5 subject-independent folds; windows identical to the Shape-200 set, ECG per-record z-scored)",
+  "folds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "protocol": {
+    "train": "about 22-25 subjects per fold",
+    "validation": "one subject per fold (3 records, ~195 windows); checkpoint selection only -- small, so selection is noisy and this is stated in the paper",
+    "test": "4-7 held-out subjects per fold, opened exactly once after checkpoint selection",
+    "split_invariants": "train/val/test subject-disjoint per fold (verified in preflight); the five validation subjects are distinct",
+    "input": "CW phase, per-window robust z; log-STFT (65 x 93, hop 80 ms) covering samples 0-1600, or the 1 x 1600 phase for rcg models",
+    "target": "blind continuous 1 x 1600 ECG, per-record z-scored; trained in train-fold robust-scaled space and scored in stored units",
+    "test_oracles_prohibited": "No test-derived scaler, lag, affine map, threshold, checkpoint or model choice"
+  },
+  "training": {
+    "seed": "seed_base + fold",
+    "budget": "100 epochs maximum, patience 15, AdamW lr 1e-4, weight decay 1e-4, batch 16",
+    "checkpoint": "frozen validation composite, identical to MMECG; Shape-200 excluded"
+  },
+  "metrics": {
+    "evaluator": "scripts/train_continuous_ecg_pilot.evaluate",
+    "aggregation": "fold-macro, population std over 5 folds",
+    "binding_reporting_rules": "METRIC_CONTRACT continuous rules and the template-floor rule apply unchanged",
+    "statistics": "with 5 folds a two-sided Wilcoxon cannot reach p < 0.05; fold wins and effect sizes are reported per seed and inference rests on the three-seed audit"
+  },
+  "experiment_id": "q1_matched_baselines_continuous_crrvs_seed42",
+  "category": "baseline",
+  "comparator": "q1_remnet_continuous_crrvs_seed42",
+  "baselines": {
+    "mmecg_tcn": {
+      "paper": "Chen et al., Contactless ECG Monitoring With Millimeter Wave Radar, IEEE TMC 2024",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 input: the paper's 50 K-means voxel signals at length 640 are replaced by this dataset's 50 range-bin RCG at length 1600 (the same tensor every other baseline sees).",
+        "D2 decoding: the paper's autoregressive 256-way mu-law softmax over previous ECG samples is replaced by a parallel continuous head. Autoregressive decoding of 1600 steps per window is computationally prohibitive at 11-fold scale, and the frozen contract scores continuous raw-ECG regression, not mu-law classes. The causal dilated TCN stack, the CNN-Transformer spatio-temporal encoder and the receptive field are kept.",
+        "D3 position embedding: the paper embeds each voxel's 3D coordinates; range-bin index embeddings are used instead because the processed dataset exposes bins, not voxels."
+      ]
+    },
+    "radarode_mtl": {
+      "paper": "Zhang et al., radarODE-MTL, IEEE TIM 2025",
+      "input_tensor": "wsst",
+      "adaptations": [
+        "D1 input: WSST (50, 71, 240) covering the full 8 s window instead of the 4 s (50, 71, 120) tensor, matching the support REM-Net receives.",
+        "D2 added head: the published ECG_shape (200) / PPI (260) / Anchor heads are beat-level and reach a continuous stream only through the long-term assembly this project could not faithfully reproduce (claim ledger F2). A continuous 1x1600 head, built from the authors' own DeconvBlock/ConvBlock primitives, is added as a fourth task and is the one scored. The three published heads, the ODE inside the PPI head and EGA gradient alignment all train jointly and shape the shared backbone.",
+        "D3 task targets: ECG_shape is the centre cardiac cycle resampled to 200 samples and PPI is that cycle's length in samples (the class the 260-way head predicts), both read from the fold's R peaks rather than the authors' precomputed per-cycle files. Anchor uses the fold's Gaussian R-peak mask, the quantity their anchor segment encodes. Windows with fewer than two R peaks are dropped from the beat-level losses only.",
+        "D4 head interfaces: the shape head emits 403 samples on an 8 s representation and is resized to 200; the PPI head's linear layer is sized for the authors' 31-frame representation, so the shared representation is average-pooled to 31 frames for that head; the anchor head emits 1610 and is resized to 1600.",
+        "D5 decoder resolution: the continuous head uses three transposed stages to reach ~1600 samples natively; stopping at 549 and interpolating would band-limit the output below the QRS.",
+        "D6 CR_RVS geometry: the official squeeze kernel is (6, 1) and needs the backbone to reduce frequency to exactly 6 bins, which holds for MMECG's 71 but not CR_RVS's 65; on CR_RVS the log-STFT map (65 x 93) is bilinearly resampled to the MMECG grid (71 x 240) before the backbone, so every published head sees the same geometry."
+      ]
+    },
+    "wavegru_net": {
+      "paper": "Xu et al., WaveGRU-Net, Signal Processing 2025",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 input: MIMO beamforming to one phase channel is replaced by this dataset's 50 range-bin RCG; MODWT is applied per bin.",
+        "D2 transform: MODWT is realised as a fixed a-trous (undecimated) sym4 filter bank with 5 levels (6 bands) running inside the model on GPU, checked against pywt.swt. The paper's basis, level count and shift invariance are preserved.",
+        "D3 length: the paper's 1x1024 slices become the contract's 1x1600 windows.",
+        "D4 width: 50 bins x 6 bands would make the published 64-tap convolutions disproportionately wide, so a 1x1 band-mixing layer reduces 300 channels to 32 before the published 3-block CNN. The CNN, transposed-convolution module, Bi-GRU and dropout head keep the published structure."
+      ]
+    },
+    "attention_dcgan": {
+      "paper": "Jin et al., Attention-DCGAN, IEEE Sensors Journal 2025",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 segmentation: the paper feeds 200-sample fragments centred on ECG R peaks. Under the strict continuous contract that segmentation is a ground-truth oracle, so the generator maps the whole 8 s window instead.",
+        "D2 output activation: the paper's Tanh output is kept and followed by a fixed gain fitted on the TRAINING fold only, because the contract's target lives in train-fold robust-scaled units rather than the paper's [-1, 1] range.",
+        "D3 optimiser: the paper's Adam lr 3e-4 / batch 32 is replaced by the protocol budget (AdamW lr 1e-4, batch 16, 100 epochs, patience 15), identical to every other arm.",
+        "D4 objective: an L1 reconstruction term (weight 10) accompanies the published purely adversarial generator loss, which carries no paired signal and does not converge on this task.",
+        "D5 encoder: the paper's dense layer mixes a whole 200-sample beat before the deconvolutions. On continuous windows a stride-1 stack sees ~16 samples of context and cannot form a beat (measured: PCC ~0, variance ratio drifting past 1), so a four-stage strided encoder feeds the four published deconvolution layers, which now upsample back to 1600."
+      ]
+    },
+    "cross_modal_conformer": {
+      "paper": "Liu et al., Cross-Modal Autoencoder, IEEE Sensors Journal 2024",
+      "input_tensor": "rcg",
+      "adaptations": [
+        "D1 input: the paper's 1x1000 single-channel mmWave slice becomes the 50-bin RCG at length 1600.",
+        "D2 pretraining: the ECG-to-ECG autoencoder and the cardiac-event predictor are pretrained per fold on TRAINING-fold ECG only (never validation or test), preserving the paper's deep-feature loss. Set --pretrain_epochs 0 to disable, which drops the deep-feature term and must then be reported as a removed component.",
+        "D3 loss: waveform MSE + STFT-magnitude MSE, as published.",
+        "D4 term scaling: the spectrogram and deep-feature terms are divided by their own target energy. Unnormalised, the spectrogram MSE dominates in robust-scaled units and, being sign-blind, drives the waveform to an inverted solution (measured: F1@100 0.92 with PCC -0.16). The published composition is unchanged.",
+        "D5 decoder resolution: the convolutional subsampling divides time by 8, so the decoder mirrors it with transposed convolutions. Synthesising the ECG by interpolating the 25 Hz latent would band-limit the output below the QRS."
+      ]
+    }
+  }
+}

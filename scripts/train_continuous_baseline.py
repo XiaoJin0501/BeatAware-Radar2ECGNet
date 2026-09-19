@@ -40,8 +40,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import scripts.train_continuous_ecg_pilot as pilot  # noqa: E402
 from scripts.train_continuous_ecg_pilot import (  # noqa: E402
-    BUDGET, COMPOSITE_W, DATA, FS, REGION_DEF, WIN, Fold, _set_split_root, _split_sha,
+    BUDGET, COMPOSITE_W, DATASETS, FS, REGION_DEF, WIN, Fold, _set_split_root, _split_sha,
     effective_seed, evaluate, fit_scaler, set_seed,
 )
 from src.models.baselines.continuous import (  # noqa: E402
@@ -62,7 +63,9 @@ REGISTERED_TAG = "q1_matched_baselines_continuous_strict_loso_seed42"
 REGISTERED_SEED_BASES = (42, 123, 2024)
 
 
-def registered_tag(seed_base: int) -> str:
+def registered_tag(seed_base: int, dataset: str = "mmecg") -> str:
+    if dataset == "crrvs":
+        return f"q1_matched_baselines_continuous_crrvs_seed{seed_base}"
     return f"q1_matched_baselines_continuous_strict_loso_seed{seed_base}"
 GAN_L1_WEIGHT = 10.0          # see ADAPTATIONS["attention_dcgan"] D4
 PRETRAIN_EPOCHS = 10          # cross-modal conformer ECG autoencoder, train fold only
@@ -184,7 +187,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--baseline", required=True, choices=sorted(BASELINES))
     ap.add_argument("--fold", type=int, required=True)
-    ap.add_argument("--split_root", default="loso_v2")
+    ap.add_argument("--dataset", choices=sorted(DATASETS), default="mmecg")
+    ap.add_argument("--split_root", default=None,
+                    help="defaults to the dataset's registered split root")
     ap.add_argument("--exp_tag", default=None,
                     help="defaults to the registered benchmark tag for --seed_base")
     ap.add_argument("--seed_base", type=int, default=42,
@@ -206,11 +211,13 @@ def main() -> None:
     if a.final_test and a.overwrite:
         raise SystemExit("--overwrite cannot be combined with --final_test: a frozen or "
                          "COMPLETE registered fold is never restarted in place")
-    a.exp_tag = a.exp_tag or registered_tag(a.seed_base)
+    a.split_root = a.split_root or DATASETS[a.dataset]["split_root"]
+    a.exp_tag = a.exp_tag or registered_tag(a.seed_base, a.dataset)
     if a.final_test and (a.seed_base not in REGISTERED_SEED_BASES
-                         or a.exp_tag != registered_tag(a.seed_base)):
+                         or a.exp_tag != registered_tag(a.seed_base, a.dataset)):
         raise SystemExit(f"--final_test is restricted to registered tag "
-                         f"{registered_tag(a.seed_base)} with seed_base in {REGISTERED_SEED_BASES}")
+                         f"{registered_tag(a.seed_base, a.dataset)} with seed_base in "
+                         f"{REGISTERED_SEED_BASES}")
     tag = a.exp_tag + ("_smoke" if a.smoke else "")
     epochs = a.smoke_epochs if a.smoke else BUDGET["epochs"]
     limit = a.smoke_limit if a.smoke else None
@@ -236,14 +243,15 @@ def main() -> None:
         state = transition_state(state_path, "TRAINING", fold=a.fold, arm=a.baseline,
                                  loss_arm="native", test_accessed=False)
 
-    _set_split_root(a.split_root)
+    _set_split_root(a.split_root, a.dataset)
+    DATA = pilot.DATA                      # the split root selected for this dataset
     seed = effective_seed(a.fold, a.seed_base)   # identical per-fold seed as REM-Net
     set_seed(seed)
     dev = torch.device(a.device)
     key = input_key(a.baseline)
     scaler = fit_scaler(a.fold)            # train-fold median/IQR, never val or test
 
-    fold_kw = dict(wsst_source="subject_pool", needs_rcg=(key == "rcg"),
+    fold_kw = dict(wsst_source=DATASETS[a.dataset]["wsst_source"], needs_rcg=(key == "rcg"),
                    load_wsst=(key == "wsst"))
     tr = Fold(a.fold, "train", "B1", scaler, limit, **fold_kw)
     va = Fold(a.fold, "val", "B1", scaler, limit, **fold_kw)
@@ -252,7 +260,9 @@ def main() -> None:
                      drop_last=True, generator=g)
     lva = DataLoader(va, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
 
-    kwargs = {}
+    kwargs = {"in_bins": DATASETS[a.dataset]["in_bins"]}
+    if a.baseline == "radarode_mtl" and a.dataset != "mmecg":
+        kwargs["input_grid"] = (71, 240)         # ADAPTATIONS["radarode_mtl"] D6
     if a.baseline == "attention_dcgan":
         # Fixed Tanh gain from the TRAINING fold only (ADAPTATIONS D2).
         import h5py
@@ -291,7 +301,9 @@ def main() -> None:
         "fold": a.fold, "mode": "smoke" if a.smoke else "formal",
         "epochs": epochs, "limit": limit, "effective_seed": seed,
         "seed_rule": "BUDGET.seed + fold; identical to the REM-Net run",
-        "input_tensor": key, "wsst_source": "subject_pool" if key == "wsst" else None,
+        "dataset": a.dataset,
+        "input_tensor": key,
+        "wsst_source": DATASETS[a.dataset]["wsst_source"] if key == "wsst" else None,
         "split_used": ["train", "val"], "test_accessed": False,
         "final_candidate_mode": bool(a.final_test),
         "scaler_median_iqr": scaler, "scaler_source": "ENTIRE training fold",

@@ -106,9 +106,15 @@ class RadarODEMTLContinuous(_EGA):
     continuous head for the scored task."""
 
     def __init__(self, in_bins: int = 50, dropout: float = 0.1, max_epochs: int = 100,
-                 ega_temp: float = 1.0, grad_checkpoint: bool = True) -> None:
+                 ega_temp: float = 1.0, grad_checkpoint: bool = True,
+                 input_grid: tuple[int, int] | None = None) -> None:
         super().__init__()
         self.in_bins = in_bins
+        # The official squeeze kernel is (6, 1): it needs the backbone to reduce the
+        # frequency axis to exactly 6, which holds for 71 bins and fails for CR_RVS's 65.
+        # `input_grid` bilinearly resamples a time-frequency map onto the MMECG grid
+        # (71 x 240) so the backbone, squeeze and every head see the same geometry.
+        self.input_grid = input_grid
         # EGA computes one backward pass per task with the graph retained, so the
         # backbone's activations would be held four times over. Checkpointing recomputes
         # them instead, which keeps the authors' rep_grad=False setting and the protocol
@@ -160,6 +166,8 @@ class RadarODEMTLContinuous(_EGA):
     def represent(self, wsst: torch.Tensor) -> torch.Tensor:
         if wsst.ndim != 4 or wsst.shape[1] != self.in_bins:
             raise ValueError(f"wsst must be [B,{self.in_bins},F,T], got {tuple(wsst.shape)}")
+        if self.input_grid is not None and tuple(wsst.shape[-2:]) != tuple(self.input_grid):
+            wsst = F.interpolate(wsst, size=self.input_grid, mode="bilinear", align_corners=False)
         if self.grad_checkpoint and self.training:
             features = torch.utils.checkpoint.checkpoint(
                 self.backbone, wsst, use_reentrant=False)
