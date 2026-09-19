@@ -142,6 +142,25 @@ observed operating range, the manuscript methods section must say which terms
 were effectively inactive. A frozen composite is never edited after a run to
 make the description tidier.
 
+### Template floor for beat-normalised metrics (binding, 2026-09-19)
+
+Any metric computed on beats that are cut, resampled and amplitude-normalised
+(Shape-200 PCC / RMSE / MAE, ECG_shape, and any similar beat-level score) must be
+reported beside a **radar-free template floor**: the training fold's mean beat,
+predicted for every test window, scored by the same code on the same test beats.
+
+- The template uses training-fold labels only; it sees no radar and no test data.
+- Every model is compared with the template **per fold** by a paired test (Wilcoxon
+  signed-rank on fold values), with the number of folds won.
+- A beat-level result may be described as radar-derived morphology only if it is
+  significantly above the template. At or below the floor, it is reported as such.
+- Report the radar-derived margin explicitly, e.g. the skill score
+  `(PCC_model − PCC_template) / (1 − PCC_template)` or the RMSE ratio to the
+  template.
+
+Reference: `docs/audits/Q1_TIER1_TEMPLATE_FLOOR_AUDIT.md` (template 0.879–0.887
+PCC on MMECG and CR_RVS, at the level of every previously reported Tier-1 figure).
+
 ## Shape-200 vs Continuous
 
 Shape-200 (beat-normalized, amplitude-normalized morphology) is an **easier**

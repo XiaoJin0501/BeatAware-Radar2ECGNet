@@ -210,21 +210,33 @@ ECG" is not supported and must not be written.
 
 ## Current priority — Q1 manuscript evidence plan (2026-09-19)
 
-Target venues: IEEE TIM (primary), IEEE JBHI, IEEE IoT-J. The paper is the
-three-tier narrative: morphology is recoverable across subjects and radar
-modalities (Tier 1); strict blind continuous reconstruction is bounded near
-R² ≈ 0 for every family tested (Tier 2); the gap is timing- and
-amplitude-dominated (Tier 3). REM-Net is the morphology-first model carrying
-that argument; the leak-free matched benchmark is a co-equal contribution.
+Target venues: IEEE TIM (primary), IEEE JBHI, IEEE IoT-J.
 
-Working title, benchmark form: *Contactless Radar-to-ECG Reconstruction: A
-Rigorous Leak-Free Benchmark and Factorized Deep Architecture*. The alternative
-*REM-Net: Physically Factorized Time-Frequency Decoupling for Non-Contact ECG
-Reconstruction Under Electromechanical Latency Drift* is **not supported by the
-evidence**: the learned delay collapsed to a constant, the delay-warp route was
-falsified, and Tier 3 does not identify EMAT. "Physically factorized" would
-also overstate an architectural factorization. Do not adopt it unless new
-evidence establishes the latency mechanism.
+**Paper positioning, locked 2026-09-19: a measurement and benchmark paper.**
+Title: *Contactless Radar-to-ECG Reconstruction: A Rigorous Leak-Free Benchmark
+and Factorized Deep Architecture*. The contributions, in order of weight:
+
+1. **Protocol correction.** A split defect (two validation subjects across eleven
+   folds, cross-fold selection bias) is identified and repaired (`loso_v2`), and a
+   leak-free, state-machine-enforced evaluation contract is released.
+2. **Metric correction.** Beat-normalised PCC -- the Shape-200 / ECG_shape family --
+   is saturated by a radar-free template built from training labels alone
+   (0.879–0.887 on FMCW MMECG and CW CR_RVS). Template-referenced reporting is
+   proposed and applied.
+3. **Matched benchmark.** Six models from five families on identical folds, scaler,
+   evaluator, budget and checkpoint rule: strict blind continuous reconstruction is
+   bounded near R² ≈ 0 for all of them.
+4. **Mechanism.** Where the continuous gap comes from (timing versus morphology),
+   established by template diagnostics rather than inferred.
+
+REM-Net is presented as a representative factorized architecture evaluated inside
+the benchmark, not as a state-of-the-art claim. No sentence may say REM-Net
+outperforms the matched baselines unless a table in this plan supports it.
+
+The alternative title *REM-Net: Physically Factorized Time-Frequency Decoupling
+for Non-Contact ECG Reconstruction Under Electromechanical Latency Drift* is
+rejected as unsupported: the learned delay collapsed to a constant, the
+delay-warp route was falsified, and Tier 3 does not identify EMAT.
 
 Workstreams, in priority order. A single RTX 4080 serialises all training.
 

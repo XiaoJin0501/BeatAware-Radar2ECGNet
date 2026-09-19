@@ -1,0 +1,25 @@
+{
+  "experiment_id": "q1_template_timing_diagnostics_seed42",
+  "research_question": "How much of the continuous-ECG gap is beat timing rather than beat morphology? A fixed training-fold template beat is placed at different sources of R-peak timing and scored exactly like the models.",
+  "category": "analysis",
+  "publishable": false,
+  "status": "DATA_READY",
+  "no_training": "No model is trained, tuned or selected. Inputs are training-fold labels and the frozen test predictions of the matched benchmark.",
+  "template": "per fold, the mean of every complete R-to-R cycle in the TRAINING fold, raw (per-record z-scored) ECG resampled to 200 samples; no radar, no test data",
+  "synthesis": "for each test window, the template is resampled to each interval between consecutive R peaks and written into that interval; the partial cycles before the first and after the last peak use the template resampled to the window's median RR (training-fold median RR if fewer than two peaks), aligned so they end or start on the peak; a window with no peaks is set to the training-fold mean value and counted as a failure",
+  "timing_sources": {
+    "T0_gt": "ground-truth R peaks -- ORACLE timing, an upper bound that uses test labels and is never achievable performance",
+    "T1_remnet_event_head": "peaks from REM-Net's event-head probability (peaks_from_heatmap), a radar-only readout",
+    "T2_remnet_waveform": "peaks detected on REM-Net's reconstructed waveform (detect_rpeaks), radar-only",
+    "T3_chen_tcn_waveform": "peaks detected on Chen-TCN's reconstructed waveform, the strongest matched baseline, radar-only"
+  },
+  "metrics": "the frozen evaluator functions of scripts/train_continuous_ecg_pilot: waveform_metrics, smoothing_diagnostics, region_errors, waveform-derived F1 from timing_metrics; window-macro within fold, fold-macro with population std over 11 folds",
+  "comparisons": "paired two-sided Wilcoxon on 11 fold values, each template variant versus REM-Net's own continuous output, plus folds won; descriptive, uncorrected",
+  "pre_declared_readings": [
+    "If T0 is far above every model, beat timing is the dominant bottleneck of continuous reconstruction.",
+    "If T1 or T2 is statistically indistinguishable from REM-Net's own output, REM-Net's morphology adds nothing measurable beyond a template placed at its own beats.",
+    "If T1 or T2 is significantly above REM-Net's own output, REM-Net's reconstructed waveform is worse than a template placed at its own beats.",
+    "If T1 or T2 is significantly below REM-Net's own output, REM-Net's waveform carries morphology information beyond the template."
+  ],
+  "output_dir": "experiments_mmecg/q1_template_timing_diagnostics_seed42"
+}
