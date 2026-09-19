@@ -7,6 +7,14 @@
 > results are NOT affected. See `docs/PROTOCOL_CONFOUND_4S_INPUT.md`.
 
 
+> **TIER-1 CLAIMS SUSPENDED (2026-09-19).** A radar-free predictor -- the training
+> fold's mean beat -- scores Shape-200 PCC 0.879 +/- 0.070 on the old MMECG split,
+> 0.881 +/- 0.071 on `loso_v2` and 0.887 +/- 0.013 on CR_RVS. The Tier-1 headline
+> numbers (0.882, 0.881) sit at this floor; REM-AlignNet-MTL is indistinguishable from
+> it per fold (p = 0.413) and radarODE-MTL falls below it on 11/11 folds. M1, M2, S1
+> and S3 are suspended as radar evidence. See
+> `docs/audits/Q1_TIER1_TEMPLATE_FLOOR_AUDIT.md`.
+
 This ledger maps manuscript claims to verified experimental evidence. Do not
 write paper claims that cannot be traced here.
 
@@ -42,8 +50,8 @@ the archived historical designs under `archive/deprecated_docs/`.
 
 | Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
 |---|---|---|---|---|
-| M1 | Strong beat-morphology reconstruction on MMECG (Shape-200). | T1 final-test, G1 stability | final-test + stable | Shape-200 PCC **0.882 ± 0.061** (seed-42 final-test, 11 folds); G1 stability 0.885 ± 0.002 across 3 seeds; radarODE(adapted) 0.728; BeatAware 0.671 is Block B (calibration, not comparable). |
-| M2 | External validation on CR_RVS (CW radar) matches/exceeds published results. | T3 final-test, G1 stability | final-test + stable | CW-STFT+REM-Net Shape-200 PCC **0.881 ± 0.013** (seed-42 final-test, 5 folds); G1 stability 0.886 ± 0.001; VMD-CBNeT *reported* 0.856; different-protocol caveat (morphology space). |
+| M1 | Strong beat-morphology reconstruction on MMECG (Shape-200). | T1 final-test, G1 stability | **SUSPENDED 2026-09-19 (template floor)** | Shape-200 PCC **0.882 ± 0.061** (seed-42 final-test, 11 folds); G1 stability 0.885 ± 0.002 across 3 seeds; radarODE(adapted) 0.728; BeatAware 0.671 is Block B (calibration, not comparable). |
+| M2 | External validation on CR_RVS (CW radar) matches/exceeds published results. | T3 final-test, G1 stability | **SUSPENDED 2026-09-19 (template floor)** | CW-STFT+REM-Net Shape-200 PCC **0.881 ± 0.013** (seed-42 final-test, 5 folds); G1 stability 0.886 ± 0.001; VMD-CBNeT *reported* 0.856; different-protocol caveat (morphology space). |
 | M3 | Compares favorably with published/reproduced baselines under fair, output-formulation-aware protocols. | T1/T2/T3 tiers | partial | Needs final tier-labeled tables; sample-level results kept separate from subject-independent. |
 | M4 | Generalizes across FMCW (MMECG) and CW (CR_RVS) under subject-independent protocols. | T1, T3 | partial | Morphology track; CR_RVS lag-aware refine 5-fold pilot (PCC 0.500 vs TCN 0.438). |
 
@@ -61,9 +69,9 @@ the archived historical designs under `archive/deprecated_docs/`.
 
 | Claim ID | Manuscript Claim | Supporting Evidence | Status | Notes |
 |---|---|---|---|---|
-| S1 | Strong beat morphology reconstruction on MMECG and CR_RVS. | T1, T3, G1 | final-test + stable | Shape-200 final-test PCC 0.882 ± 0.061 (MMECG), 0.881 ± 0.013 (CR_RVS); 3-seed stability 0.885 ± 0.002 / 0.886 ± 0.001; morphology evidence only. |
+| S1 | Strong beat morphology reconstruction on MMECG and CR_RVS. | T1, T3, G1 | **SUSPENDED 2026-09-19 (template floor)** | Shape-200 final-test PCC 0.882 ± 0.061 (MMECG), 0.881 ± 0.013 (CR_RVS); 3-seed stability 0.885 ± 0.002 / 0.886 ± 0.001; morphology evidence only. |
 | S2 | Compares favorably with published/reproduced baselines under fair protocols. | T1/T2/T3 tiers | partial | Requires fair-tier labels; sample-level reported results separated from subject-independent main comparison. |
-| S3 | CR_RVS external morphology exceeds VMD-CBNeT reported PCC. | T3 | final-test + stable | 0.881 ± 0.013 final-test vs *reported* 0.856; different-protocol/morphology-space caveat required. |
+| S3 | CR_RVS external morphology exceeds VMD-CBNeT reported PCC. | T3 | **SUSPENDED 2026-09-19 (template floor)** | 0.881 ± 0.013 final-test vs *reported* 0.856; different-protocol/morphology-space caveat required. |
 | S4 | Morphology degrades gracefully under input noise; FMCW is more noise-robust than CW. | ROBUSTNESS_AUDIT (eval-only, frozen) | supported | MMECG PCC 0.834 at 0 dB (−5.4%), 0.781 at −6 dB; CR_RVS drops ~2–5× faster (redundancy of 50 range bins vs single CW channel). Scope caveat: representation-space additive noise, NOT motion-artifact simulation. |
 
 ## Forbidden / caution

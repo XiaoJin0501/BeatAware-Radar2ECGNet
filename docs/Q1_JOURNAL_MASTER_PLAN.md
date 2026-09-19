@@ -246,6 +246,16 @@ Shape-200 headline (0.882 vs radarODE 0.728) is BLOCKED: it came from the old
   be written after W1a, because W1a tells us whether a trained rerun is needed
   to settle the morphology claim or merely to confirm it.
 
+**W1a result (2026-09-19) — Tier 1 is saturated by a radar-free template.** The
+training fold's mean beat, predicted for every test window, scores Shape-200 PCC
+0.879 ± 0.070 on the old split, 0.881 ± 0.071 on `loso_v2` and 0.887 ± 0.013 on
+CR_RVS -- the level of both Tier-1 headlines. REM-AlignNet-MTL is indistinguishable
+from it per fold (p = 0.413); radarODE-MTL is below it on 11/11 folds. The frozen
+continuous models read 0.14-0.35 under the same definition, far below the template.
+Tier-1 claims M1/M2/S1/S3 are suspended and **W1b is paused** pending an author
+decision on whether and how Tier 1 can carry a positive, template-referenced claim.
+Full record: `docs/audits/Q1_TIER1_TEMPLATE_FLOOR_AUDIT.md`.
+
 **W2 — Three-seed statistical audit.** Seeds 123 and 2024 for REM-Net and all
 five baselines on the continuous benchmark, same everything else. Requires an
 additive seed-base argument; seed 42 results stay frozen. About 38 GPU hours,

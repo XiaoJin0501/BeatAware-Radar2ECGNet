@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from statistics import mean, pstdev
 
+import h5py
 import numpy as np
 from scipy.stats import wilcoxon
 
@@ -73,6 +74,61 @@ def fold_readout(npz_path: Path) -> dict:
             "n_valid_cycles": int(len(pcc)), "cycle_coverage": len(pcc) / max(len(pred), 1)}
 
 
+MMECG_SPLITS = Path("/home/qhh2237/Datasets/MMECG/processed/loso_v2")
+CRRVS_SPLITS = Path("/home/qhh2237/Datasets/CR_RVS/processed/q1_shape_kfold")
+
+
+def _beats(h5_path: Path, use_stored_bounds: bool) -> np.ndarray:
+    """Every window's normalised Shape-200 ground-truth beat.
+
+    MMECG cuts the centre cycle from R peaks exactly as the readout does; CR_RVS uses
+    the stored `cycle_bounds` that its Shape-200 training pipeline consumed.
+    """
+    grid, out = np.linspace(0, 1, SHAPE_LEN), []
+    with h5py.File(h5_path, "r") as h:
+        ecg = h["ecg"][:, 0]
+        bounds = h["cycle_bounds"][:] if use_stored_bounds else None
+        peaks = None if use_stored_bounds else h["rpeak_indices"][:]
+    for i, e in enumerate(ecg):
+        if use_stored_bounds:
+            a, b = int(bounds[i, 0]), int(bounds[i, 1])
+            if b <= a + 10:
+                continue
+        else:
+            r = np.sort(np.unique(np.asarray(peaks[i], np.int64)))
+            cb = _centre_cycle(r[(r >= 0) & (r < 1600)])
+            if cb is None:
+                continue
+            a, b = cb
+        out.append(_norm01(np.interp(grid, np.linspace(0, 1, b - a), e[a:b])))
+    return np.asarray(out)
+
+
+def template_floor(root: Path, folds: list[int], use_stored_bounds: bool) -> dict:
+    """Radar-free control: predict the TRAINING-fold mean beat for every test window.
+
+    It sees no radar and no test data. Any Tier-1 number at or below this floor
+    carries no evidence that the model extracted morphology from radar.
+    """
+    per_fold = []
+    for fold in folds:
+        train = _beats(root / f"fold_{fold:02d}" / "train.h5", use_stored_bounds)
+        test = _beats(root / f"fold_{fold:02d}" / "test.h5", use_stored_bounds)
+        tmpl = _norm01(train.mean(axis=0))
+        tc = tmpl - tmpl.mean()
+        pcc = [float((tc * (t - t.mean())).sum()
+                     / np.sqrt((tc ** 2).sum() * ((t - t.mean()) ** 2).sum())) for t in test]
+        per_fold.append({"fold": fold, "shape200_pcc": float(np.mean(pcc)),
+                         "shape200_rmse": float(np.mean([np.sqrt(((tmpl - t) ** 2).mean())
+                                                         for t in test])),
+                         "shape200_mae": float(np.mean([np.abs(tmpl - t).mean() for t in test])),
+                         "n_test_beats": int(len(test))})
+    return {"per_fold": per_fold,
+            **{k: {"mean": mean(r[k] for r in per_fold),
+                   "std_population": pstdev(r[k] for r in per_fold)}
+               for k in ("shape200_pcc", "shape200_rmse", "shape200_mae")}}
+
+
 def main() -> None:
     rows, per_model = [], {}
     for model, root in MODELS.items():
@@ -105,13 +161,20 @@ def main() -> None:
                 "wilcoxon_p": float(wilcoxon(a, b).pvalue),
                 "rem_net_wins": int(((better * d) > 0).sum()),
             }
+    floors = {"mmecg_loso_v2": template_floor(MMECG_SPLITS, FOLDS, use_stored_bounds=False),
+              "crrvs_5fold": template_floor(CRRVS_SPLITS, list(range(1, 6)),
+                                            use_stored_bounds=True)}
     atomic_json(OUT / "tier1_summary.json", {
         "experiment_id": TAG,
         "definition": "known-cycle Shape-200 morphology of frozen continuous test predictions",
         "aggregation": "window-macro within fold, fold-macro across 11 test subjects",
         "std_convention": "population std across folds",
         "statistics": "paired two-sided Wilcoxon on 11 fold values; descriptive, uncorrected",
-        "models": summary, "rem_net_vs_baseline": comparisons})
+        "models": summary, "rem_net_vs_baseline": comparisons,
+        "radar_free_template_floor": floors,
+        "template_note": ("Training-fold mean beat predicted for every test window; no radar, "
+                          "no test data. Reference points: BLOCKED MMECG REM-Net trained "
+                          "Shape-200 0.882 +/- 0.061; CR_RVS REM-Net Shape-200 0.881 +/- 0.013.")})
 
     print(f"{'model':24s} {'Shape200 PCC':>16s} {'RMSE':>14s} {'MAE':>14s} {'coverage':>9s}")
     for m, s in sorted(summary.items(), key=lambda kv: -kv[1]["shape200_pcc"]["mean"]):
@@ -119,6 +182,10 @@ def main() -> None:
               f" {s['shape200_rmse']['mean']:.4f} ± {s['shape200_rmse']['std_population']:.3f}"
               f" {s['shape200_mae']['mean']:.4f} ± {s['shape200_mae']['std_population']:.3f}"
               f" {s['cycle_coverage']['mean']:9.3f}")
+    for name, fl in floors.items():
+        print(f"{'TEMPLATE ' + name:24s} {fl['shape200_pcc']['mean']:.4f} ± "
+              f"{fl['shape200_pcc']['std_population']:.4f} {fl['shape200_rmse']['mean']:.4f} "
+              f"{fl['shape200_mae']['mean']:.4f}   (radar-free control)")
     print("\nREM-Net vs baseline (paired Wilcoxon, 11 folds):")
     for m, c in comparisons.items():
         print(f"  {m:24s} " + " | ".join(
