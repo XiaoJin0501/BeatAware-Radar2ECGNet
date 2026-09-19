@@ -79,3 +79,12 @@ temporal-tolerance curve (Max-Lag NCC rising from 0.22 at 0 ms to 0.56 at ±50 m
   raise T0, strengthening reading 1.
 - MMECG only; the CR_RVS counterpart belongs to workstream W3.
 - Seed 42 models only; W2 extends the model side to three seeds.
+
+## Addendum (2026-09-19)
+
+The evaluator now also places the template at WaveGRU-Net's waveform peaks (T4),
+decomposes the timing error of every radar-derived peak source, and tests an oracle
+per-subject latency calibration; the MMECG rerun reproduces T0-T3 above exactly.
+On MMECG: within-subject jitter 30-60 ms, per-subject bias SD 24-32 ms, and the
+oracle calibration recovers only 12-17 % of the R² gap. Results for both radars and
+the CW-versus-FMCW comparison: `docs/audits/Q1_CRRVS_DIAGNOSTICS_AUDIT.md`.
