@@ -33,8 +33,10 @@ from src.utils.atomic_state import atomic_csv, atomic_json, atomic_text  # noqa:
 DATA = Path("/home/qhh2237/Datasets/CR_RVS/processed/q1_continuous_kfold")
 REGISTRY = ROOT / "experiments_mmecg" / "EXPERIMENT_REGISTRY.csv"
 FOLDS = list(range(1, 6))
-BASELINES = ("attention_dcgan", "cross_modal_conformer", "mmecg_tcn", "radarode_mtl",
-             "wavegru_net")
+# CR_RVS scope (2026-09-19): the native time-domain and MODWT-wavelet families only.
+# radarODE-MTL, Attention-DCGAN and the Conformer are MMECG-only; the other CR_RVS
+# methods enter as reported literature (docs/audits/Q1_CRRVS_LITERATURE_PROTOCOL_AUDIT.md).
+BASELINES = ("mmecg_tcn", "wavegru_net")
 ARMS = ("rem_net",) + BASELINES
 RR_COVERAGE_GATE = 0.80
 METRICS = ["pcc", "rmse", "nrmse", "mae", "r2", "amplitude_variance_ratio",
@@ -101,8 +103,8 @@ def update_registry(seed_base: int, commit: str, branch: str, status: str) -> No
             (f'{tags(seed_base)["baselines"]},CR_RVS / Nature,5-fold subject-independent '
              f'continuous; validation selection then one-time test,baseline,false,{commit},'
              f'{branch},Matched-protocol continuous baselines on CR_RVS (adapted),{status},'
-             f'"W3. Same five families and adaptations as MMECG; in_bins = 1; radarODE-MTL '
-             f'input resampled to the MMECG time-frequency grid (D6)."'),
+             f'"W3. Chen-TCN and WaveGRU-Net with their MMECG adaptations; in_bins = 1. '
+             f'Other CR_RVS methods are reported literature only."'),
     }
     for tag, row in rows.items():
         for i, line in enumerate(lines):
