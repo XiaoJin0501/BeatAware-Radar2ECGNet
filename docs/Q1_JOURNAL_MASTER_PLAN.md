@@ -182,22 +182,85 @@ uses epoch-level atomic recovery and the irreversible state sequence
 alone selects `best_composite.pt`; the test split cannot be constructed before
 the checkpoint is frozen, and a COMPLETE fold is terminal.
 
-## Current priority — matched-protocol baselines
+## Matched-protocol baselines — completed 2026-09-19
 
-All REM-Net hyperparameter tuning and new-mechanism exploration are stopped.
-The sole active path is to align strong baselines to the exact same continuous
-protocol as the frozen REM-Net result: repaired `loso_v2` folds,
-subject-centric 8-second WSST input, identical train/validation/test subjects,
-validation-only checkpoint selection, one-time test evaluation, and the same
-metric and fold-macro aggregation code.
+`q1_matched_baselines_continuous_strict_loso_seed42` ran five published
+families on the same 11 `loso_v2` folds, split hashes, scaler, evaluator,
+budget and checkpoint rule as REM-Net (`docs/MATCHED_BASELINE_PROTOCOL.md`).
+radarODE-MTL runs as a genuine four-task model under LibMTL EGA with the
+authors' settings; its earlier backbone-only folds are archived and not
+reportable. Continuous fold-macro PCC@0 (population std, 11 folds):
 
-The first action is a read-only compatibility audit of radarODE-MTL, AirECG,
-RSSRNet, and the retained generic baselines. Each must be classified as
-directly runnable, requiring a documented adapter, or task-incompatible. Old
-split outputs and reported-paper numbers cannot enter the matched comparison.
-Adaptations must preserve the baseline's defining mechanism and be labeled
-**adapted reproduction**. Any necessary code change requires a registered,
-controlled specification before training.
+| Model | PCC@0 | R² | Paired Wilcoxon vs REM-Net (PCC) |
+|---|---:|---:|---|
+| Chen-TCN (adapted) | 0.327 ± 0.170 | 0.019 | Δ −0.023, p = 0.520, REM-Net wins 5/11 |
+| REM-Net | 0.305 ± 0.173 | 0.018 | — |
+| Cross-modal Conformer (adapted) | 0.291 ± 0.154 | −0.014 | Δ +0.013, p = 0.638, 6/11 |
+| radarODE-MTL (adapted, EGA) | 0.290 ± 0.140 | −0.008 | Δ +0.015, p = 0.577, 6/11 |
+| WaveGRU-Net (adapted) | 0.201 ± 0.134 | −0.060 | Δ +0.104, p = 0.001, 11/11 |
+| Attention-DCGAN (adapted) | 0.129 ± 0.105 | −0.346 | Δ +0.176, p = 0.001, 11/11 |
+
+Locked reading: on continuous Tier 2, REM-Net is **statistically
+indistinguishable** from the three strongest families and significantly better
+than two. Every method sits at R² ≈ 0. REM-Net has the lowest amplitude
+variance ratio (0.312) and the lowest >10 Hz energy ratio (median 0.122), i.e.
+the most smoothing, and it is the only model whose rate metrics need the
+coverage gate (fold 7). "REM-Net outperforms state of the art on continuous
+ECG" is not supported and must not be written.
+
+## Current priority — Q1 manuscript evidence plan (2026-09-19)
+
+Target venues: IEEE TIM (primary), IEEE JBHI, IEEE IoT-J. The paper is the
+three-tier narrative: morphology is recoverable across subjects and radar
+modalities (Tier 1); strict blind continuous reconstruction is bounded near
+R² ≈ 0 for every family tested (Tier 2); the gap is timing- and
+amplitude-dominated (Tier 3). REM-Net is the morphology-first model carrying
+that argument; the leak-free matched benchmark is a co-equal contribution.
+
+Working title, benchmark form: *Contactless Radar-to-ECG Reconstruction: A
+Rigorous Leak-Free Benchmark and Factorized Deep Architecture*. The alternative
+*REM-Net: Physically Factorized Time-Frequency Decoupling for Non-Contact ECG
+Reconstruction Under Electromechanical Latency Drift* is **not supported by the
+evidence**: the learned delay collapsed to a constant, the delay-warp route was
+falsified, and Tier 3 does not identify EMAT. "Physically factorized" would
+also overstate an architectural factorization. Do not adopt it unless new
+evidence establishes the latency mechanism.
+
+Workstreams, in priority order. A single RTX 4080 serialises all training.
+
+**W1 — Tier 1 morphology under `loso_v2` (highest priority).** The MMECG
+Shape-200 headline (0.882 vs radarODE 0.728) is BLOCKED: it came from the old
+`loso` split with two validation subjects, 4-second WSST (now prohibited) and
+`narrow_bandpass`. It cannot be cited until reproduced.
+
+- **W1a — Tier-1 readout of the frozen continuous models.** Every one of the
+  66 matched test runs saved raw-unit predictions, ground truth and GT R peaks.
+  Beat morphology (centre cycle cut by GT R peaks, resampled to 200, min-max
+  normalised on both sides: the Tier-1 definition) is computed for all six
+  models with one registered evaluator and compared by paired Wilcoxon. No
+  training, no model choice, identical for every arm.
+  Spec: `experiments/specs/q1_tier1_readout_from_continuous_seed42.json`.
+- **W1b — Tier-1 trained rerun.** Models trained for Shape-200 on `loso_v2`
+  with full 8-second WSST support. radarODE-MTL keeps its native ECG_shape head
+  (its home task); the other baselines need a declared Shape-200 head. Spec to
+  be written after W1a, because W1a tells us whether a trained rerun is needed
+  to settle the morphology claim or merely to confirm it.
+
+**W2 — Three-seed statistical audit.** Seeds 123 and 2024 for REM-Net and all
+five baselines on the continuous benchmark, same everything else. Requires an
+additive seed-base argument; seed 42 results stay frozen. About 38 GPU hours,
+dominated by radarODE-MTL (EGA, ~14 h per seed).
+
+**W3 — CR_RVS protocol alignment.** The CR_RVS 5-fold Shape-200 result
+(0.881 ± 0.013) is not affected by the MMECG split defect but is compared only
+with reported literature. Matched baselines on the same 5 folds (single-channel
+CW input, `in_bins = 1`) for Tier 1, and a continuous Tier 2 run, are required
+before any cross-modality claim.
+
+**W4 — Manuscript restructure.** Rewrite `docs/paper/RQ1.tex` around the three
+tiers; rebuild `docs/PAPER_CLAIM_LEDGER.md` from the matched evidence; retire
+every "resolves collapse" or "outperforms SOTA" sentence that the tables above
+do not support. Runs in parallel with W1–W3.
 
 The completed 60-second paired-ECG calibration is retained only as Discussion
 evidence. It improved fold-macro PCC from 0.305 to 0.327 but improved only 5/11

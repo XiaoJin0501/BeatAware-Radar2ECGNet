@@ -1,0 +1,32 @@
+{
+  "experiment_id": "q1_tier1_readout_from_continuous_seed42",
+  "research_question": "When the cardiac cycle is known, does REM-Net's continuous output carry better beat morphology than the five matched baselines' outputs under the same loso_v2 protocol?",
+  "category": "analysis",
+  "publishable": false,
+  "status": "DATA_READY",
+  "tier": "Tier 1 (beat-normalized morphology, known-cycle upper bound)",
+  "inputs": {
+    "rem_net": "experiments_mmecg/q1_remnet_continuous_strict_loso_seed42/L3/fold_XX/test_predictions.npz",
+    "baselines": "experiments_mmecg/q1_matched_baselines_continuous_strict_loso_seed42/<baseline>/fold_XX/test_predictions.npz",
+    "models": ["rem_net", "mmecg_tcn", "radarode_mtl", "wavegru_net", "attention_dcgan", "cross_modal_conformer"],
+    "folds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  },
+  "no_training": "Frozen test predictions only. Nothing is trained, tuned or selected; no model, checkpoint, threshold or lag is chosen from these numbers.",
+  "metric_definition": {
+    "cycle": "per window, the R-R interval whose midpoint is closest to the window centre, cut from GT R peaks (scripts/train_continuous_ecg_pilot._centre_cycle); windows with fewer than two R peaks or a cycle of 10 samples or fewer are skipped and counted",
+    "resampling": "prediction and ground truth each linearly resampled to 200 samples over the same cycle",
+    "normalization": "each resampled cycle min-max normalized to [0, 1], independently for prediction and ground truth (identical to shape200_pcc)",
+    "metrics": ["Shape-200 PCC", "Shape-200 RMSE (normalized units)", "Shape-200 MAE (normalized units)", "cycle coverage"],
+    "within_fold": "mean over windows with a valid cycle (window-macro)",
+    "across_folds": "fold-macro mean with population std over 11 test subjects",
+    "consistency_check": "per-fold PCC must equal scripts/train_continuous_ecg_pilot.shape200_pcc on the same arrays"
+  },
+  "statistics": "paired two-sided Wilcoxon signed-rank on the 11 fold-level values, REM-Net versus each baseline, plus the count of folds REM-Net wins; no multiplicity correction is applied and five comparisons are reported, so p-values are descriptive",
+  "reporting_rules": [
+    "Tier 1 uses GT R peaks to define the cycle; it is a known-cycle morphology upper bound and must never be described as continuous ECG reconstruction.",
+    "These numbers come from models trained for the continuous task. They are not comparable to the old trained-for-Shape-200 figure (0.882), which is BLOCKED.",
+    "Report PCC with RMSE and MAE, never PCC alone."
+  ],
+  "output_dir": "experiments_mmecg/q1_tier1_readout_from_continuous_seed42",
+  "follow_up": "W1b, a Tier-1 trained rerun on loso_v2, is specified after this readout (docs/Q1_JOURNAL_MASTER_PLAN.md, W1)."
+}
