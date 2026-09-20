@@ -86,3 +86,26 @@ def test_atomic_outputs_and_terminal_complete_state(tmp_path):
     transition_state(state, "COMPLETE", test_accessed=True)
     with pytest.raises(RuntimeError, match="terminal"):
         transition_state(state, "TEST_EVALUATING")
+
+
+def test_rng_state_restores_from_a_cuda_mapped_checkpoint():
+    """torch.load(map_location="cuda") returns GPU tensors; RNG states must go back to CPU.
+
+    This is the defect that stopped an interrupted radarODE fold from resuming.
+    """
+    import torch
+
+    from src.utils.atomic_state import capture_rng_state, restore_rng_state
+
+    generator = torch.Generator()
+    generator.manual_seed(7)
+    state = capture_rng_state(generator)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    moved = {
+        "python": state["python"],
+        "numpy": state["numpy"],
+        "torch_cpu": state["torch_cpu"].to(device),
+        "torch_cuda": [t.to(device) for t in state["torch_cuda"]],
+        "train_generator": state["train_generator"].to(device),
+    }
+    restore_rng_state(moved, generator)

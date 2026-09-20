@@ -85,15 +85,25 @@ def capture_rng_state(train_generator: torch.Generator | None = None) -> dict:
     }
 
 
+def _byte_state(t: object) -> torch.Tensor:
+    """Torch RNG states must be CPU ByteTensors.
+
+    A checkpoint loaded with `map_location="cuda"` brings them back on the GPU, and
+    `set_rng_state` then raises `RNG state must be a torch.ByteTensor`. Moving them
+    back is what makes an interrupted GPU run resumable.
+    """
+    return torch.as_tensor(t, dtype=torch.uint8).cpu()
+
+
 def restore_rng_state(state: Mapping[str, object],
                       train_generator: torch.Generator | None = None) -> None:
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
-    torch.set_rng_state(state["torch_cpu"])
+    torch.set_rng_state(_byte_state(state["torch_cpu"]))
     if torch.cuda.is_available() and state.get("torch_cuda"):
-        torch.cuda.set_rng_state_all(state["torch_cuda"])
+        torch.cuda.set_rng_state_all([_byte_state(t) for t in state["torch_cuda"]])
     if train_generator is not None and state.get("train_generator") is not None:
-        train_generator.set_state(state["train_generator"])
+        train_generator.set_state(_byte_state(state["train_generator"]))
 
 
 STAGES = ("TRAINING", "CHECKPOINT_FROZEN", "TEST_EVALUATING", "COMPLETE")
