@@ -27,13 +27,13 @@ three seeds, and radar-free reference floors.
 |---|---|---|---|
 | I Introduction | Contactless ECG promise; reported beat-level PCC of 0.8-0.98; three protocol faults that inflate it; contributions C1-C4 | Ledger C1-C4 | Draft after W2 |
 | II Related work | Radar cardiac sensing; learning-based radar-to-ECG (the five families); evaluation practice (sample-wise vs subject-wise splits, beat-normalised metrics) | `docs/TABLE_D_REPORTED_LITERATURE_AUDIT.md` | Reusable from RQ1.tex §II with a new evaluation-practice subsection |
-| III Measurement procedure | Measurand (continuous 1 x 1600 ECG, stored units); split construction and the repaired `loso_v2`; train-fold scaler; validation-only selection; the test-access state machine; metric definitions, aggregation labels, coverage gate, heavy-tailed ratios; **template floor** as a radar-free reference | METRIC_CONTRACT; MMECG split audit; C1, C2 | Ready to write |
+| III Measurement procedure (**drafted**: `sections/03_MEASUREMENT_PROCEDURE.md`) | Measurand (continuous 1 x 1600 ECG, stored units); split construction and the repaired `loso_v2`; train-fold scaler; validation-only selection; the test-access state machine; metric definitions, aggregation labels, coverage gate, heavy-tailed ratios; **template floor** as a radar-free reference | METRIC_CONTRACT; MMECG split audit; C1, C2 | Ready to write |
 | IV Systems under test | REM-Net as a representative factorized architecture (representation / event / morphology); the five matched families and every adaptation (D-lists); identical budget and checkpoint rule | `docs/MATCHED_BASELINE_PROTOCOL.md`; `ADAPTATIONS` | Ready to write |
 | V Datasets | MMECG (77 GHz FMCW, 11 subjects, 11-fold LOSO); CR_RVS (24 GHz CW, 5-fold subject-independent, per-record z-scored target) | DATA_PROTOCOL; W3 specs | Ready (W3 numbers pending) |
-| VI-A Protocol fault 1: split leakage | Two validation subjects across 11 folds; cross-fold selection bias; the repair | `docs/MMECG_SPLIT_PROVENANCE_AUDIT.md` | Ready |
-| VI-B Protocol fault 2: saturated beat metric | Template floor 0.879-0.887 on both datasets; prior Tier-1 numbers at the floor; radarODE-MTL below it | C2; `docs/audits/Q1_TIER1_TEMPLATE_FLOOR_AUDIT.md` | Ready |
+| VI-A Protocol fault 1: split leakage (**drafted**: `sections/06_PROTOCOL_FAULTS_AND_LIMITS.md`) | Two validation subjects across 11 folds; cross-fold selection bias; the repair | `docs/MMECG_SPLIT_PROVENANCE_AUDIT.md` | Ready |
+| VI-B Protocol fault 2: saturated beat metric (**drafted**) | Template floor 0.879-0.887 on both datasets; prior Tier-1 numbers at the floor; radarODE-MTL below it | C2; `docs/audits/Q1_TIER1_TEMPLATE_FLOOR_AUDIT.md` | Ready |
 | VI-C Matched continuous benchmark | Table 1: six models, eleven folds, all metrics, paired tests; R² ≈ 0 throughout | C3; W2 for seeds | Seed 42 ready; three-seed pending W2 |
-| VI-D Mechanism: timing, not morphology | Template at GT peaks R² 0.73 vs models ≈ 0; template at radar peaks R² < 0; amplitude shrinkage as loss-optimal hedge; Tier-3 tolerance curve | C4; `docs/audits/Q1_TEMPLATE_TIMING_AUDIT.md` | Ready (MMECG); CR_RVS pending W3 |
+| VI-D Mechanism: timing, not morphology (**drafted**) | Template at GT peaks R² 0.73 vs models ≈ 0; template at radar peaks R² < 0; amplitude shrinkage as loss-optimal hedge; Tier-3 tolerance curve | C4; `docs/audits/Q1_TEMPLATE_TIMING_AUDIT.md` | Ready (MMECG); CR_RVS pending W3 |
 | VI-E External validity (CR_RVS) | REM-Net, Chen-TCN, WaveGRU-Net on 5 subject-independent folds, overall and Resting-only; template floor and template-timing diagnostics on CW radar | W3 | Pending W3 |
 | VI-F Reported literature on CR_RVS | Protocol-annotated table of Wu 2024, Xiao 2026, Li 2025, Chowdhury 2024; RSSRnet's own 0.959 → 0.39-0.90 contrast as the field's evidence of split-driven inflation | `docs/audits/Q1_CRRVS_LITERATURE_PROTOCOL_AUDIT.md` | Ready |
 | VI-G Engineering | Parameters, latency; radarODE-MTL EGA cost | `docs/EFFICIENCY_AUDIT.md`; W2 timing | Update with baseline params |
@@ -72,7 +72,7 @@ three seeds, and radar-free reference floors.
 
 ## Open items before drafting results
 
-1. W2: seeds 123 and 2024 for all six models (queued; about 32 GPU hours).
-2. W3: CR_RVS continuous benchmark for REM-Net, Chen-TCN and WaveGRU-Net (queued after W2), plus a Resting-only readout of the frozen predictions.
-3. Template-floor and template-timing diagnostics on CR_RVS (analysis only, after W3).
-4. Three-seed aggregation script with paired tests pooled appropriately (seed-averaged fold values).
+1. ~~W2: seeds 123 and 2024 for all six models~~ — complete (198 sealed folds, `docs/audits/Q1_MULTISEED_BENCHMARK_AUDIT.md`).
+2. ~~W3: CR_RVS continuous benchmark~~ — complete, with scenario, template-floor and timing diagnostics (`docs/audits/Q1_CRRVS_DIAGNOSTICS_AUDIT.md`, `docs/audits/Q1_SCENARIO_BREAKDOWN_AUDIT.md`).
+3. Remaining to draft: Sections I, II, IV, V, VI-C, VI-E, VI-F, VI-G, VII-IX and the five figures.
+4. ~~Three-seed aggregation~~ — `scripts/aggregate_multiseed_benchmark.py`, Table 1 frozen.
