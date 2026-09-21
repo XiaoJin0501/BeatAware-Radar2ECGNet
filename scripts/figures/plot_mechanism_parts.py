@@ -5,9 +5,9 @@ No shared canvas: each part is its own PDF, so the layout is decided during asse
 rather than by matplotlib.
 
   part1_time_mse.pdf      blunt waveform in a framed panel
-  part2_stft_mse.pdf      its spectrogram, dashed high-frequency box
+  part2_stft_mse.pdf      its spectrogram, no overlay
   part3_time_mrstft.pdf   sharp waveform in the same panel style
-  part4_stft_mrstft.pdf   its spectrogram, same scaling and box
+  part4_stft_mrstft.pdf   its spectrogram, same scaling
 
 **Alignment.** All four parts share one canvas width, one axes rectangle and one
 colour-bar slot, and are saved with a fixed bounding box rather than a content-dependent
@@ -27,7 +27,7 @@ must say the illustration is conceptual.
 
 Usage:
   python scripts/figures/plot_mechanism_parts.py
-  python scripts/figures/plot_mechanism_parts.py --cmap inferno --box white --suffix _alt
+  python scripts/figures/plot_mechanism_parts.py --cmap inferno --suffix _alt
 """
 from __future__ import annotations
 
@@ -39,7 +39,6 @@ import matplotlib
 import numpy as np
 import scienceplots  # noqa: F401
 from matplotlib import pyplot as plt
-from matplotlib.patches import Rectangle
 from matplotlib.transforms import Bbox
 from scipy import signal
 
@@ -50,10 +49,8 @@ if str(ROOT) not in sys.path:
 from scripts.figures.plot_mechanism_stft import FS, waveform  # noqa: E402
 
 OUT = ROOT / "docs" / "paper" / "figures" / "mechanism_parts"
-BRICK = "#C0392B"        # dashed high-frequency box
 INK = "#922B21"          # both waveforms: one deep red, one style
 FRAME = "#333333"        # panel frame and ticks
-HF_BAND = (18.0, 60.0)
 VMIN, VMAX = -80, -20
 
 # One canvas and one plotting rectangle for all four parts. Equal figure size and an
@@ -110,7 +107,8 @@ def save_time(x: np.ndarray, t: np.ndarray, name: str) -> None:
     _save(fig, name)
 
 
-def save_spectrogram(x: np.ndarray, r_time: float, name: str, cmap: str, box: str) -> None:
+def save_spectrogram(x: np.ndarray, name: str, cmap: str) -> None:
+    """The spectrogram alone; the high-frequency region is marked during assembly."""
     f, tt, z = signal.stft(x, fs=FS, nperseg=64, noverlap=56, window="hann")
     fig, ax, cax = _panel()
     mesh = ax.pcolormesh(tt, f, 20 * np.log10(np.abs(z) + 1e-6), cmap=cmap,
@@ -118,8 +116,6 @@ def save_spectrogram(x: np.ndarray, r_time: float, name: str, cmap: str, box: st
     ax.set_xlim(0, len(x) / FS)
     ax.set_ylim(0, 70)
     ax.set_ylabel("Frequency (Hz)")
-    ax.add_patch(Rectangle((r_time - 0.13, HF_BAND[0]), 0.26, HF_BAND[1] - HF_BAND[0],
-                           fill=False, edgecolor=box, linestyle="--", lw=1.0, zorder=5))
     bar = fig.colorbar(mesh, cax=cax)
     bar.outline.set_linewidth(0.5)
     bar.outline.set_edgecolor(FRAME)
@@ -130,7 +126,6 @@ def save_spectrogram(x: np.ndarray, r_time: float, name: str, cmap: str, box: st
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--cmap", choices=("viridis", "magma", "inferno"), default="magma")
-    ap.add_argument("--box", default=BRICK, help="dashed-box colour, e.g. white")
     ap.add_argument("--suffix", default="", help="appended to every part name")
     args = ap.parse_args()
 
@@ -139,12 +134,12 @@ def main() -> None:
         (False, "part1_time_mse", "part2_stft_mse"),
         (True, "part3_time_mrstft", "part4_stft_mrstft"),
     ):
-        t, x, r_times = waveform(sharp)
+        t, x, _ = waveform(sharp)
         save_time(x, t, f"{time_name}{args.suffix}.pdf")
-        save_spectrogram(x, r_times[1], f"{spec_name}{args.suffix}.pdf", args.cmap, args.box)
+        save_spectrogram(x, f"{spec_name}{args.suffix}.pdf", args.cmap)
     print(f"\nfour parts in {OUT}; canvas {FIG_W} x {FIG_H} in, plotting rectangle "
           f"{AXES_RECT}, colour-bar slot {CBAR_RECT} reserved on every part, "
-          f"{args.cmap} at {VMIN} to {VMAX} dB, dashed box {args.box}")
+          f"{args.cmap} at {VMIN} to {VMAX} dB")
 
 
 if __name__ == "__main__":
