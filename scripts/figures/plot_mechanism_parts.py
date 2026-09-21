@@ -9,12 +9,14 @@ rather than by matplotlib.
   part3_time_mrstft.pdf   sharp waveform in the same panel style
   part4_stft_mrstft.pdf   its spectrogram, same scaling and box
 
-**Alignment.** All four parts share one canvas width and one axes rectangle, and are
-saved with a fixed bounding box rather than a content-dependent one. `bbox_inches='tight'`
-would crop each part to its own contents, and since an amplitude axis and a frequency
-axis carry differently wide tick labels, the two rows would end up a few points apart
-when stacked. With a fixed box the plotting areas line up exactly, and the transparent
-background means the fixed margin shows nothing.
+**Alignment.** All four parts share one canvas width, one axes rectangle and one
+colour-bar slot, and are saved with a fixed bounding box rather than a content-dependent
+one. `bbox_inches='tight'` would crop each part to its own contents, and since an
+amplitude axis and a frequency axis carry differently wide tick labels, the two rows
+would end up a few points apart when stacked. The time panels reserve the colour bar's
+slot with an invisible axes, so a waveform placed above a spectrogram lines up on both
+the left and the right edge. The transparent background means the reserved margin shows
+nothing.
 
 The two spectrograms share colour limits (-80 to -20 dB), time span and frequency
 range, and both rows share the same x ticks, so a column stacks cleanly.
@@ -49,14 +51,15 @@ from scripts.figures.plot_mechanism_stft import FS, waveform  # noqa: E402
 
 OUT = ROOT / "docs" / "paper" / "figures" / "mechanism_parts"
 BRICK = "#C0392B"        # dashed high-frequency box
-INK = "#2C3E50"          # both waveforms: one colour, one style
+INK = "#922B21"          # both waveforms: one deep red, one style
 FRAME = "#333333"        # panel frame and ticks
 HF_BAND = (18.0, 60.0)
 VMIN, VMAX = -80, -20
 
 FIG_W = 5.0              # every part, so widths match exactly
 TIME_H, SPEC_H = 1.5, 2.8
-AXES_L, AXES_W = 0.13, 0.85          # shared left margin and plotting width
+AXES_L, AXES_W = 0.13, 0.70          # shared left margin and plotting width
+CBAR_L, CBAR_W = 0.855, 0.028        # the colour bar, and the slot the time panel reserves
 XTICKS = [0, 1, 2, 3, 4]             # identical on both rows
 
 plt.style.use(["science", "ieee"])
@@ -72,15 +75,17 @@ matplotlib.rcParams.update({
 
 
 def _panel(height: float, bottom: float, panel_height: float):
+    """A framed panel at the shared rectangle, plus the shared colour-bar slot."""
     fig = plt.figure(figsize=(FIG_W, height))
     ax = fig.add_axes([AXES_L, bottom, AXES_W, panel_height])
+    cax = fig.add_axes([CBAR_L, bottom, CBAR_W, panel_height])
     for spine in ax.spines.values():
         spine.set_linewidth(0.5)
         spine.set_color(FRAME)
     ax.tick_params(width=0.5, length=2.5, color=FRAME, labelcolor="black")
     ax.set_xticks(XTICKS)
     ax.set_xlabel("Time (s)")
-    return fig, ax
+    return fig, ax, cax
 
 
 def _save(fig, name: str) -> None:
@@ -93,7 +98,8 @@ def _save(fig, name: str) -> None:
 
 
 def save_time(x: np.ndarray, t: np.ndarray, name: str) -> None:
-    fig, ax = _panel(TIME_H, bottom=0.30, panel_height=0.64)
+    fig, ax, cax = _panel(TIME_H, bottom=0.30, panel_height=0.64)
+    cax.set_axis_off()                       # reserve the colour bar's width, draw nothing
     ax.plot(t, x, color=INK, lw=2.0, solid_capstyle="round")
     ax.set_xlim(0, t[-1])
     ax.set_ylim(-0.6, 1.2)
@@ -104,14 +110,18 @@ def save_time(x: np.ndarray, t: np.ndarray, name: str) -> None:
 
 def save_spectrogram(x: np.ndarray, r_time: float, name: str, cmap: str, box: str) -> None:
     f, tt, z = signal.stft(x, fs=FS, nperseg=64, noverlap=56, window="hann")
-    fig, ax = _panel(SPEC_H, bottom=0.16, panel_height=0.80)
-    ax.pcolormesh(tt, f, 20 * np.log10(np.abs(z) + 1e-6), cmap=cmap,
-                  shading="gouraud", vmin=VMIN, vmax=VMAX, rasterized=True)
+    fig, ax, cax = _panel(SPEC_H, bottom=0.16, panel_height=0.80)
+    mesh = ax.pcolormesh(tt, f, 20 * np.log10(np.abs(z) + 1e-6), cmap=cmap,
+                         shading="gouraud", vmin=VMIN, vmax=VMAX, rasterized=True)
     ax.set_xlim(0, len(x) / FS)
     ax.set_ylim(0, 70)
     ax.set_ylabel("Frequency (Hz)")
     ax.add_patch(Rectangle((r_time - 0.13, HF_BAND[0]), 0.26, HF_BAND[1] - HF_BAND[0],
                            fill=False, edgecolor=box, linestyle="--", lw=1.0, zorder=5))
+    bar = fig.colorbar(mesh, cax=cax)
+    bar.outline.set_linewidth(0.5)
+    bar.outline.set_edgecolor(FRAME)
+    bar.ax.tick_params(width=0.5, length=2.5, color=FRAME, labelsize=7)
     _save(fig, name)
 
 
@@ -130,9 +140,10 @@ def main() -> None:
         t, x, r_times = waveform(sharp)
         save_time(x, t, f"{time_name}{args.suffix}.pdf")
         save_spectrogram(x, r_times[1], f"{spec_name}{args.suffix}.pdf", args.cmap, args.box)
-    print(f"\nfour parts in {OUT}; canvas width {FIG_W} in with the plotting area at "
-          f"[{AXES_L}, {AXES_L + AXES_W}], {args.cmap} spectrograms at {VMIN} to {VMAX} dB, "
-          f"dashed box {args.box}")
+    print(f"\nfour parts in {OUT}; canvas width {FIG_W} in, plotting area "
+          f"[{AXES_L}, {AXES_L + AXES_W}], colour-bar slot "
+          f"[{CBAR_L}, {CBAR_L + CBAR_W}] reserved on every part, {args.cmap} at "
+          f"{VMIN} to {VMAX} dB, dashed box {args.box}")
 
 
 if __name__ == "__main__":
