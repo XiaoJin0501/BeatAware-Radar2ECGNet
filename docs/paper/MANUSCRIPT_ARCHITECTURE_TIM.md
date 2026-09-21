@@ -58,6 +58,7 @@ three seeds, and radar-free reference floors.
 | Fig. 5 | Tier-3 tolerance curve with the template-at-GT bound | temporal-tolerance audit | To draw |
 | Fig. 6 | Objective schematic: blunt versus sharp QRS and the high-frequency band they produce (synthetic; caption must say so) | `scripts/figures/plot_mechanism_stft.py` | Drawn |
 | Fig. 6b | Bare version of Fig. 6 for external annotation: waveforms and spectrograms only, no text | `scripts/figures/plot_mechanism_base.py` | Drawn |
+| Fig. 6c | The same panel as four independent parts for manual assembly (`figures/mechanism_parts/part1..4`) | `scripts/figures/plot_mechanism_parts.py` | Drawn |
 | Fig. 7 | Measured spectral deficit: reference ECG versus the MR-STFT estimate on a median held-out window, with the above-10 Hz share (4 % here, benchmark median 0.122) | `scripts/figures/plot_spectral_deficit_measured.py` | Drawn |
 
 ## Material to retire from RQ1.tex
