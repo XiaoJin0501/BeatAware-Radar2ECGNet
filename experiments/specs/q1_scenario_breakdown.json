@@ -1,0 +1,14 @@
+{
+  "experiment_id": "q1_scenario_breakdown",
+  "research_question": "How do the three leading models' continuous performance and rate error vary across physiological scenarios, once the scenario/subject confound is respected?",
+  "category": "analysis",
+  "publishable": false,
+  "status": "DATA_READY",
+  "no_training": "Frozen test predictions only (MMECG 3 models x 3 seeds x 11 folds; CR_RVS 3 models x 5 folds).",
+  "models": ["rem_net", "mmecg_tcn", "wavegru_net"],
+  "scenario_codes": {"MMECG": {"NB": "Normal breathing", "IB": "Irregular breathing", "PE": "Post-exercise", "SP": "Sleep"},
+                     "CR_RVS": {"NB": "Resting", "IB": "Valsalva", "SP": "Apnea"}},
+  "confound": "Scenarios are unevenly distributed over subjects (MMECG: sleep appears in 3 subjects, post-exercise in 6; two folds are normal breathing only). Every statistic is therefore computed per (subject, scenario) first, seeds averaged, then aggregated over subjects, and the subject count is reported with every cell.",
+  "aggregation": "per (subject, scenario): median window PCC and RR error; across subjects: median with IQR and range; RR gated at rr_coverage >= 0.80 per (subject, scenario, seed)",
+  "output_dirs": ["experiments_mmecg/q1_scenario_breakdown_mmecg", "experiments_mmecg/q1_scenario_breakdown_crrvs"]
+}
