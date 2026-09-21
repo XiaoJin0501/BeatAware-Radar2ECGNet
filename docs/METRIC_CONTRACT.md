@@ -142,6 +142,16 @@ observed operating range, the manuscript methods section must say which terms
 were effectively inactive. A frozen composite is never edited after a run to
 make the description tidier.
 
+### Manuscript terminology (binding, 2026-09-21)
+
+Manuscript prose uses the names in `docs/paper/TERMINOLOGY.md` (ECG Shape Recovery,
+Long-term ECG Reconstruction, ECG Anchor Estimation, Cycle Length Estimation). That
+file maps each term to its code function and manifest field, which keeps the rule at
+the head of this contract satisfied: a table name must always resolve to a field.
+Renaming never merges the two anchor read-outs, never promotes ECG Shape Recovery to
+Long-term ECG Reconstruction, and never drops the template floor beside a single-beat
+number.
+
 ### Template floor for beat-normalised metrics (binding, 2026-09-19)
 
 Any metric computed on beats that are cut, resampled and amplitude-normalised
