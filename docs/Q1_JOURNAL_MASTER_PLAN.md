@@ -277,6 +277,16 @@ timing, not beat morphology, bounds continuous reconstruction; amplitude shrinka
 is the loss-optimal hedge against timing error. Full record:
 `docs/audits/Q1_TEMPLATE_TIMING_AUDIT.md`.
 
+**W2 result (2026-09-21) — three seeds complete, 198 sealed folds.** Across seeds
+42/123/2024: Chen-TCN PCC 0.329 ± 0.018, REM-Net 0.324 ± 0.015 (Δ −0.005, p = 0.831,
+5/11 folds), radarODE-MTL 0.290 ± 0.001, Conformer 0.282 ± 0.010, WaveGRU-Net
+0.203 ± 0.007, Attention-DCGAN 0.113 ± 0.012. REM-Net holds the only clearly positive
+R² (0.041 ± 0.016) and the best NRMSE, is behind radarODE-MTL (0.819) and Chen-TCN
+(0.808) on waveform F1@100 with 0.732, and is the only model whose rate metrics need
+the coverage gate (31/33 entries). Single-seed rankings among the top three were not
+reliable: radarODE-MTL varies by ±0.001 across seeds, Chen-TCN by ±0.018. Full record:
+`docs/audits/Q1_MULTISEED_BENCHMARK_AUDIT.md`.
+
 **W2 — Three-seed statistical audit.** Seeds 123 and 2024 for REM-Net and all
 five baselines on the continuous benchmark, same everything else. Requires an
 additive seed-base argument; seed 42 results stay frozen. About 38 GPU hours,

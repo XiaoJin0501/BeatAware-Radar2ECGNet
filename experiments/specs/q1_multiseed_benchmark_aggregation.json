@@ -1,0 +1,23 @@
+{
+  "experiment_id": "q1_multiseed_benchmark_aggregation",
+  "research_question": "What is the three-seed matched continuous benchmark on MMECG loso_v2, and does REM-Net differ from any baseline once seed variance is included?",
+  "category": "analysis",
+  "publishable": false,
+  "status": "DATA_READY",
+  "no_training": "Aggregation of the 198 sealed folds (6 models x 3 seeds x 11 folds); nothing is trained or selected.",
+  "inputs": {
+    "rem_net": "q1_remnet_continuous_strict_loso_seed{42,123,2024}/L3/fold_XX/test_metrics.json",
+    "baselines": "q1_matched_baselines_continuous_strict_loso_seed{42,123,2024}/<baseline>/fold_XX/test_metrics.json",
+    "completeness_check": "every fold must be stage COMPLETE with test metrics present"
+  },
+  "aggregation": {
+    "per_seed": "fold-macro mean over the 11 test subjects, population std across folds",
+    "headline": "mean +/- std ACROSS THE THREE SEEDS of the per-seed fold-macro values (METRIC_CONTRACT: key conclusions need >= 3 seeds)",
+    "seed_stability": "across-seed std reported beside the headline",
+    "paired_statistics": "per fold, metrics are averaged over the three seeds; paired two-sided Wilcoxon on those 11 seed-averaged fold values, REM-Net versus each baseline, with folds won; five comparisons, uncorrected, descriptive",
+    "rate_metrics": "RR/HR aggregated only over (model, seed, fold) entries with rr_coverage >= 0.80; excluded entries listed",
+    "heavy_tailed": "above_10hz_energy_ratio reported as median with min/max",
+    "units": "RMSE/MAE/region MAE in per-record z-score units"
+  },
+  "output_dir": "experiments_mmecg/q1_multiseed_benchmark_summary"
+}
