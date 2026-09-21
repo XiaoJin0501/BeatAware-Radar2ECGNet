@@ -56,11 +56,13 @@ FRAME = "#333333"        # panel frame and ticks
 HF_BAND = (18.0, 60.0)
 VMIN, VMAX = -80, -20
 
-FIG_W = 5.0              # every part, so widths match exactly
-TIME_H, SPEC_H = 1.5, 2.8
-AXES_L, AXES_W = 0.13, 0.70          # shared left margin and plotting width
-CBAR_L, CBAR_W = 0.855, 0.028        # the colour bar, and the slot the time panel reserves
-XTICKS = [0, 1, 2, 3, 4]             # identical on both rows
+# One canvas and one plotting rectangle for all four parts. Equal figure size and an
+# explicit add_axes rectangle are what make the stacked parts align to the pixel; the
+# colour-bar slot is reserved on the waveform parts too, so both outer edges match.
+FIG_W, FIG_H = 5.0, 2.8
+AXES_RECT = [0.15, 0.15, 0.70, 0.78]        # left, bottom, width, height
+CBAR_RECT = [0.875, 0.15, 0.028, 0.78]
+XTICKS = [0, 1, 2, 3, 4]                     # identical on both rows
 
 plt.style.use(["science", "ieee"])
 matplotlib.rcParams.update({
@@ -74,11 +76,11 @@ matplotlib.rcParams.update({
 })
 
 
-def _panel(height: float, bottom: float, panel_height: float):
-    """A framed panel at the shared rectangle, plus the shared colour-bar slot."""
-    fig = plt.figure(figsize=(FIG_W, height))
-    ax = fig.add_axes([AXES_L, bottom, AXES_W, panel_height])
-    cax = fig.add_axes([CBAR_L, bottom, CBAR_W, panel_height])
+def _panel():
+    """The shared canvas, the shared plotting rectangle and the shared colour-bar slot."""
+    fig = plt.figure(figsize=(FIG_W, FIG_H))
+    ax = fig.add_axes(AXES_RECT)
+    cax = fig.add_axes(CBAR_RECT)
     for spine in ax.spines.values():
         spine.set_linewidth(0.5)
         spine.set_color(FRAME)
@@ -98,19 +100,19 @@ def _save(fig, name: str) -> None:
 
 
 def save_time(x: np.ndarray, t: np.ndarray, name: str) -> None:
-    fig, ax, cax = _panel(TIME_H, bottom=0.30, panel_height=0.64)
+    fig, ax, cax = _panel()
     cax.set_axis_off()                       # reserve the colour bar's width, draw nothing
     ax.plot(t, x, color=INK, lw=2.0, solid_capstyle="round")
     ax.set_xlim(0, t[-1])
-    ax.set_ylim(-0.6, 1.2)
-    ax.set_yticks([0.0, 0.5, 1.0])
+    margin = 0.08 * (x.max() - x.min())
+    ax.set_ylim(x.min() - margin, x.max() + margin)
     ax.set_ylabel("Amplitude")
     _save(fig, name)
 
 
 def save_spectrogram(x: np.ndarray, r_time: float, name: str, cmap: str, box: str) -> None:
     f, tt, z = signal.stft(x, fs=FS, nperseg=64, noverlap=56, window="hann")
-    fig, ax, cax = _panel(SPEC_H, bottom=0.16, panel_height=0.80)
+    fig, ax, cax = _panel()
     mesh = ax.pcolormesh(tt, f, 20 * np.log10(np.abs(z) + 1e-6), cmap=cmap,
                          shading="gouraud", vmin=VMIN, vmax=VMAX, rasterized=True)
     ax.set_xlim(0, len(x) / FS)
@@ -140,10 +142,9 @@ def main() -> None:
         t, x, r_times = waveform(sharp)
         save_time(x, t, f"{time_name}{args.suffix}.pdf")
         save_spectrogram(x, r_times[1], f"{spec_name}{args.suffix}.pdf", args.cmap, args.box)
-    print(f"\nfour parts in {OUT}; canvas width {FIG_W} in, plotting area "
-          f"[{AXES_L}, {AXES_L + AXES_W}], colour-bar slot "
-          f"[{CBAR_L}, {CBAR_L + CBAR_W}] reserved on every part, {args.cmap} at "
-          f"{VMIN} to {VMAX} dB, dashed box {args.box}")
+    print(f"\nfour parts in {OUT}; canvas {FIG_W} x {FIG_H} in, plotting rectangle "
+          f"{AXES_RECT}, colour-bar slot {CBAR_RECT} reserved on every part, "
+          f"{args.cmap} at {VMIN} to {VMAX} dB, dashed box {args.box}")
 
 
 if __name__ == "__main__":
