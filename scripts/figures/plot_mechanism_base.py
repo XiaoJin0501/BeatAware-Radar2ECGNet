@@ -34,6 +34,8 @@ OUT = ROOT / "docs" / "paper" / "figures"
 BRICK = "#C0392B"        # time-domain loss column, and the marked band
 NAVY = "#2C3E50"         # MR-STFT column
 HF_BAND = (18.0, 60.0)
+CMAP = "magma"
+BOX = BRICK
 
 plt.style.use(["science", "ieee"])
 matplotlib.rcParams.update({
@@ -54,7 +56,7 @@ def draw_column(axes, sharp: bool, colour: str) -> None:
     ax_time.axis("off")
 
     f, tt, z = signal.stft(x, fs=FS, nperseg=64, noverlap=56, window="hann")
-    ax_spec.pcolormesh(tt, f, 20 * np.log10(np.abs(z) + 1e-6), cmap="viridis",
+    ax_spec.pcolormesh(tt, f, 20 * np.log10(np.abs(z) + 1e-6), cmap=CMAP,
                        shading="gouraud", vmin=-80, vmax=-20, rasterized=True)
     ax_spec.set_xlim(0, t[-1])
     ax_spec.set_ylim(0, 70)
@@ -65,7 +67,7 @@ def draw_column(axes, sharp: bool, colour: str) -> None:
 
     r = r_times[1]
     ax_spec.add_patch(Rectangle((r - 0.13, HF_BAND[0]), 0.26, HF_BAND[1] - HF_BAND[0],
-                                fill=False, edgecolor=BRICK, linestyle="--", lw=1.0,
+                                fill=False, edgecolor=BOX, linestyle="--", lw=1.0,
                                 zorder=5))
 
 

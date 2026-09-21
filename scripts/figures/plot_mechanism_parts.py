@@ -21,6 +21,7 @@ Usage:
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -42,6 +43,9 @@ BRICK = "#C0392B"        # time-domain loss, and the marked band in both spectro
 NAVY = "#2C3E50"         # MR-STFT loss
 HF_BAND = (18.0, 60.0)
 VMIN, VMAX = -80, -20
+SPINE_GREY = "#4D4D4D"   # thin outer frame on the spectrogram parts
+# The dashed box is brick red by default. On magma and inferno the bright ridge itself
+# is orange-white, so `--box white` is available where the red loses contrast.
 
 plt.style.use(["science", "ieee"])
 matplotlib.rcParams.update({
@@ -72,32 +76,42 @@ def save_time(x: np.ndarray, t: np.ndarray, colour: str, name: str) -> None:
     _save(fig, name)
 
 
-def save_spectrogram(x: np.ndarray, r_time: float, name: str) -> None:
+def save_spectrogram(x: np.ndarray, r_time: float, name: str, cmap: str,
+                     box: str) -> None:
     f, tt, z = signal.stft(x, fs=FS, nperseg=64, noverlap=56, window="hann")
     fig, ax = plt.subplots(figsize=(5.0, 2.6))
-    ax.pcolormesh(tt, f, 20 * np.log10(np.abs(z) + 1e-6), cmap="viridis",
+    ax.pcolormesh(tt, f, 20 * np.log10(np.abs(z) + 1e-6), cmap=cmap,
                   shading="gouraud", vmin=VMIN, vmax=VMAX, rasterized=True)
     ax.set_xlim(0, len(x) / FS)
     ax.set_ylim(0, 70)
     for spine in ax.spines.values():
         spine.set_linewidth(0.5)
-    ax.tick_params(width=0.5, length=2.5)
+        spine.set_color(SPINE_GREY)
+    ax.tick_params(width=0.5, length=2.5, colour=SPINE_GREY) if False else \
+        ax.tick_params(width=0.5, length=2.5, color=SPINE_GREY, labelcolor="black")
     ax.add_patch(Rectangle((r_time - 0.13, HF_BAND[0]), 0.26, HF_BAND[1] - HF_BAND[0],
-                           fill=False, edgecolor=BRICK, linestyle="--", lw=1.0, zorder=5))
+                           fill=False, edgecolor=box, linestyle="--", lw=1.0, zorder=5))
     _save(fig, name)
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--cmap", choices=("viridis", "magma", "inferno"), default="magma")
+    ap.add_argument("--box", default=BRICK, help="dashed-box colour, e.g. white")
+    ap.add_argument("--suffix", default="", help="appended to every part name")
+    args = ap.parse_args()
+
     OUT.mkdir(parents=True, exist_ok=True)
     for sharp, colour, time_name, spec_name in (
-        (False, BRICK, "part1_time_mse.pdf", "part2_stft_mse.pdf"),
-        (True, NAVY, "part3_time_mrstft.pdf", "part4_stft_mrstft.pdf"),
+        (False, BRICK, "part1_time_mse", "part2_stft_mse"),
+        (True, NAVY, "part3_time_mrstft", "part4_stft_mrstft"),
     ):
         t, x, r_times = waveform(sharp)
-        save_time(x, t, colour, time_name)
-        save_spectrogram(x, r_times[1], spec_name)
-    print(f"\nfour parts in {OUT}; spectrograms share {VMIN} to {VMAX} dB, 0-70 Hz, "
-          f"0-{len(x) / FS:.0f} s")
+        save_time(x, t, colour, f"{time_name}{args.suffix}.pdf")
+        save_spectrogram(x, r_times[1], f"{spec_name}{args.suffix}.pdf", args.cmap,
+                         args.box)
+    print(f"\nfour parts in {OUT}; {args.cmap} spectrograms share {VMIN} to {VMAX} dB, "
+          f"0-70 Hz, 0-{len(x) / FS:.0f} s, dashed box {args.box}")
 
 
 if __name__ == "__main__":
