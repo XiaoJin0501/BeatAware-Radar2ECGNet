@@ -56,6 +56,8 @@ three seeds, and radar-free reference floors.
 | Fig. 3 | Waveform examples: GT, REM-Net, Chen-TCN, template@GT, template@radar peaks, at quantitatively chosen best / median / worst folds | frozen predictions | To draw |
 | Fig. 4 | Template floor vs model Shape-200 PCC per fold (both datasets) | Tier-1 audit | To draw |
 | Fig. 5 | Tier-3 tolerance curve with the template-at-GT bound | temporal-tolerance audit | To draw |
+| Fig. 6 | Objective schematic: blunt versus sharp QRS and the high-frequency band they produce (synthetic; caption must say so) | `scripts/figures/plot_mechanism_stft.py` | Drawn |
+| Fig. 7 | Measured spectral deficit: reference ECG versus the MR-STFT estimate on a median held-out window, with the above-10 Hz share (4 % here, benchmark median 0.122) | `scripts/figures/plot_spectral_deficit_measured.py` | Drawn |
 
 ## Material to retire from RQ1.tex
 
