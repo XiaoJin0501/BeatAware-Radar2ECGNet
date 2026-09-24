@@ -16,13 +16,23 @@ RMSE / MAE / region MAE are in per-record **z-score units**. Waveform F1 uses pe
 detected on the reconstruction; `event_f1_*` is not applicable to the baselines and
 is not tabulated.
 
+**Parameter counts** are the `params` field of each model's frozen
+`fold_01/config.json` in the sealed seed-42 runs, i.e. the trainable parameters of
+the network that produced these numbers. They are exact: REM-Net 1,438,019
+(WSST stem 205,568 + decoder 1,232,451), Chen-TCN 607,965, WaveGRU-Net 705,553,
+Cross-Modal Conformer 422,737, Attention-DCGAN 4,345,170, radarODE-MTL 41,618,306
+(four-task EGA configuration; the earlier backbone-only variant was 26.77 M and is
+not the model benchmarked here). These are **continuous-track** models and must not
+be exchanged with the Shape-200 counts in `docs/EFFICIENCY_AUDIT.md`, which profile
+a different network (REM-Net Shape-200, 1.788 M).
+
 ## Table 1 — continuous ECG, MMECG `loso_v2`, three seeds
 
 | Model | Params | PCC@0 ↑ | R² ↑ | NRMSE ↓ | Waveform F1@100 ↑ | QRS MAE ↓ | ST/T MAE ↓ | Var. ratio | >10 Hz (median) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Chen-TCN (adapted) | 0.61 M | **0.329 ± 0.018** | 0.003 ± 0.038 | 2.153 ± 0.041 | 0.808 ± 0.033 | 1.733 | 0.601 | 0.433 | 0.362 |
-| **REM-Net (ours)** | 1.79 M | 0.324 ± 0.015 | **0.041 ± 0.016** | **2.125 ± 0.018** | 0.732 ± 0.035 | 1.690 | 0.607 | 0.331 | 0.122 |
-| radarODE-MTL (adapted, EGA) | 27.2 M | 0.290 ± 0.001 | −0.016 ± 0.022 | 2.183 ± 0.020 | **0.819 ± 0.010** | 1.692 | 0.652 | 0.368 | 0.274 |
+| **REM-Net (ours)** | 1.44 M | 0.324 ± 0.015 | **0.041 ± 0.016** | **2.125 ± 0.018** | 0.732 ± 0.035 | 1.690 | 0.607 | 0.331 | 0.122 |
+| radarODE-MTL (adapted, EGA) | 41.6 M | 0.290 ± 0.001 | −0.016 ± 0.022 | 2.183 ± 0.020 | **0.819 ± 0.010** | 1.692 | 0.652 | 0.368 | 0.274 |
 | Cross-Modal Conformer (adapted) | 0.42 M | 0.282 ± 0.010 | −0.053 ± 0.030 | 2.216 ± 0.029 | 0.767 ± 0.012 | 1.739 | 0.620 | 0.447 | 0.547 |
 | WaveGRU-Net (adapted) | 0.71 M | 0.203 ± 0.007 | −0.057 ± 0.015 | 2.239 ± 0.017 | 0.557 ± 0.004 | **1.683** | 0.698 | 0.283 | 0.557 |
 | Attention-DCGAN (adapted) | 4.35 M | 0.113 ± 0.012 | −0.474 ± 0.128 | 2.625 ± 0.093 | 0.675 ± 0.003 | 1.840 | 0.796 | 0.638 | 0.806 |
@@ -60,6 +70,32 @@ multiplicity. Everything else is descriptive.
 | Attention-DCGAN | +0.211 (0.002), 10/11 | +0.515 (0.001), 11/11 | −0.500 (0.001), 11/11 | +0.057 (0.147), 8/11 |
 
 Δ is REM-Net minus baseline; the fold count is folds where REM-Net is better.
+
+### Cycle Length Estimation — paired tests (added 2026-09-24)
+
+The paired family above covers PCC, R2, NRMSE and Anchor F1@100 only. Cycle Length was
+not tested. Computed here from the same frozen per-fold `test_metrics.json`, seeds
+averaged within each fold over entries passing `rr_coverage >= 0.80`, then a paired
+two-sided Wilcoxon over the eleven folds.
+
+| REM-Net versus | REM-Net | baseline | change | p | folds won |
+|---|---:|---:|---:|---:|---:|
+| radarODE-MTL | 48.8 ms | **45.5 ms** | **-7.3 % (worse)** | 0.966 | 4/11 |
+| Cross-Modal Conformer | 48.8 ms | 54.5 ms | +10.4 % | 0.577 | 6/11 |
+| Chen-TCN | 48.8 ms | 77.9 ms | +37.4 % | 0.206 | 7/11 |
+| WaveGRU-Net | 48.8 ms | 106.4 ms | **+54.1 %** | **0.001** | 11/11 |
+| Attention-DCGAN | 48.8 ms | 161.3 ms | **+69.7 %** | **0.001** | 11/11 |
+
+REM-Net loses 2 of 33 entries to the coverage gate; every baseline loses none.
+
+**Binding reading.** REM-Net does **not** reduce Cycle Length error relative to the
+strongest comparator: against radarODE-MTL it is 7.3 % worse and statistically
+indistinguishable (p = 0.966, 4/11 folds). Only the WaveGRU-Net and Attention-DCGAN
+contrasts are significant, and they survive Holm correction. No manuscript sentence may
+claim a Cycle Length reduction "relative to the strongest baseline". The supportable
+statements are (i) parity with a 41.6 M multitask comparator at 1.44 M parameters, and
+(ii) the scenario-level result in `Q1_SCENARIO_BREAKDOWN_AUDIT.md`, which is measured
+against Chen-TCN and WaveGRU-Net only and must name those two comparators.
 
 ## What three seeds change
 

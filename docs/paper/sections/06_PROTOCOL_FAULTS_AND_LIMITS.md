@@ -125,7 +125,7 @@ The one consistent advantage of the proposed decoupled architecture in this benc
 is interval-level: its **Cycle Length Estimation** error is the lowest in six of the
 seven physiological scenarios across both radars, including \SI{10.9}{\milli\second}
 during sleep against 45.8 and \SI{60.4}{\milli\second} for the two comparators, at
-1.79 M parameters against the 27.2 M of the multitask ODE baseline. In the pooled
+1.44 M parameters against the 41.6 M of the multitask ODE baseline. In the pooled
 three-seed aggregate it is second (\SI{49.1}{\milli\second} against
 \SI{45.5}{\milli\second}), and it is the only system whose interval metrics require the
 anchor-coverage gate, losing two of thirty-three entries to anchor-detection collapse.

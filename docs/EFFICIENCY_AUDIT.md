@@ -4,6 +4,14 @@ Purpose: lock the model-size and latency numbers for the T5 efficiency table wit
 reproducible source. Parameter counts are exact (`sum(p.numel())`); latency is measured
 on the project GPU.
 
+**Scope (binding).** Every row here profiles a **Shape-200** model: the beat-normalised
+morphology track. The continuous-track networks benchmarked in Table 1 of
+`docs/audits/Q1_MULTISEED_BENCHMARK_AUDIT.md` are different networks with different
+counts — REM-Net continuous B1 is 1.44 M, not the 1.788 M below, and the radarODE-MTL
+comparator there is the 41.6 M four-task EGA model, not the 26.77 M backbone-only
+variant below. The two tables may never be mixed in one sentence or one manuscript
+table, and a parameter count must always name the track it belongs to.
+
 ## Setup
 
 - GPU: NVIDIA GeForce RTX 4080 SUPER; input = single 8-s window WSST tensor

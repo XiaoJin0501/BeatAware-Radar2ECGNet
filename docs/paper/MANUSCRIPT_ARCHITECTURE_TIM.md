@@ -36,7 +36,7 @@ three seeds, and radar-free reference floors.
 | VI-D Mechanism: timing, not morphology (**drafted**) | Template at GT peaks R² 0.73 vs models ≈ 0; template at radar peaks R² < 0; amplitude shrinkage as loss-optimal hedge; Tier-3 tolerance curve | C4; `docs/audits/Q1_TEMPLATE_TIMING_AUDIT.md` | Ready (MMECG); CR_RVS pending W3 |
 | VI-E External validity (CR_RVS) | REM-Net, Chen-TCN, WaveGRU-Net on 5 subject-independent folds, overall and Resting-only; template floor and template-timing diagnostics on CW radar | W3 | Pending W3 |
 | VI-F Reported literature on CR_RVS | Protocol-annotated table of Wu 2024, Xiao 2026, Li 2025, Chowdhury 2024; RSSRnet's own 0.959 → 0.39-0.90 contrast as the field's evidence of split-driven inflation | `docs/audits/Q1_CRRVS_LITERATURE_PROTOCOL_AUDIT.md` | Ready |
-| VI-G Engineering | Parameters, latency; radarODE-MTL EGA cost | `docs/EFFICIENCY_AUDIT.md`; W2 timing | Update with baseline params |
+| VI-G Engineering | Parameters, latency; radarODE-MTL EGA cost | Continuous track: Table 1 of `docs/audits/Q1_MULTISEED_BENCHMARK_AUDIT.md` (REM-Net 1.44 M, radarODE-MTL 41.6 M). Shape-200 track: `docs/EFFICIENCY_AUDIT.md` (1.788 M, 0.98 ms) | Counts locked; never mix the two tracks |
 | VII Discussion | What the field's numbers measure; what a credible continuous claim requires (timing); recommended reporting checklist | C1-C4 | After W2/W3 |
 | VIII Limitations | Two datasets, small subject counts, single CR_RVS validation subject per fold, adapted reproductions, template is a single fixed shape | — | Draft now |
 | IX Conclusion | — | — | Last |

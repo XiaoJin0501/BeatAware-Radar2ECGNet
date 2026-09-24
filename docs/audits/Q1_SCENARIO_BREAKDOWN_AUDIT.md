@@ -51,3 +51,47 @@ row may be read without it.
    REM-Net on PCC in all three CW scenarios, matching the aggregate result.
 5. **Sleep and post-exercise carry three and six subjects.** No claim may rest on
    those rows alone.
+
+## Amplitude variance ratio by scenario (added 2026-09-23)
+
+Computed in memory from the same frozen predictions with the grouping of
+`scripts/evaluate_scenario_breakdown.py` reused verbatim; the run reproduced every
+`pcc_median` cell of `subject_scenario_metrics.csv` exactly (**0 mismatches** over all
+model x seed x subject x scenario keys) before any new statistic was reported. Nothing
+was written to `experiments_mmecg/`. Aggregation matches the tables above: per-window
+`var(pred)/var(gt)`, averaged within (subject, scenario), seeds averaged, then median
+over subjects [IQR].
+
+### MMECG (three seeds)
+
+| Scenario | Subjects | REM-Net | Chen-TCN | WaveGRU-Net |
+|---|---:|---|---|---|
+| Normal breathing | 11 | 0.338 [0.285, 0.436] | 0.403 [0.347, 0.588] | 0.329 [0.266, 0.366] |
+| Irregular breathing | 7 | 0.360 [0.282, 0.383] | 0.367 [0.297, 0.422] | 0.236 [0.206, 0.296] |
+| Post-exercise | 6 | 0.332 [0.288, 0.371] | 0.382 [0.255, 0.590] | 0.276 [0.272, 0.284] |
+| Sleep | 3 | 0.381 [0.357, 0.448] | 0.353 [0.327, 0.463] | 0.249 [0.244, 0.277] |
+
+### CR_RVS (seed 42)
+
+| Scenario | Subjects | REM-Net | Chen-TCN | WaveGRU-Net |
+|---|---:|---|---|---|
+| Resting | 30 | 0.383 [0.234, 0.498] | 0.437 [0.281, 0.574] | 0.452 [0.324, 0.591] |
+| Valsalva | 27 | 0.364 [0.213, 0.451] | 0.358 [0.223, 0.468] | 0.395 [0.313, 0.568] |
+| Apnea | 23 | 0.309 [0.188, 0.372] | 0.275 [0.175, 0.373] | 0.325 [0.270, 0.452] |
+
+### Readings
+
+6. **Amplitude shrinkage is not deepened by physiological stress on MMECG.** REM-Net's
+   variance ratio spans only 0.332-0.381 across the four scenarios and is **highest in
+   sleep (0.381)**, the scenario where its PCC is among the lowest (0.265). Any account
+   in which respiratory or postural stress progressively deepens amplitude collapse on
+   the FMCW dataset is contradicted by this row.
+7. **CR_RVS does show a monotone respiratory-manoeuvre effect, and it is model-agnostic.**
+   Resting → Valsalva → Apnea degrades variance ratio, PCC and Cycle Length error
+   together, in the same order, for **all three** systems (REM-Net 0.383 → 0.364 →
+   0.309). This is a property of the CW measurement under breath manoeuvres, not
+   evidence about any architecture, and it is not attributable to a named physiological
+   mechanism by these data.
+8. **The two radars disagree about how much scenario matters.** On MMECG subject
+   identity dominates scenario (Reading 1); on CR_RVS the scenario ordering is stable
+   across models. No cross-dataset scenario claim may be made.
