@@ -123,10 +123,16 @@ class ContinuousDecoder(nn.Module):
 
 
 class LegacyDecoder(nn.Module):
-    """B0/B1 decoder: the incumbent's shape -- interpolate then conv."""
+    """B0/B1 decoder: the incumbent's shape -- interpolate then conv.
 
-    def __init__(self, in_ch=128, width=64, sigmoid=True):
+    `event_stop_grad` (ablation ladder rung R2 only; default off, so every frozen run is
+    unchanged) detaches the backbone features feeding the anchor head: anchor
+    supervision then trains the head but sends no gradient into the shared stem/TCN.
+    """
+
+    def __init__(self, in_ch=128, width=64, sigmoid=True, event_stop_grad: bool = False):
         super().__init__()
+        self.event_stop_grad = event_stop_grad
         self.tcn = _TCN(in_ch, [1, 2, 4, 8, 16])
         self.head = nn.Sequential(nn.Conv1d(in_ch, width, 5, padding=2), nn.GELU(),
                                   nn.Conv1d(width, 1, 5, padding=2))
@@ -138,18 +144,30 @@ class LegacyDecoder(nn.Module):
         h = self.tcn(z)
         h = F.interpolate(h, size=WIN, mode="linear", align_corners=False)
         y = self.head(h)
-        return (torch.sigmoid(y) if self.sigmoid else y), self.event(h)
+        ev = self.event(h.detach() if self.event_stop_grad else h)
+        return (torch.sigmoid(y) if self.sigmoid else y), ev
 
 
 class CENet(nn.Module):
     """Continuous ECG arms, including matched zero-shot phase-fusion controls."""
 
-    def __init__(self, arm: str, in_bins: int = 50, width: int = 128, dropout: float = 0.1):
+    def __init__(self, arm: str, in_bins: int = 50, width: int = 128, dropout: float = 0.1,
+                 event_stop_grad: bool = False):
         super().__init__()
-        if arm not in ("B0", "B1", "B2a", "B2a-wide", "B2b", "P0-naive", "P1-gated"):
+        if arm not in ("B0", "B1", "B2a", "B2a-wide", "B2b", "P0-naive", "P1-gated", "R0-rcg"):
             raise ValueError(arm)
+        if event_stop_grad and arm not in ("B1", "R0-rcg"):
+            raise ValueError("event_stop_grad is defined only for the LegacyDecoder arms")
         self.arm = arm
         self.in_bins = in_bins
+        if arm == "R0-rcg":
+            # Ablation ladder rung R0: raw range profile through the strided RCG stem,
+            # no time-frequency representation; decoder identical to B1. Not a fusion arm.
+            self.uses_rcg = True
+            self.rcg_stem = RCGStem(in_bins, width)
+            self.decoder = LegacyDecoder(width, sigmoid=False, event_stop_grad=event_stop_grad)
+            self.fuse = None
+            return
         self.uses_rcg = arm in ("B2b", "P0-naive", "P1-gated")
         # B2a-wide: capacity control. WSST stem widened so total params match B2b,
         # while decoder/fuse/output stay identical to B2a. A B2b gain over B2a that
@@ -157,7 +175,8 @@ class CENet(nn.Module):
         stem_hidden = 243 if arm == "B2a-wide" else None
         self.wsst_stem = WSSTStem(in_bins, width, dropout, hidden=stem_hidden)
         if arm in ("B0", "B1"):
-            self.decoder = LegacyDecoder(width, sigmoid=(arm == "B0"))
+            self.decoder = LegacyDecoder(width, sigmoid=(arm == "B0"),
+                                         event_stop_grad=event_stop_grad)
             self.fuse = None
         elif arm in ("P0-naive", "P1-gated"):
             self.rcg_stem = RCGStem(in_bins, width)
@@ -170,6 +189,15 @@ class CENet(nn.Module):
             self.decoder = ContinuousDecoder(192, dropout=dropout)
 
     def forward(self, wsst, rcg=None):
+        if self.arm == "R0-rcg":
+            if rcg is None or rcg.ndim != 3 or rcg.shape[1:] != (self.in_bins, WIN):
+                raise ValueError(f"R0-rcg requires rcg [B,{self.in_bins},{WIN}]")
+            # per-window, per-channel standardisation: the RCG analogue of the WSST
+            # pipeline's per-window, per-channel normalisation
+            rcg = (rcg - rcg.mean(dim=-1, keepdim=True)) / rcg.std(dim=-1, keepdim=True).clamp_min(1e-6)
+            y, ev = self.decoder(self.rcg_stem(rcg))
+            assert y.shape[-1] == WIN
+            return y, ev
         if wsst.ndim != 4 or wsst.shape[1] != self.in_bins:
             raise ValueError(
                 f"wsst must have shape [B,{self.in_bins},F,T], got {tuple(wsst.shape)}")

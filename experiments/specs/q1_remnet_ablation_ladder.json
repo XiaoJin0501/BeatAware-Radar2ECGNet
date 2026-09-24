@@ -1,0 +1,65 @@
+{
+  "experiment_id": "q1_remnet_ablation_ladder",
+  "status": "APPROVED by the user 2026-09-25",
+  "research_question": "Which REM-Net component changes long-term reconstruction, anchor timing and clinical-interval fidelity under strict LOSO: the synchrosqueezed representation, the auxiliary anchor supervision, or the joint (shared-gradient) optimisation of the two read-outs?",
+  "hypothesis": "Each rung is tested against the rung below it, one variable at a time. No direction is presupposed. The Introduction's diagnostic claim needs only that the ladder be measured; the method claim 'event supervision modulates the shared representation' is supported only if R3 differs from R2 on the pre-declared primary endpoints.",
+  "dataset": "MMECG only (loso_v2, 11 folds). CR_RVS mirror is out of scope for this spec.",
+  "protocol": "Strict LOSO on loso_v2, validation-only checkpoint selection with the frozen composite, one-shot test access, train-fold robust scaler, WSST subject pool, identical to q1_remnet_continuous_strict_loso_seed42.",
+  "tier": "final-candidate ablation (single seed 42); a single-seed ladder may be reported only as a one-table ablation, never as a headline, per METRIC_CONTRACT >= 3 seeds for key conclusions",
+  "branch": "exp/rem-shape-guided-continuous-decoder",
+  "commit_id": "recorded per fold in config.json; runner refuses a dirty tree",
+  "publishable": false,
+  "baseline": "R0 (below)",
+  "ablation_arms": {
+    "R0_baseline": "Raw range-profile input through the existing strided RCGStem (Conv1d k=7 s=2 x2, 1600 -> 400), LegacyDecoder, waveform head only (event weight 0). No time-frequency representation, no anchor supervision.",
+    "R1_plus_representation": "R0 with the RCGStem replaced by the WSST stem (50 x 71 x 240 -> 128 x 400). Event weight 0. Changed variable vs R0: input representation.",
+    "R2_plus_event_prior": "R1 plus the anchor head trained with BCE at weight 0.20, with the backbone output DETACHED before the anchor head, so anchor supervision trains the head but sends no gradient into the shared stem/TCN. Changed variable vs R1: presence of anchor supervision (head-only).",
+    "R3_full_joint": "R2 without the detach: the anchor BCE gradient reaches the shared backbone. This is the frozen L3 configuration, rerun under the ladder commit as a parity arm. Changed variable vs R2: shared-gradient (joint) optimisation."
+  },
+  "changed_variable": "exactly one per adjacent rung, listed in ablation_arms",
+  "controlled_variables": [
+    "L3 objective: Huber + 0.50 MR-STFT (+ 0.20 BCE where the anchor head is trained)",
+    "BUDGET: AdamW lr 1e-4, wd 1e-4, batch 16, 100 epochs, patience 15, constant LR",
+    "decoder: LegacyDecoder (TCN dilations 1-16, k=7, heads k=5), linear waveform output",
+    "seed rule: BUDGET.seed + fold, paired across rungs within a fold",
+    "split files and SHA256 per fold, WSST subject pool, scaler source",
+    "evaluator: frozen evaluate(); clinical intervals by scripts/evaluate_clinical_intervals.py"
+  ],
+  "code_changes_required_before_launch": [
+    "train_continuous_ecg_pilot.py: --event_weight (default 0.20, so frozen runs are unchanged)",
+    "ce_net.py LegacyDecoder: optional detach of the TCN output feeding the anchor head (default off)",
+    "ce_net.py CENet: arm 'R0-rcg' = RCGStem -> LegacyDecoder; loader must supply rcg for this arm",
+    "regression test: R3 with default flags reproduces the frozen L3 fold-1 validation composite within numerical tolerance"
+  ],
+  "success_criteria": {
+    "primary_endpoints": [
+      "R-MAE (ms), waveform-derived anchors for every rung",
+      "QRS (Q-S) error (ms)",
+      "QT error (ms)"
+    ],
+    "secondary": [
+      "long-term PCC",
+      "RMSE (z)",
+      "R-MAE from the anchor head (R2, R3 only)",
+      "cycle-length error"
+    ],
+    "test": "paired two-sided Wilcoxon, each rung vs the rung below, 11 folds; Holm correction within each primary endpoint across the 3 adjacent comparisons",
+    "reporting": "every rung is reported whatever the direction; a non-significant step is written as 'no measurable effect', not omitted"
+  },
+  "checkpoint_selection": "validation-best frozen composite only; test opened once after selection",
+  "expected_outputs": [
+    "experiments_mmecg/q1_remnet_ablation_ladder_seed42/{R0,R1,R2,R3}/fold_XX/ (registered only after approval)",
+    "docs/paper/sections/Table_Ablation_Ladder.tex",
+    "docs/audits/Q1_ABLATION_LADDER_AUDIT.md",
+    "Fig. 4(d) operating points for R0-R3"
+  ],
+  "estimated_compute": "4 arms x 11 folds on one RTX 4080; ~2-3 h per arm from the L3 run history, ~8-12 h total, run sequentially in screen",
+  "failure_interpretation": {
+    "R1 vs R0 null": "the WSST representation is not responsible for any measured advantage; Section III-B must not attribute gains to it",
+    "R2 vs R1 null": "anchor supervision, as an auxiliary head, does not change the waveform; the anchor head remains a read-out, not a regulariser",
+    "R3 vs R2 null": "'joint synergy' / 'feature modulation' is not supported; the gradient-cosine audit (cooperative, no conflict) is then the only statement allowed about the shared backbone",
+    "R3 differs from frozen L3": "code parity broken; ladder results are void until resolved"
+  },
+  "notes": "R0 uses the RCG stem strictly as a lower rung. It is not a rescue of the closed B2b direct-fusion route (CLAUDE.md), which combined WSST and RCG; no fusion arm is included.",
+  "parity_check": "R3 vs pre-change HEAD, fold 1, 1 epoch, 48 windows: bitwise identical on CPU (max weight diff 0 after one epoch). On GPU the frozen code itself varies run to run (train loss 2.4137-2.4144 across three repeats), so R3 is expected to match frozen L3 within run-to-run noise, not bitwise."
+}

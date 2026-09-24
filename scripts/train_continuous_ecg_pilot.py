@@ -70,6 +70,19 @@ LOSS_WEIGHTS = {"L1": 0.30, "L2": 0.10, "L3": 0.50}
 MRSTFT_CONFIG = {"fft_sizes": [128, 256, 512], "hop_sizes": [32, 64, 128],
                   "win_lengths": [128, 256, 512]}
 FINAL_CONTINUOUS_TAG = "q1_remnet_continuous_strict_loso_seed42"
+# Registered ablation ladder (experiments/specs/q1_remnet_ablation_ladder.json). Each rung
+# changes one variable against the rung below; R3 is the frozen L3 configuration.
+LADDER_TAG = "q1_remnet_ablation_ladder_seed42"
+LADDER_RUNGS = {
+    "R0": {"model_arm": "R0-rcg", "event_w": 0.0, "event_stop_grad": False,
+           "change": "raw RCG input, waveform head only"},
+    "R1": {"model_arm": "B1", "event_w": 0.0, "event_stop_grad": False,
+           "change": "+ WSST representation"},
+    "R2": {"model_arm": "B1", "event_w": EVENT_W, "event_stop_grad": True,
+           "change": "+ anchor supervision, head only (backbone detached)"},
+    "R3": {"model_arm": "B1", "event_w": EVENT_W, "event_stop_grad": False,
+           "change": "+ joint optimisation (frozen L3 configuration)"},
+}
 REGISTERED_SEED_BASES = (42, 123, 2024)       # METRIC_CONTRACT: >= 3 seeds for headlines
 
 
@@ -81,7 +94,10 @@ def final_continuous_tag(seed_base: int, dataset: str = "mmecg") -> str:
 
 def is_registered_final_mode(final_test: bool, smoke: bool, arm: str,
                              loss_arm: str, tag: str, seed_base: int = BUDGET["seed"],
-                             dataset: str = "mmecg") -> bool:
+                             dataset: str = "mmecg", ladder_rung: str | None = None) -> bool:
+    if ladder_rung is not None:
+        return (final_test and not smoke and arm == "B1" and loss_arm == "L3"
+                and seed_base == 42 and dataset == "mmecg" and tag == LADDER_TAG)
     return (final_test and not smoke and arm == "B1" and loss_arm == "L3"
             and seed_base in REGISTERED_SEED_BASES
             and tag == final_continuous_tag(seed_base, dataset))
@@ -398,6 +414,9 @@ def main():
     ap.add_argument("--wsst_source", choices=["per_split", "subject_pool"], default="per_split")
     ap.add_argument("--seed_base", type=int, default=BUDGET["seed"],
                     help="per-fold seed is seed_base + fold; registered bases 42/123/2024")
+    ap.add_argument("--ladder_rung", choices=sorted(LADDER_RUNGS), default=None,
+                    help="registered ablation ladder rung; requires --exp_tag "
+                         f"{LADDER_TAG}, --arm B1, --loss_arm L3")
     ap.add_argument(
         "--final_test", action="store_true",
         help="registered final-candidate mode: select on validation, then open test once")
@@ -406,9 +425,19 @@ def main():
     # ---- formal / smoke parameter isolation: a formal run CANNOT be shrunk ----
     base_tag = a.exp_tag or "q1_continuous_ecg_b0_b2_pilot"
     a.split_root = a.split_root or DATASETS[a.dataset]["split_root"]
+    rung = LADDER_RUNGS.get(a.ladder_rung) if a.ladder_rung else None
+    if rung is not None and not (base_tag == LADDER_TAG and a.arm == "B1"
+                                 and a.loss_arm == "L3" and a.dataset == "mmecg"):
+        raise SystemExit(f"--ladder_rung requires --exp_tag {LADDER_TAG} --arm B1 "
+                         "--loss_arm L3 --dataset mmecg")
+    if rung is None and base_tag == LADDER_TAG:
+        raise SystemExit(f"{LADDER_TAG} requires --ladder_rung")
+    event_w = rung["event_w"] if rung else EVENT_W
+    model_arm = rung["model_arm"] if rung else a.arm
     official_final = is_registered_final_mode(
-        a.final_test, a.smoke, a.arm, a.loss_arm, base_tag, a.seed_base, a.dataset)
-    if a.final_test and not official_final:
+        a.final_test, a.smoke, a.arm, a.loss_arm, base_tag, a.seed_base, a.dataset,
+        a.ladder_rung)
+    if a.final_test and not official_final and rung is None:
         raise SystemExit(
             "--final_test is restricted to registered B1/L3 experiment "
             f"{final_continuous_tag(a.seed_base, a.dataset)} with seed_base in "
@@ -433,7 +462,9 @@ def main():
     if native_rcg_gate and base_tag != "q1_native_rcg_resolution_gate":
         raise SystemExit(
             "B2a-wide/B2b L3 is registered only under q1_native_rcg_resolution_gate")
-    if native_rcg_gate:
+    if rung is not None:
+        run_arm = a.ladder_rung
+    elif native_rcg_gate:
         run_arm = {"B2a-wide": "C0_capacity_matched_wsst",
                    "B2b": "C1_native_rcg_dual_stream"}[a.arm]
     else:
@@ -459,14 +490,18 @@ def main():
     set_seed(seed)
     dev = torch.device(a.device)
     scaler = None if a.arm in LEGACY_TARGET_ARMS else fit_scaler(a.fold)
-    tr = Fold(a.fold, "train", a.arm, scaler, limit, wsst_source=a.wsst_source)
-    va = Fold(a.fold, "val", a.arm, scaler, limit, wsst_source=a.wsst_source)
+    rcg_only = model_arm == "R0-rcg"
+    fold_kw = dict(wsst_source=a.wsst_source, needs_rcg=True, load_wsst=False) if rcg_only \
+        else dict(wsst_source=a.wsst_source)
+    tr = Fold(a.fold, "train", a.arm, scaler, limit, **fold_kw)
+    va = Fold(a.fold, "val", a.arm, scaler, limit, **fold_kw)
     g = torch.Generator(); g.manual_seed(seed)
     ltr = DataLoader(tr, batch_size=BUDGET["batch_size"], shuffle=True, num_workers=0,
                      drop_last=True, generator=g)
     lva = DataLoader(va, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
 
-    model = CENet(a.arm, in_bins=DATASETS[a.dataset]["in_bins"])
+    model = CENet(model_arm, in_bins=DATASETS[a.dataset]["in_bins"],
+                  event_stop_grad=bool(rung and rung["event_stop_grad"]))
     paired_decoder_seed = None
     if native_rcg_gate:
         # Variant-specific stems consume different RNG streams. Re-initialise
@@ -496,7 +531,10 @@ def main():
         "num_workers": 0,
         "scaler_median_iqr": scaler, "scaler_source": "ENTIRE training fold",
         "budget": BUDGET, "params": param_report(model),
-        "composite_weights": COMPOSITE_W, "event_loss_weight": EVENT_W,
+        "composite_weights": COMPOSITE_W, "event_loss_weight": event_w,
+        "ladder_rung": a.ladder_rung, "model_arm": model_arm,
+        "event_stop_grad": bool(rung and rung["event_stop_grad"]),
+        "ladder_change": rung["change"] if rung else None,
         "loss_arm": a.loss_arm, "loss_weight": LOSS_WEIGHTS.get(a.loss_arm, 0.0),
         "mrstft_config": MRSTFT_CONFIG if a.loss_arm == "L3" else None,
         "native_rcg_resolution_gate": native_rcg_gate,
@@ -514,7 +552,8 @@ def main():
     if config_path.exists() and not a.overwrite:
         prior = json.loads(config_path.read_text())
         identity = ("arm", "fold", "loss_arm", "budget", "effective_seed",
-                    "split_root", "wsst_source")
+                    "split_root", "wsst_source", "ladder_rung", "event_loss_weight",
+                    "event_stop_grad")
         mismatch = [key for key in identity if prior.get(key) != config.get(key)]
         if mismatch:
             raise SystemExit(f"Resume contract mismatch in {mismatch}: {out}")
@@ -552,7 +591,7 @@ def main():
                 y, ev = model(b["wsst"].to(dev), **kw)
                 target, event_target = b["y"].to(dev), b["event"].to(dev)
                 base_loss = F.huber_loss(y, target)
-                event_loss = EVENT_W * F.binary_cross_entropy_with_logits(ev, event_target)
+                event_loss = event_w * F.binary_cross_entropy_with_logits(ev, event_target)
                 aux_loss = auxiliary_waveform_loss(a.loss_arm, y, target, mrstft)
                 loss = base_loss + event_loss + aux_loss
                 if initial_components is None:
@@ -621,8 +660,7 @@ def main():
         checkpoint = torch.load(out / "checkpoints" / "best_composite.pt",
                                 map_location=dev, weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
-        te = Fold(a.fold, "test", a.arm, scaler, allow_test=True,
-                  wsst_source=a.wsst_source)
+        te = Fold(a.fold, "test", a.arm, scaler, allow_test=True, **fold_kw)
         lte = DataLoader(te, batch_size=BUDGET["batch_size"], shuffle=False, num_workers=0)
         test_metrics, arrays = evaluate(
             model, lte, dev, compute_shape200=False, return_outputs=True)
