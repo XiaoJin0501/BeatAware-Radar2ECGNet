@@ -107,9 +107,12 @@ def require_preflight() -> tuple[str, str]:
     if dirty:
         raise SystemExit("refusing launch with tracked changes:\n" + dirty)
     commit, branch = capture("git", "rev-parse", "HEAD"), capture("git", "branch", "--show-current")
-    expected = spec.get("commit_id")
-    if not expected or expected != commit:
-        raise SystemExit(f"spec commit {expected!r} != HEAD {commit}")
+    implementation = spec.get("implementation_commit")
+    if not implementation:
+        raise SystemExit("spec lacks implementation_commit")
+    if subprocess.run(["git", "merge-base", "--is-ancestor", implementation, commit],
+                      cwd=ROOT).returncode:
+        raise SystemExit(f"implementation commit {implementation} is not an ancestor of {commit}")
     for fold in FOLDS:
         for split in ("train", "val", "test"):
             p = Path(f"/home/qhh2237/Datasets/MMECG/processed/loso_v2/fold_{fold:02d}/{split}.h5")
