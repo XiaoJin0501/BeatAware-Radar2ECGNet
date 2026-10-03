@@ -1,0 +1,40 @@
+{
+  "experiment_id": "q1_structured_event_gate_v1",
+  "status": "DESIGN_LOCKED; LAUNCH BLOCKED UNTIL CLEAN COMMITTED PREFLIGHT",
+  "purpose": "Test whether the existing WSST representation can directly predict Q/R/S/T events on unseen subjects before implementing an event-conditioned waveform decoder.",
+  "training": true,
+  "tier": "pilot; not manuscript evidence",
+  "dataset": "MMECG loso_v2 folds 1/5/9",
+  "arms": {
+    "E0": "Frozen matched Chen-TCN waveform-derived Q/R/S/T readout under the same prominence evaluator; no retraining or reselection.",
+    "E1": "StructuredEventREM: incumbent WSSTStem plus incumbent five-block TCN plus four-channel Q/R/S/T heatmap head. No waveform decoder, interval loss, range attention or native RCG."
+  },
+  "single_changed_variable": "Direct four-fiducial event supervision/readout instead of deriving Q/R/S/T from a reconstructed waveform.",
+  "targets": "Training/validation/test ECG independently delineated by the Gate-0-fixed NeuroKit2 0.2.12 prominence algorithm; Gaussian heatmaps at Q/R/S/T with sigma 4 samples. Test ECG is evaluation-only.",
+  "loss": "Unweighted binary cross entropy with logits, averaged equally over the four event channels. No waveform, MR-STFT, interval, ordering or dynamic task weighting term.",
+  "budget": {
+    "max_epochs": 100,
+    "early_stopping_patience": 15,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "batch_size": 16,
+    "seed": 42
+  },
+  "checkpoint_selection": "Validation-only macro mean of Q/R/S/T F1 at 100 ms; ties resolved by lower macro localization MedAE. Test split is opened once after checkpoint freeze.",
+  "readout": "Per-channel sigmoid; fixed peak threshold 0.5 and minimum same-fiducial distance 200 ms; order-preserving matching within 150 ms. No test-derived threshold.",
+  "primary": ["Q localization MedAE", "R localization MedAE", "S localization MedAE", "T localization MedAE"],
+  "safety": ["per-event F1@100 ms", "per-event coverage", "Q<R<S<T predicted-order violation rate"],
+  "promotion_gate_locked_before_training": {
+    "accuracy": "E1 improves at least 3 of 4 localization MedAE metrics relative to E0 and reduces their unweighted macro mean by at least 10%.",
+    "fold_consistency": "The macro localization MedAE improves on at least 2 of 3 folds.",
+    "coverage": "For every promoted event, E1 matched-event coverage is no more than 0.03 below E0.",
+    "ordering": "Predicted complete-beat Q<R<S<T violation rate is no greater than 0.05.",
+    "decision": "All clauses pass -> authorise design of E1-vs-event-conditioned-decoder interaction gate. Any clause fails -> close the structured-event rescue route without 11-fold expansion."
+  },
+  "constraints": [
+    "No Shape-200, calibration, GT timing at inference, native-RCG fusion, delay warp or Route-C assembly.",
+    "No test metric influences threshold, checkpoint, architecture or promotion definitions.",
+    "Formal launch requires committed code, clean tracked worktree, registry commit/branch, smoke test and unique atomic output path."
+  ]
+}

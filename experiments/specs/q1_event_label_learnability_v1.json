@@ -1,0 +1,27 @@
+{
+  "experiment_id": "q1_event_label_learnability_v1",
+  "status": "APPROVED 2026-10-04 by the author through the instruction to continue with the proposed Gate 0",
+  "purpose": "Determine whether fixed automatic Q/R/S/T targets are sufficiently complete and repeatable to supervise a structured clinical-event head before any model training is authorised.",
+  "training": false,
+  "publishable": false,
+  "input": "All 16682 unique ECG windows in the audited MMECG 8-second subject pool; radar/WSST tensors are not read.",
+  "label_algorithm": "NeuroKit2 0.2.12 prominence; independent ECG cleaning, R detection and delineation in every 8-second window at 200 Hz.",
+  "fiducials": ["Q peak", "R peak", "S peak", "T peak"],
+  "edge_exclusion_ms": 300,
+  "repeatability": "For consecutive overlapping windows from the same record, convert fiducials to record-absolute samples, restrict to the common support after 300-ms edge exclusion, and obtain an order-preserving maximum-cardinality match within 150 ms. Repeatability error is the absolute difference between matched locations.",
+  "physiological_order": "A beat is assessable only when Q, R, S and T are all finite; a violation is any beat not satisfying Q < R < S < T.",
+  "aggregation": "Compute sufficient counts and error samples per subject, then report both pooled and subject-macro summaries over the 11 subjects. Repeated overlapping observations are diagnostics of label repeatability, not independent clinical observations.",
+  "gate_locked_before_results": {
+    "completeness": "For each of Q/R/S/T, subject-median within-window availability >= 0.90 and no subject below 0.80.",
+    "repeatability": "For each of Q/R/S/T, subject-median matched repeatability coverage >= 0.90, subject-median MedAE <= 10 ms, and subject-median P95 <= 20 ms.",
+    "ordering": "Subject-median Q<R<S<T violation rate <= 0.01 and no subject above 0.05.",
+    "decision": "All clauses pass -> a separately specified three-fold Event-Head gate may be designed; otherwise stop and repair/redefine targets before model training. Passing establishes computational label learnability only, not clinical validity."
+  },
+  "outputs": "docs/audits/q1_event_label_learnability_v1/ plus a human-readable audit; atomic writes and source/data fingerprints.",
+  "constraints": [
+    "CPU-only read-only evaluation; no GPU and no model predictions",
+    "no training, tuning, checkpoint access or test-set model selection",
+    "do not alter the public delineator validation or timing-screen artifacts",
+    "Q/S peak clinical validity remains unconfirmed even if this computational gate passes"
+  ]
+}

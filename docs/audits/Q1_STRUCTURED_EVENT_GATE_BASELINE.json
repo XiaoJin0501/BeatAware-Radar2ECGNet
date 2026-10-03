@@ -1,0 +1,14 @@
+{
+  "description": "Frozen Chen-TCN seed-42 comparator extracted from q1_timing_screen_v2 before Gate-1 training",
+  "aggregation": "per-fold held-out subject; prominence waveform-derived readout",
+  "source_sha256": {
+    "fold_01": "8264da32a342967c83906b7d5e28768eb476d2c895748a4d4b1df2350a4a135e",
+    "fold_05": "2ce134ce93470070f8a919dd63fa4dbe1e288e5ac6864931619b939a6ba88843",
+    "fold_09": "c8f957cce8c2943a31a380ec33ec32ad3df33f159c85abbdbe6f6ff4d8c561a6"
+  },
+  "folds": {
+    "1": {"q": {"medae_ms": 40.0, "coverage": 0.8883495145631068}, "r": {"medae_ms": 45.0, "coverage": 0.8883495145631068}, "s": {"medae_ms": 45.0, "coverage": 0.8883495145631068}, "t": {"medae_ms": 30.0, "coverage": 0.873653984206748}},
+    "5": {"q": {"medae_ms": 45.0, "coverage": 0.9009819967266776}, "r": {"medae_ms": 15.0, "coverage": 0.9009819967266776}, "s": {"medae_ms": 15.0, "coverage": 0.9009819967266776}, "t": {"medae_ms": 20.0, "coverage": 0.8654576128215943}},
+    "9": {"q": {"medae_ms": 25.0, "coverage": 0.9672715991934233}, "r": {"medae_ms": 25.0, "coverage": 0.9672715991934233}, "s": {"medae_ms": 25.0, "coverage": 0.9672715991934233}, "t": {"medae_ms": 35.0, "coverage": 0.9559037312227426}}
+  }
+}

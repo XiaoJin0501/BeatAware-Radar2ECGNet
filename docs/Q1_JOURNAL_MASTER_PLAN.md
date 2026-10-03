@@ -5,6 +5,34 @@ paper. When an older roadmap, experiment note, or agent recap conflicts with
 this file, this file governs. Scientific definitions remain subject to
 `RESEARCH_CONTRACT.md`, `DATA_PROTOCOL.md`, and `METRIC_CONTRACT.md`.
 
+## Current author-directed model rescue (2026-10-04)
+
+The earlier freeze on open-ended REM-Net tuning remains binding, but the author
+has explicitly authorised one bounded rescue route after the fixed-algorithm
+timing screen showed that REM-Net ranked first on 0/8 Q/R/S/T localisation and
+same-fiducial interval endpoints. This is not permission for architecture
+sweeps. The sole authorised hypothesis is:
+
+> the existing auxiliary R-anchor read-out does not control waveform generation;
+> direct Q/R/S/T supervision must first prove that held-out-subject WSST contains
+> predictable clinical-event information before an event-conditioned morphology
+> decoder is built.
+
+Gate 0 (`q1_event_label_learnability_v1`) passed its pre-registered computational
+label criteria over all 16,682 unique MMECG windows: subject-median Q/R/S/T
+availability was 1.000/1.000/1.000/0.969; overlap repeatability coverage was
+0.999/0.998/0.994/0.981; median repeatability error was 0 ms for all four; and
+Q<R<S<T violations were zero. This establishes label completeness and overlap
+consistency only, not clinical validity of Q/S peaks.
+
+The next and only authorised model experiment is the design-locked folds 1/5/9
+`q1_structured_event_gate_v1`: incumbent WSST stem and five-block TCN plus a
+four-channel Q/R/S/T heatmap head, with no waveform decoder or new representation.
+It must beat the frozen Chen-TCN waveform-derived read-out under the locked gate
+before event-conditioned decoding, range-aware encoding, or 11-fold expansion is
+considered. Formal launch remains prohibited until the implementation/evaluator
+is complete, tested, committed, and passes a clean preflight.
+
 ## Paper objective and model identity
 
 The sole objective is a rigorous Q1 paper on radar-to-ECG reconstruction. The

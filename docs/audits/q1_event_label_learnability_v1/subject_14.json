@@ -1,0 +1,51 @@
+{
+  "subject": 14,
+  "source": "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_14.h5",
+  "ecg_metadata_sha256": "663f899561c130caaa9d2461f602ec8a3dc12d886088d4e1c1ea612c82ffa647",
+  "windows": 1848,
+  "order_assessable": 16043,
+  "order_violations": 0,
+  "order_violation_rate": 0.0,
+  "metrics": {
+    "q": {
+      "availability": 1.0,
+      "available": 16564,
+      "eligible": 16564,
+      "repeatability_coverage": 0.99790728194942,
+      "repeatability_matched": 28134,
+      "repeatability_total": 28193,
+      "repeatability_medae_ms": 0.0,
+      "repeatability_p95_ms": 5.0
+    },
+    "r": {
+      "availability": 1.0,
+      "available": 16564,
+      "eligible": 16564,
+      "repeatability_coverage": 0.9961772617867761,
+      "repeatability_matched": 28144,
+      "repeatability_total": 28252,
+      "repeatability_medae_ms": 0.0,
+      "repeatability_p95_ms": 0.0
+    },
+    "s": {
+      "availability": 1.0,
+      "available": 16564,
+      "eligible": 16564,
+      "repeatability_coverage": 0.9930313588850174,
+      "repeatability_matched": 27930,
+      "repeatability_total": 28126,
+      "repeatability_medae_ms": 0.0,
+      "repeatability_p95_ms": 0.0
+    },
+    "t": {
+      "availability": 0.9685462448683893,
+      "available": 16043,
+      "eligible": 16564,
+      "repeatability_coverage": 0.9812099489518844,
+      "repeatability_matched": 27102,
+      "repeatability_total": 27621,
+      "repeatability_medae_ms": 0.0,
+      "repeatability_p95_ms": 0.0
+    }
+  }
+}

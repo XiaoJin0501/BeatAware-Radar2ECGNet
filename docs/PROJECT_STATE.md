@@ -6,7 +6,7 @@
 > They are excluded from model-quality claims. Shape-200 results and all CR_RVS
 > results are NOT affected. See `docs/PROTOCOL_CONFOUND_4S_INPUT.md`.
 
-Last updated: 2026-09-18
+Last updated: 2026-10-04
 Active branch: exp/rem-shape-guided-continuous-decoder
 Active GitHub issue: none
 
@@ -74,6 +74,17 @@ assembly are closed historical routes, not candidates for revival.
   Route C implementation path is closed rather than retained as queued work.
 
 ## Only approved next task
+
+**Author override, 2026-10-04:** after matched baselines and the registered
+fixed-algorithm Q/R/S/T screen completed, the author authorised one bounded
+model-rescue path rather than open-ended tuning. Gate 0 label learnability passed
+and is audited in `docs/audits/Q1_EVENT_LABEL_LEARNABILITY_AUDIT.md`. The only
+next model experiment that may be prepared is
+`experiments/specs/q1_structured_event_gate_v1.json`: a folds 1/5/9 direct
+Q/R/S/T event-head feasibility test using the incumbent WSST stem and TCN. It is
+design-locked but not launched. Event-conditioned waveform decoding is not
+authorised unless that gate passes; range-attention, raw-RCG fusion, delay warp,
+calibration, broad sweeps and 11-fold expansion remain prohibited.
 
 The `q1_loss_gate` completed all 9/9 runs on 2026-09-17. L3 MR-STFT won the
 waveform metrics (fold-macro PCC 0.293 versus L0 0.223; R² 0.012 versus -0.136)

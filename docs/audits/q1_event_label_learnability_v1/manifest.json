@@ -1,0 +1,22 @@
+{
+  "version": "q1_event_label_learnability_v1",
+  "neurokit2": "0.2.12",
+  "source_hashes": {
+    "experiments/specs/q1_event_label_learnability_v1.json": "5e0725b397a0ece227d99f63da4e65c090f23dd042e3a4dcb885c463c7cb8683",
+    "scripts/evaluate_event_label_learnability.py": "5b69592f6b989f98dd2a19a88e63ae8dad1e1d6b56ebdabd2f453dac4da1ca52",
+    "src/utils/clinical_endpoints.py": "3ac45740f9ce7307af012277baeee3a3b52319d2581b292393a1643576b8af33"
+  },
+  "input_files": [
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_01.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_02.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_05.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_09.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_10.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_13.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_14.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_16.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_17.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_29.h5",
+    "/home/qhh2237/Datasets/MMECG/processed/wsst8s_subject_pool/subject_30.h5"
+  ]
+}
