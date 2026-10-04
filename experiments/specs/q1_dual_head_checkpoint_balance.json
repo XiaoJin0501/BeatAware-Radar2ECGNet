@@ -1,0 +1,25 @@
+{
+  "experiment_id": "q1_dual_head_checkpoint_balance",
+  "status": "DRAFT — implementation and preflight pending",
+  "tier": "pilot; post-hoc mechanism check; never direct manuscript evidence",
+  "purpose": "Test whether folds 3/7 event collapse is caused by the preregistered Shape-first checkpoint rule rather than absent event information.",
+  "dataset": "MMECG loso_v2 folds 3/7, seed 42, full-support 8-second WSST",
+  "model": "Frozen A1 dual-head REM-Net and frozen A2 structured decoder",
+  "single_changed_variable": "Validation checkpoint ranking only.",
+  "control": "q1_dual_head_full_loso_seed42 folds 3/7 selected lexicographically by Shape PCC, RMSE, then event F1.",
+  "candidate": "Select maximum validation harmonic mean H=2*PCC_shape*F1_event/(PCC_shape+F1_event); ties use Shape PCC then negative RMSE.",
+  "frozen": [
+    "Architecture and 1,438,789 parameters",
+    "Shape L1 + 0.5*(1-PCC) + 0.3*Q/R/S/T BCE",
+    "AdamW lr 1e-4, weight decay 1e-4, maximum 100 epochs, patience 15",
+    "Q/R/S/T targets, probability threshold 0.5 and A2 physiological windows",
+    "Validation-only selection and one-time test opening"
+  ],
+  "promotion_gate": {
+    "event_recovery": "Structured macro F1@100 and mean Q/R/S/T coverage each improve by at least 0.30 on each fold.",
+    "shape_safety": "Test Shape PCC decreases by no more than 0.05 on either fold.",
+    "ordering": "Structured Q<R<S<T violation rate remains zero wherever a complete beat exists.",
+    "decision": "All clauses pass: authorise a separately registered prospective full rerun with the balanced checkpoint rule. Otherwise stop this route."
+  },
+  "bias_disclosure": "Folds 3/7 were selected after observing their prior failure. This diagnoses mechanism and cannot repair or replace the original 11-fold evidence."
+}

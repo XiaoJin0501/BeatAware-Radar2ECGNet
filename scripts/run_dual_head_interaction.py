@@ -39,6 +39,7 @@ BASELINE_DIR = Path(os.environ.get(
 FOLDS, ARMS, FIDUCIALS = (2, 6, 10), ("A0", "A1"), ("q", "r", "s", "t")
 FS, WIN, BATCH, SEED = 200, 1600, 16, 42
 MAX_EPOCHS, PATIENCE = 100, 15
+CHECKPOINT_RULE = "shape_lexicographic"
 
 
 def set_seed(seed: int) -> None:
@@ -214,6 +215,11 @@ def rank(metrics: dict, arm: str) -> tuple:
     s=metrics["shape"]
     anchor=(metrics["anchor_selection"]["r_f1_100ms"] if arm=="A0"
             else metrics["independent"]["macro_f1_100ms"])
+    if CHECKPOINT_RULE == "shape_event_hmean":
+        hmean = 2*s["pcc"]*anchor/max(s["pcc"]+anchor, 1e-8)
+        return (hmean, s["pcc"], -s["rmse"])
+    if CHECKPOINT_RULE != "shape_lexicographic":
+        raise ValueError(f"unknown checkpoint rule: {CHECKPOINT_RULE}")
     return (s["pcc"], -s["rmse"], anchor)
 
 
