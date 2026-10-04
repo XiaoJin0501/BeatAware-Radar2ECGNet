@@ -73,10 +73,16 @@ def aggregate() -> dict:
     event = {}
     for p in core.FIDUCIALS:
         for metric in ("medae_ms", "coverage", "mdr_150ms", "f1_100ms"):
-            values = np.asarray([folds[str(f)]["structured"][p][metric] for f in FOLDS])
+            raw = [folds[str(f)]["structured"][p][metric] for f in FOLDS]
+            values = np.asarray([np.nan if x is None else x for x in raw], dtype=float)
+            valid = values[np.isfinite(values)]
             event[f"{p}_{metric}"] = {
-                "mean": float(values.mean()), "std_population": float(values.std()),
-                "median": float(np.median(values)), "per_fold": values.tolist()}
+                "mean": float(valid.mean()) if valid.size else None,
+                "std_population": float(valid.std()) if valid.size else None,
+                "median": float(np.median(valid)) if valid.size else None,
+                "n_valid_folds": int(valid.size),
+                "n_missing_folds": int(len(values) - valid.size),
+                "per_fold": [None if not np.isfinite(x) else float(x) for x in values]}
     order = [folds[str(f)]["structured"]["order_violation_rate"] for f in FOLDS]
     result = {"experiment_id": TAG, "seed": 42, "folds": folds,
               "shape_fold_macro": shape, "structured_event_fold_macro": event,
