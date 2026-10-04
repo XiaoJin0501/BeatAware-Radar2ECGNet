@@ -324,9 +324,9 @@ def aggregate() -> dict:
                       np.median([baseline[f][p]["coverage"] for f in FOLDS]) - .03 for p in wins)
     ordering_ok = all(event[f]["order_violation_rate"] is not None and
                       event[f]["order_violation_rate"] <= .05 for f in FOLDS)
-    gate = {"accuracy": len(wins) >= 3 and reduction >= .10,
-            "fold_consistency": sum(e < b for e, b in zip(event_macro, base_macro)) >= 2,
-            "coverage": coverage_ok, "ordering": ordering_ok}
+    gate = {"accuracy": bool(len(wins) >= 3 and reduction >= .10),
+            "fold_consistency": bool(sum(e < b for e, b in zip(event_macro, base_macro)) >= 2),
+            "coverage": bool(coverage_ok), "ordering": bool(ordering_ok)}
     gate["overall_pass"] = all(gate.values())
     result = {"event": event, "baseline": baseline, "event_median": e_median,
               "baseline_median": b_median, "event_metrics_won": wins,
