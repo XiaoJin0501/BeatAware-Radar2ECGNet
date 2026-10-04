@@ -1,6 +1,6 @@
 import numpy as np
 
-from scripts.run_dual_head_interaction import structured_decode, shape_target
+from scripts.run_dual_head_interaction import score_events, structured_decode, shape_target
 
 
 def test_structured_decoder_enforces_qrst_order_without_reference():
@@ -21,3 +21,11 @@ def test_shape_target_is_200_point_minmax_cycle():
     assert out.shape == (200,)
     assert np.isclose(out.min(), 0)
     assert np.isclose(out.max(), 1)
+
+
+def test_empty_early_predictions_do_not_crash_metric_aggregation():
+    probability = np.zeros((1, 4, 1600), np.float32)
+    reference = [{p: np.array([400.0]) for p in ("q", "r", "s", "t")}]
+    result = score_events(probability, reference, structured=False)
+    assert result["macro_medae_ms"] is None
+    assert result["macro_f1_100ms"] == 0.0

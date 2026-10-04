@@ -162,8 +162,14 @@ def score_events(probabilities: np.ndarray, refs: list[dict], structured: bool) 
                   "mdr_150ms": 1-x["match"]/x["gt"] if x["gt"] else None,
                   "f1_100ms": 2*x["match100"]/(x["gt"]+x["pred"])
                   if x["gt"]+x["pred"] else None}
-    out["macro_medae_ms"] = float(np.mean([out[p]["medae_ms"] for p in FIDUCIALS]))
-    out["macro_f1_100ms"] = float(np.mean([out[p]["f1_100ms"] for p in FIDUCIALS]))
+    medae = [out[p]["medae_ms"] for p in FIDUCIALS
+             if out[p]["medae_ms"] is not None]
+    f1 = [out[p]["f1_100ms"] for p in FIDUCIALS
+          if out[p]["f1_100ms"] is not None]
+    # Early checkpoints can legitimately emit no peak for one or all classes.
+    # Keep that state explicit instead of crashing or fabricating an error.
+    out["macro_medae_ms"] = float(np.mean(medae)) if medae else None
+    out["macro_f1_100ms"] = float(np.mean(f1)) if f1 else 0.0
     out["order_complete"] = complete; out["order_violations"] = violations
     out["order_violation_rate"] = violations/complete if complete else None
     return out
