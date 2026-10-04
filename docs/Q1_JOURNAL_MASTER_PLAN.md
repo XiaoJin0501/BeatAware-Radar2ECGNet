@@ -25,13 +25,14 @@ availability was 1.000/1.000/1.000/0.969; overlap repeatability coverage was
 Q<R<S<T violations were zero. This establishes label completeness and overlap
 consistency only, not clinical validity of Q/S peaks.
 
-The next and only authorised model experiment is the design-locked folds 1/5/9
-`q1_structured_event_gate_v1`: incumbent WSST stem and five-block TCN plus a
-four-channel Q/R/S/T heatmap head, with no waveform decoder or new representation.
-It must beat the frozen Chen-TCN waveform-derived read-out under the locked gate
-before event-conditioned decoding, range-aware encoding, or 11-fold expansion is
-considered. Formal launch remains prohibited until the implementation/evaluator
-is complete, tested, committed, and passes a clean preflight.
+The design-locked folds 1/5/9 `q1_structured_event_gate_v1` is now complete. Its
+incumbent WSST stem and five-block TCN plus direct Q/R/S/T heatmap head strictly
+won only Q and T versus the frozen Chen-TCN read-out, reduced fold-macro MedAE by
+6.85% rather than the required 10%, improved only 1/3 folds, and violated the
+5% ordering ceiling on folds 5 and 9. Coverage safety passed, but the overall
+gate failed. Per the locked rule, event-conditioned decoding, range-aware
+encoding and 11-fold expansion are not authorised. Full evidence:
+`docs/audits/Q1_STRUCTURED_EVENT_GATE_AUDIT.md`.
 
 ## Paper objective and model identity
 
