@@ -1,0 +1,32 @@
+{
+  "experiment_id": "q1_dual_head_interaction_gate",
+  "status": "DRAFT — implementation and preflight pending",
+  "purpose": "Test whether a shared ECG Shape Recovery head and explicit ECG Anchor Estimation head coexist without morphology regression, and whether structured anchor decoding removes independent-head ordering failures.",
+  "training": true,
+  "tier": "pilot; not manuscript evidence",
+  "dataset": "MMECG loso_v2 folds 2/6/10, unused by the topology design decision",
+  "arms": {
+    "A0": "shared WSST stem/TCN + 200-point ECG Shape Recovery head + incumbent two-scale R-anchor head",
+    "A1": "same shared representation and shape head + independent Q/R/S/T anchor logits",
+    "A2": "the frozen A1 network with a preregistered R-centred physiological structured decoder; no retraining and no test-derived thresholds"
+  },
+  "single_changed_variable": "ECG Anchor Estimation read-out: two-scale R control versus independent Q/R/S/T versus structured decoding of the same Q/R/S/T logits.",
+  "capacity_control": "A0 and A1 instantiate the same four-logit anchor projection and have exactly identical parameter counts; A0 scores and optimizes only its first two R-scale logits.",
+  "shape_target": "Reference-ECG central R-to-R cardiac cycle nearest the 8-second window centre, resampled to 200 points and independently min-max normalised; oracle-defined morphology task, explicitly not blind continuous reconstruction.",
+  "loss": "Shape L1 + 0.5*(1-PCC) + 0.3*anchor BCE. A0 uses narrow/wide R Gaussian targets (sigma 4/16 samples); A1 uses Q/R/S/T Gaussian targets (sigma 4). Weights are fixed for all folds.",
+  "checkpoint_selection": "Validation-only lexicographic selection: highest shape PCC, then lowest shape RMSE, then highest anchor detection score. Test is loaded once after checkpoint freeze.",
+  "primary": ["ECG Shape Recovery PCC", "ECG Shape Recovery RMSE", "ECG Shape Recovery R2", "Q/R/S/T localization MedAE", "MDR@150ms"],
+  "promotion_gate": {
+    "shape_noninferiority": "A1 shape PCC is no more than 0.02 below A0 on every fold and fold-macro RMSE does not worsen by more than 0.01.",
+    "anchor_accuracy": "A2 improves at least 3/4 median Q/R/S/T MedAEs versus the frozen Chen-TCN comparator and reduces unweighted macro MedAE by at least 10%.",
+    "ordering": "A2 complete-beat Q<R<S<T violation rate is <=0.01 on every fold.",
+    "coverage": "For every promoted fiducial, A2 matched-event coverage is no more than 0.03 below Chen-TCN.",
+    "decision": "All clauses pass: authorize the final dual-head REM-Net seed-42 11-fold run. Any clause fails: do not expand."
+  },
+  "constraints": [
+    "No continuous waveform decoder, native RCG, calibration, delay warp, threshold sweep or test-derived physiology range.",
+    "Folds 1/5/9 are not reused for this confirmation gate.",
+    "A2 is a deterministic read-out of A1 probabilities and therefore does not create a third training run."
+    ,"A2 uses the R logit peaks as anchors, Q=max in 5--100 ms before R, S=max in 5--100 ms after R, and T=max from 40 ms after S to min(450 ms after S, the next R); these ranges are frozen before test access."
+  ]
+}
