@@ -43,7 +43,8 @@ REGISTRY = ROOT / "experiments_mmecg/EXPERIMENT_REGISTRY.csv"
 OUT = ROOT / "experiments_mmecg" / TAG
 BASELINE = ROOT / "docs/audits/Q1_STRUCTURED_EVENT_GATE_BASELINE.json"
 FOLDS = (1, 5, 9)
-FS, WIN, SIGMA, MATCH_TOL = 200, 1600, 4.0, 30
+FS, WIN, SIGMA = 200, 1600, 4.0
+MEDAE_TOL, F1_100_TOL = 30, 20  # samples: 150 ms endpoint pairing; 100 ms F1
 MAX_EPOCHS, PATIENCE, BATCH = 100, 15, 16
 SEED = 42
 STAGES = ("TRAINING", "CHECKPOINT_FROZEN", "TEST_EVALUATING", "COMPLETE")
@@ -176,9 +177,12 @@ def score(probabilities: np.ndarray, references: list[dict]) -> dict:
         pred = peaks(prob)
         for p in FIDUCIALS:
             gt = np.asarray(ref[p], float); gt = gt[np.isfinite(gt)]
-            pairs = match_beats(gt, pred[p], MATCH_TOL)
+            pairs = match_beats(gt, pred[p], MEDAE_TOL)
+            pairs_100 = match_beats(gt, pred[p], F1_100_TOL)
             row = sufficient[p]
             row["gt"] += len(gt); row["pred"] += len(pred[p]); row["match"] += len(pairs)
+            row.setdefault("match_100ms", 0)
+            row["match_100ms"] += len(pairs_100)
             row["errors"].extend(abs(float(gt[i] - pred[p][j])) * 1000 / FS
                                  for i, j in pairs.items())
         # An unconstrained nearest-neighbour association exposes rather than enforces order.
@@ -194,7 +198,7 @@ def score(probabilities: np.ndarray, references: list[dict]) -> dict:
     for p, row in sufficient.items():
         e = np.asarray(row.pop("errors"), float)
         out[p] = {**row,
-                  "f1_100ms": 2 * row["match"] / (row["gt"] + row["pred"])
+                  "f1_100ms": 2 * row["match_100ms"] / (row["gt"] + row["pred"])
                   if row["gt"] + row["pred"] else None,
                   "coverage": row["match"] / row["gt"] if row["gt"] else None,
                   "medae_ms": float(np.median(e)) if e.size else None}

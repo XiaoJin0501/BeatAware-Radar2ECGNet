@@ -1,0 +1,8 @@
+{
+  "stage": "COMPLETE",
+  "fold": 9,
+  "test_accessed": true,
+  "best_validation_f1": 0.9471956875664468,
+  "best_validation_medae_ms": 41.25,
+  "test_metrics_sha256": "dd925b4e51204ae6ceaf712b34cd58d3ddd8937376fdaf63696358d6006522d2"
+}

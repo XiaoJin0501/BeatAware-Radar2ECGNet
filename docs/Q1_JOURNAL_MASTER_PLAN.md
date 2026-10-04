@@ -25,14 +25,13 @@ availability was 1.000/1.000/1.000/0.969; overlap repeatability coverage was
 Q<R<S<T violations were zero. This establishes label completeness and overlap
 consistency only, not clinical validity of Q/S peaks.
 
-The design-locked folds 1/5/9 `q1_structured_event_gate_v1` is now complete. Its
-incumbent WSST stem and five-block TCN plus direct Q/R/S/T heatmap head strictly
-won only Q and T versus the frozen Chen-TCN read-out, reduced fold-macro MedAE by
-6.85% rather than the required 10%, improved only 1/3 folds, and violated the
-5% ordering ceiling on folds 5 and 9. Coverage safety passed, but the overall
-gate failed. Per the locked rule, event-conditioned decoding, range-aware
-encoding and 11-fold expansion are not authorised. Full evidence:
-`docs/audits/Q1_STRUCTURED_EVENT_GATE_AUDIT.md`.
+The first execution of `q1_structured_event_gate_v1` is protocol-invalid: its
+checkpoint field named F1@100 was computed with a 150-ms tolerance. Its apparent
+FAIL is withdrawn because checkpoint selection did not match the registered
+rule. The corrected implementation separates 100-ms F1 selection from 150-ms
+endpoint pairing and must rerun folds 1/5/9 from scratch. Until that completes,
+event-conditioned decoding, range-aware encoding and 11-fold expansion remain
+unauthorised. Full record: `docs/audits/Q1_STRUCTURED_EVENT_GATE_AUDIT.md`.
 
 ## Paper objective and model identity
 

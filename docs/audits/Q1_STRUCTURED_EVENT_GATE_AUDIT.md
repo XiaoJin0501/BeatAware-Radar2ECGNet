@@ -1,4 +1,10 @@
-# Q1 Structured Q/R/S/T Event Gate Audit
+# Q1 Structured Q/R/S/T Event Gate Audit — Protocol-Invalid Run
+
+**Withdrawn 2026-10-04:** the implementation used a 30-sample (150 ms) match
+tolerance for the field named `f1_100ms`. Because that field selected the best
+validation checkpoint, the run did not implement the registered F1@100-ms
+selection rule. All numerical results below are retained for diagnosis only;
+the FAIL decision is withdrawn pending a corrected from-scratch rerun.
 
 Date: 2026-10-04. Experiment: `q1_structured_event_gate_v1`. Implementation
 commit: `c3779457d11e848b94fd5f9417609c17f1a87167`; clean launch commit:
@@ -47,8 +53,7 @@ The high F1@100 values coexist with 25--50 ms median localisation errors because
 F1 uses a tolerant detection window and was the pre-registered validation
 selection endpoint. They must not be interpreted as precise fiducial timing.
 
-Per the locked rule, this result closes the direct four-heatmap rescue route.
-It does not authorise an event-conditioned waveform decoder, range-aware encoder,
-loss retuning, new thresholds, 11-fold expansion, or manuscript superiority
-claim. Artifacts are retained under
-`experiments_mmecg/q1_structured_event_gate_v1/`.
+This invalid run neither closes nor promotes the direct four-heatmap route. No
+event-conditioned decoder, range-aware encoder, loss retuning, new threshold,
+11-fold expansion, or manuscript claim is authorised while the corrected rerun
+is pending. Its artifacts are retained under `archive/invalid_experiments/`.

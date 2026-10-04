@@ -75,3 +75,15 @@ def test_complete_state_is_terminal(tmp_path):
     runner.transition(path, "COMPLETE")
     with pytest.raises(RuntimeError, match="terminal"):
         runner.transition(path, "COMPLETE")
+
+
+def test_100ms_f1_is_distinct_from_150ms_endpoint_pairing():
+    probability = np.zeros((1, 4, 1600), dtype=float)
+    probability[:, :, 125] = 1.0  # 25 samples = 125 ms from the reference
+    references = [{p: np.array([100.0]) for p in runner.FIDUCIALS}]
+    result = runner.score(probability, references)
+    for point in runner.FIDUCIALS:
+        assert result[point]["match"] == 1       # eligible for 150-ms MedAE pairing
+        assert result[point]["match_100ms"] == 0
+        assert result[point]["medae_ms"] == 125.0
+        assert result[point]["f1_100ms"] == 0.0

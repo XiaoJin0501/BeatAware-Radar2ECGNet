@@ -82,9 +82,9 @@ and is audited in `docs/audits/Q1_EVENT_LABEL_LEARNABILITY_AUDIT.md`. The only
 next model experiment that may be prepared is
 `experiments/specs/q1_structured_event_gate_v1.json`: a folds 1/5/9 direct
 Q/R/S/T event-head feasibility test using the incumbent WSST stem and TCN. It
-completed and failed: two of four event medians improved, macro MedAE improved
-6.85% rather than 10%, only 1/3 folds improved, and ordering safety failed on
-folds 5/9. Event-conditioned waveform decoding is therefore not authorised;
+was run once but is protocol-invalid because the checkpoint field named F1@100
+used a 150-ms tolerance. Its preliminary failure is withdrawn; a corrected
+from-scratch folds 1/5/9 rerun is required. Event-conditioned waveform decoding is not authorised;
 range-attention, raw-RCG fusion, delay warp, calibration, broad sweeps and
 11-fold expansion remain prohibited. See
 `docs/audits/Q1_STRUCTURED_EVENT_GATE_AUDIT.md`.

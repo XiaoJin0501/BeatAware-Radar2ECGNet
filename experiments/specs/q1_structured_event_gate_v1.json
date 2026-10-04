@@ -1,6 +1,6 @@
 {
   "experiment_id": "q1_structured_event_gate_v1",
-  "status": "PREFLIGHT_PASSED 2026-10-04; launch only from clean committed worktree",
+  "status": "PROTOCOL CORRECTION REQUIRED 2026-10-04; prior run invalid because F1 checkpoint tolerance was 150 ms rather than registered 100 ms; rerun from scratch after corrected clean preflight",
   "implementation_commit": "c3779457d11e848b94fd5f9417609c17f1a87167",
   "purpose": "Test whether the existing WSST representation can directly predict Q/R/S/T events on unseen subjects before implementing an event-conditioned waveform decoder.",
   "training": true,
