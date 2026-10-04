@@ -32,9 +32,10 @@ from src.utils.atomic_state import (atomic_json, atomic_npz, atomic_torch_save,
 from src.utils.clinical_endpoints import delineate_signal, match_beats  # noqa: E402
 
 TAG = "q1_dual_head_interaction_gate"
-OUT = ROOT / "experiments_mmecg" / TAG
+OUT = Path(os.environ.get("REM_DUAL_HEAD_OUT", ROOT / "experiments_mmecg" / TAG))
 SPEC = ROOT / "experiments/specs/q1_dual_head_interaction_gate.json"
-BASELINE_DIR = ROOT / "docs/audits/q1_timing_screen_v2"
+BASELINE_DIR = Path(os.environ.get(
+    "REM_TIMING_BASELINE_DIR", ROOT / "docs/audits/q1_timing_screen_v2"))
 FOLDS, ARMS, FIDUCIALS = (2, 6, 10), ("A0", "A1"), ("q", "r", "s", "t")
 FS, WIN, BATCH, SEED = 200, 1600, 16, 42
 MAX_EPOCHS, PATIENCE = 100, 15
