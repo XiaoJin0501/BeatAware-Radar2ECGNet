@@ -1,6 +1,6 @@
 {
   "experiment_id": "q1_dual_head_full_loso_seed42",
-  "status": "PREFLIGHT_PASSED — approved to run seed-42 11-fold completion",
+  "status": "COMPLETED — AUDITED; NOT PROMOTED",
   "implementation_commit": "1ee0182",
   "preflight_evidence": "8 focused tests passed; JSON and Python compilation passed; output path unique; provenance-preserving reuse links for completed folds 2/6/10 resolve to COMPLETE artifacts.",
   "tier": "pilot; locked full benchmark; not publishable until metric audit and three-seed confirmation",
@@ -16,4 +16,5 @@
   "outputs": ["Shape PCC/RMSE/R2", "Q/R/S/T MedAE and MDR@150ms", "F1@100ms", "physiological ordering"],
   "aggregation": "Per-fold results followed by unweighted fold-macro mean and population standard deviation. Shape-200 is explicitly beat-normalised morphology evidence, not continuous ECG.",
   "next_decision": "After seed 42 completes, audit all 11 folds. Only if retained for the paper run identical seeds 123 and 2024; no intervening model or threshold changes."
+  ,"result": "Shape PCC 0.8859 but not above the radar-free template floor (0.8806; 5/11 wins; paired Wilcoxon p=0.8984). Event coverage approximately 0.56 with folds 3/7 checkpoint-selection collapse. Seeds 123/2024 and CR_RVS are not authorised under this checkpoint contract."
 }
