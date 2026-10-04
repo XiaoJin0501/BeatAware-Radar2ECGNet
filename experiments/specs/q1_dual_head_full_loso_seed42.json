@@ -1,0 +1,17 @@
+{
+  "experiment_id": "q1_dual_head_full_loso_seed42",
+  "status": "APPROVED_BY_AUTHOR — implementation and preflight pending",
+  "tier": "pilot; locked full benchmark; not publishable until metric audit and three-seed confirmation",
+  "author_override": "The 2/6/10 promotion gate failed shape noninferiority, anchor accuracy and coverage. On 2026-10-04 the author explicitly authorised completing the locked 11-fold seed-42 benchmark for a complete paper draft. This does not retroactively turn the gate into a pass.",
+  "dataset": "MMECG public loso_v2, 11 strict subject-independent folds, 8-second full-support WSST subject pool",
+  "model": "Frozen A1 dual-head REM-Net: shared WSST stem/TCN, ECG Shape Recovery head, independent Q/R/S/T logits; frozen reference-free A2 physiological decoder",
+  "seed": 42,
+  "folds": [1,2,3,4,5,6,7,8,9,10,11],
+  "reuse": "Exact seed-42 folds 2/6/10 from q1_dual_head_interaction_gate/A1 are reused by provenance-preserving symlink; only the remaining eight folds train.",
+  "frozen_training": "Shape L1 + 0.5*(1-PCC) + 0.3*Q/R/S/T BCE; AdamW lr 1e-4 weight decay 1e-4; maximum 100 epochs; patience 15.",
+  "checkpoint_selection": "Validation-only lexicographic selection: highest ECG Shape Recovery PCC, then lowest RMSE, then highest independent-anchor macro F1@100 ms. Test opens once after checkpoint freeze.",
+  "frozen_decoder": "R peaks at probability >=0.5 and distance 40 samples; Q=max 5--100 ms before R; S=max 5--100 ms after R; T=max 40--450 ms after S and before next R. No test-derived tuning.",
+  "outputs": ["Shape PCC/RMSE/R2", "Q/R/S/T MedAE and MDR@150ms", "F1@100ms", "physiological ordering"],
+  "aggregation": "Per-fold results followed by unweighted fold-macro mean and population standard deviation. Shape-200 is explicitly beat-normalised morphology evidence, not continuous ECG.",
+  "next_decision": "After seed 42 completes, audit all 11 folds. Only if retained for the paper run identical seeds 123 and 2024; no intervening model or threshold changes."
+}
