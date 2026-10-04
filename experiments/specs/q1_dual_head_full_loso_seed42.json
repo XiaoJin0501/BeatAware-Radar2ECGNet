@@ -1,6 +1,8 @@
 {
   "experiment_id": "q1_dual_head_full_loso_seed42",
-  "status": "APPROVED_BY_AUTHOR — implementation and preflight pending",
+  "status": "PREFLIGHT_PASSED — approved to run seed-42 11-fold completion",
+  "implementation_commit": "1ee0182",
+  "preflight_evidence": "8 focused tests passed; JSON and Python compilation passed; output path unique; provenance-preserving reuse links for completed folds 2/6/10 resolve to COMPLETE artifacts.",
   "tier": "pilot; locked full benchmark; not publishable until metric audit and three-seed confirmation",
   "author_override": "The 2/6/10 promotion gate failed shape noninferiority, anchor accuracy and coverage. On 2026-10-04 the author explicitly authorised completing the locked 11-fold seed-42 benchmark for a complete paper draft. This does not retroactively turn the gate into a pass.",
   "dataset": "MMECG public loso_v2, 11 strict subject-independent folds, 8-second full-support WSST subject pool",
