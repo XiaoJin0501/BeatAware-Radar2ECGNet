@@ -1,6 +1,8 @@
 {
   "experiment_id": "q1_dual_head_interaction_gate",
-  "status": "DRAFT — implementation and preflight pending",
+  "status": "PREFLIGHT_PASSED — approved bounded folds 2/6/10 gate",
+  "implementation_commit": "30a9d6f",
+  "preflight_evidence": "6 focused tests passed; A0/A1 parameter count 1,438,789 each; CUDA single-batch finite forward/backward; simulated epoch-1 interruption resumed at epoch 2 without constructing the test split.",
   "purpose": "Test whether a shared ECG Shape Recovery head and explicit ECG Anchor Estimation head coexist without morphology regression, and whether structured anchor decoding removes independent-head ordering failures.",
   "training": true,
   "tier": "pilot; not manuscript evidence",
