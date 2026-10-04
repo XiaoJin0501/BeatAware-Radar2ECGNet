@@ -1,6 +1,8 @@
 {
   "experiment_id": "q1_dual_head_checkpoint_balance",
-  "status": "DRAFT — implementation and preflight pending",
+  "status": "PREFLIGHT_PASSED — approved bounded folds 3/7 mechanism run",
+  "implementation_commit": "6230ab5",
+  "preflight_evidence": "8 focused tests passed; harmonic ranking rejects an immature zero-F1 checkpoint in favour of a mature event checkpoint; JSON/Python compilation and control-artifact checks passed.",
   "tier": "pilot; post-hoc mechanism check; never direct manuscript evidence",
   "purpose": "Test whether folds 3/7 event collapse is caused by the preregistered Shape-first checkpoint rule rather than absent event information.",
   "dataset": "MMECG loso_v2 folds 3/7, seed 42, full-support 8-second WSST",
