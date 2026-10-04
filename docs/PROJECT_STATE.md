@@ -78,16 +78,18 @@ assembly are closed historical routes, not candidates for revival.
 **Author override, 2026-10-04:** after matched baselines and the registered
 fixed-algorithm Q/R/S/T screen completed, the author authorised one bounded
 model-rescue path rather than open-ended tuning. Gate 0 label learnability passed
-and is audited in `docs/audits/Q1_EVENT_LABEL_LEARNABILITY_AUDIT.md`. The only
-next model experiment that may be prepared is
-`experiments/specs/q1_structured_event_gate_v1.json`: a folds 1/5/9 direct
-Q/R/S/T event-head feasibility test using the incumbent WSST stem and TCN. It
-was run once but is protocol-invalid because the checkpoint field named F1@100
-used a 150-ms tolerance. Its preliminary failure is withdrawn; a corrected
-from-scratch folds 1/5/9 rerun is required. Event-conditioned waveform decoding is not authorised;
-range-attention, raw-RCG fusion, delay warp, calibration, broad sweeps and
-11-fold expansion remain prohibited. See
-`docs/audits/Q1_STRUCTURED_EVENT_GATE_AUDIT.md`.
+and is audited in `docs/audits/Q1_EVENT_LABEL_LEARNABILITY_AUDIT.md`. The
+corrected folds 1/5/9 `q1_structured_event_gate_v1` rerun is now complete.
+Direct Q/R/S/T supervision improved 3/4 median endpoint errors and reduced the
+mean fold-macro MedAE by 16.44%; accuracy, fold-consistency, and coverage passed.
+The overall gate failed only the locked physiological-order clause: Q<R<S<T
+violation rates were 5.25%, 11.54%, and 7.68% (required <=5% in every fold).
+There is therefore evidence for predictable event information, but the
+independent-heatmap topology is not promotable. Event-conditioned waveform
+decoding and 11-fold expansion remain unauthorised. Any next experiment must be
+a separately registered, single-variable topology-constrained read-out against
+E1; range-attention, raw-RCG fusion, delay warp, calibration, and broad sweeps
+remain prohibited. See `docs/audits/Q1_STRUCTURED_EVENT_GATE_AUDIT.md`.
 
 The `q1_loss_gate` completed all 9/9 runs on 2026-09-17. L3 MR-STFT won the
 waveform metrics (fold-macro PCC 0.293 versus L0 0.223; R² 0.012 versus -0.136)

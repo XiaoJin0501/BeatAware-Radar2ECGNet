@@ -1,59 +1,72 @@
-# Q1 Structured Q/R/S/T Event Gate Audit — Protocol-Invalid Run
+# Q1 Structured Q/R/S/T Event Gate Audit
 
-**Withdrawn 2026-10-04:** the implementation used a 30-sample (150 ms) match
-tolerance for the field named `f1_100ms`. Because that field selected the best
-validation checkpoint, the run did not implement the registered F1@100-ms
-selection rule. All numerical results below are retained for diagnosis only;
-the FAIL decision is withdrawn pending a corrected from-scratch rerun.
-
-Date: 2026-10-04. Experiment: `q1_structured_event_gate_v1`. Implementation
-commit: `c3779457d11e848b94fd5f9417609c17f1a87167`; clean launch commit:
-`d44ea8adb6b594db4985f1ae68cd175c293e8d01`. The run used repaired `loso_v2`
-folds 1/5/9, seed 42, validation-only checkpoint selection, and one-time test
-access after checkpoint freezing. All three state machines finished at COMPLETE.
+Date: 2026-10-04. Experiment: `q1_structured_event_gate_v1`. Corrected
+implementation commit: `d234e33d433107e2589290f941ca01ec84d5c9f8`; clean
+launch commit: `861b4f4f886108f9dc4f9c93bd8d9519bb547f6f`. The corrected
+run used repaired `loso_v2` folds 1/5/9, seed 42, validation-only checkpoint
+selection by macro F1 at exactly 100 ms, and one-time test access only after
+checkpoint freezing. All three fold state machines reached `COMPLETE`.
 
 ## Question and controlled change
 
-The event-only E1 arm retained the incumbent WSST stem and five-block TCN and
-replaced the two-scale R-anchor read-out with four direct Q/R/S/T heatmaps. It
-had no waveform decoder, interval loss, ordering loss, range attention, native
-RCG, calibration, or GT information at inference. The comparator was the frozen
-seed-42 Chen-TCN waveform-derived `prominence` read-out extracted before E1
-training.
+E1 retained the incumbent WSST stem and five-block TCN, replacing the
+waveform-derived read-out with four direct Q/R/S/T heatmaps. It used no
+waveform decoder, interval loss, ordering loss, range attention, native RCG,
+calibration, or ground-truth information at inference. E0 was the frozen
+seed-42 Chen-TCN waveform-derived `prominence` read-out. Test ECG was used only
+for the final endpoint calculation.
 
-## Held-out test results
+Localization MedAE used order-preserving matching within 150 ms. The safety
+F1 and validation checkpoint criterion used a separate 100-ms tolerance. This
+distinction is covered by a regression test.
 
-| Fold | Readout | Q MedAE | R MedAE | S MedAE | T MedAE | Macro MedAE | Macro F1@100 | Order violations |
+## Corrected held-out test results
+
+| Fold | Readout | Q MedAE | R MedAE | S MedAE | T MedAE | Macro MedAE | E1 macro F1@100 | E1 order violations |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|
 | 1 | Chen-TCN | 40 | 45 | 45 | 30 | 40.00 | -- | -- |
-| 1 | E1 | 50 | 50 | 25 | 35 | 40.00 | 0.982 | 0.042 |
+| 1 | E1 | 35 | 40 | 15 | 30 | 30.00 | 0.978 | 0.0525 |
 | 5 | Chen-TCN | 45 | 15 | 15 | 20 | 23.75 | -- | -- |
-| 5 | E1 | 20 | 15 | 15 | 15 | 16.25 | 0.930 | 0.123 |
+| 5 | E1 | 20 | 15 | 20 | 15 | 17.50 | 0.920 | 0.1154 |
 | 9 | Chen-TCN | 25 | 25 | 25 | 35 | 27.50 | -- | -- |
-| 9 | E1 | 30 | 30 | 30 | 25 | 28.75 | 0.953 | 0.056 |
+| 9 | E1 | 30 | 30 | 30 | 25 | 28.75 | 0.941 | 0.0768 |
 
-Errors are milliseconds. Across folds, median E1 versus Chen-TCN MedAE was:
-Q 30 versus 40, R 30 versus 25, S 25 versus 25, and T 25 versus 30. Thus E1
-strictly won two of four event metrics. Mean fold-macro MedAE decreased only
-6.85%, below the locked 10% requirement, and improved on only one of three
-folds. Coverage safety passed. Ordering safety failed because folds 5 and 9
-exceeded the locked 5% violation ceiling.
+Errors are milliseconds. Across folds, median E1 versus Chen-TCN MedAE was
+Q 30 versus 40, R 30 versus 25, S 20 versus 25, and T 25 versus 30. E1
+therefore strictly won Q, S, and T, while losing R by 5 ms. The mean of the
+three fold-macro MedAEs fell from 30.42 to 25.42 ms, a 16.44% reduction.
+Fold-level macro MedAE improved on folds 1 and 5 and worsened by 1.25 ms on
+fold 9. The registered coverage clause passed.
 
 ## Pre-registered decision
 
-| Clause | Result |
-|---|:---:|
-| At least 3/4 event MedAEs improve and macro reduction >=10% | FAIL |
-| Fold-macro MedAE improves on at least 2/3 folds | FAIL |
-| Promoted-event coverage no more than 0.03 below comparator | PASS |
-| Complete-beat ordering violation <=5% on every fold | FAIL |
-| **Overall** | **FAIL** |
+| Clause | Result | Evidence |
+|---|:---:|---|
+| At least 3/4 event MedAEs improve and macro reduction >=10% | PASS | 3/4; 16.44% |
+| Fold-macro MedAE improves on at least 2/3 folds | PASS | folds 1 and 5 |
+| Promoted-event coverage no more than 0.03 below comparator | PASS | registered median-coverage check |
+| Complete-beat ordering violation <=5% on every fold | FAIL | 5.25%, 11.54%, 7.68% |
+| **Overall** | **FAIL** | one of four clauses failed |
 
-The high F1@100 values coexist with 25--50 ms median localisation errors because
-F1 uses a tolerant detection window and was the pre-registered validation
-selection endpoint. They must not be interpreted as precise fiducial timing.
+This is a bounded, informative failure rather than evidence that direct event
+supervision is ineffective. The corrected E1 arm improves three endpoint
+errors and passes accuracy, consistency, and coverage, but independent
+heatmaps do not enforce the physiological topology Q<R<S<T. High F1@100 also
+must not be presented as sub-20-ms localization precision: it is a tolerant
+detection metric, whereas the primary MedAEs are 15--40 ms.
 
-This invalid run neither closes nor promotes the direct four-heatmap route. No
-event-conditioned decoder, range-aware encoder, loss retuning, new threshold,
-11-fold expansion, or manuscript claim is authorised while the corrected rerun
-is pending. Its artifacts are retained under `archive/invalid_experiments/`.
+Per the registered rule, this pilot does not authorize an 11-fold expansion or
+a manuscript performance claim. It does, however, localize the remaining
+failure to the read-out topology rather than to label availability or an
+absence of event signal. Any continuation requires a separately registered,
+single-variable topology-constrained event read-out compared with E1; it must
+not silently relax the 5% ordering threshold or reuse test results for design.
+
+## Withdrawn first execution
+
+The first execution is retained under
+`archive/invalid_experiments/q1_structured_event_gate_v1_f1_tolerance_mismatch_2026-10-04/`.
+It computed the field named `f1_100ms` using 30 samples (150 ms), so its
+validation checkpoint selection violated the registered protocol. Its apparent
+FAIL and all associated numbers are diagnostic only and are not combined with
+the corrected run.
