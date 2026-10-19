@@ -30,11 +30,11 @@ def freeze():
     if target.exists():
         return verify()
     local = {p.name: sha(p) for p in sorted(env.HERE.iterdir()) if p.suffix in ('.py', '.json')}
-    lock = dict(version='continuous_screen_m1_m2_m3_v1', source=local,
+    lock = dict(version='continuous_screen_v2_record150_harmonic', source=local,
                 packages={name: version(name) for name in ('torch', 'numpy', 'scipy', 'neurokit2', 'h5py', 'ssqueezepy')},
                 dependencies={str(p): sha(p) for p in dependencies()},
                 metric_contract=json.loads((env.HERE/'metric_contract.json').read_text()),
-                created_before_A_supplement=True, created_before_screen_training=True,
+                created_before_A_supplement=False, A_supplement_is_frozen_v1=True,created_before_screen_training=True,
                 changes_after_start_forbidden=True)
     atomic_json(target, lock)
     return lock

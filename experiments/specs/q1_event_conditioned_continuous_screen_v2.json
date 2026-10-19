@@ -1,0 +1,16 @@
+{
+  "experiment_id": "q1_event_conditioned_continuous_screen_v2",
+  "approved": "2026-10-20 author final v2",
+  "tier": "pilot",
+  "publishable": false,
+  "configuration": "experiments/development/event_conditioned_screen_20261019/spec.json",
+  "metric_contract": "experiments/development/event_conditioned_screen_20261019/metric_contract.json",
+  "change_note": "docs/changes/2026-10-20-continuous-screen-v2.md",
+  "runs": 36,
+  "folds": [1,2,3],
+  "seeds": [42,43,44],
+  "arms": [1,2,3,4],
+  "fresh_training": true,
+  "confirmation_authorized": false,
+  "test_access": false
+}

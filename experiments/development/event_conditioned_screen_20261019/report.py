@@ -80,4 +80,5 @@ def generate():
         metric_freeze_sha256=sha(env.OUT/'METRIC_FREEZE.json')))
 
 if __name__ == '__main__':
+    from v2_report import generate
     generate()

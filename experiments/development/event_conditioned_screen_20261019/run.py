@@ -17,6 +17,7 @@ from model import initialize_arm, objective, parameter_counts
 from data import TrainWindows, prepare_validation, reference, local_reference, event_targets
 from metrics import native_record, aggregate
 from freeze import verify, sha
+from v2_metrics import checkpoint_score,patience_after_epoch,record_metric,aggregate_record_lags
 
 @torch.no_grad()
 def validate(model, inventory, stats, device, save_predictions=None):
@@ -54,10 +55,14 @@ def validate(model, inventory, stats, device, save_predictions=None):
                 probs.extend(torch.sigmoid(output['anchor_logits']).cpu().numpy())
             wave_array, prob_array = np.asarray(waves), np.asarray(probs)
             records.append(native_record(row, wave_array, prob_array, raw, stats))
+            records[-1]['record_optimal'] = record_metric(row,wave_array,raw,stats)
             if save_predictions is not None:
                 atomic_npz(save_predictions/f"{row['record_id']}.npz", dict(starts=np.asarray(row['starts']),
                     wave=wave_array, anchor_probability=prob_array, oracle=np.asarray(model.arm == 4)))
         result = aggregate(records)
+        result.update(aggregate_record_lags([r['record_optimal'] for r in records]))
+        result['selection'] = checkpoint_score(result['M1'])
+        result['protocol_version'] = 'v2'
         result['losses'] = {k: v/count for k, v in loss_sums.items()}
         return result
     finally:
@@ -83,6 +88,8 @@ def code_state():
 
 def train_one(fold, seed, arm, data, inventory, device):
     verify()
+    if (env.OUT/'AUTHOR_PAUSED.json').exists() or not (env.OUT/'AUTHOR_APPROVED.json').exists():
+        raise RuntimeError('v2 author approval required and pause must be absent')
     directory = env.OUT/'runs'/f'fold_{fold:02d}'/f'seed_{seed}'/f'arm_{arm}'
     if (directory/'COMPLETE.json').exists():
         return json.loads((directory/'result.json').read_text())
@@ -97,7 +104,7 @@ def train_one(fold, seed, arm, data, inventory, device):
     loader = DataLoader(data, batch_size=16, shuffle=True, drop_last=True,
                         num_workers=0, generator=generator, pin_memory=device.startswith('cuda'))
     signature = sha(env.OUT/'METRIC_FREEZE.json')
-    meta = dict(fold=fold, seed=seed, actual_seed=seed, arm=arm, oracle=arm == 4,
+    meta = dict(protocol_version='v2',fold=fold, seed=seed, actual_seed=seed, arm=arm, oracle=arm == 4,
         commit=commit, spec=spec, metric_freeze_sha256=signature, parameters=parameter_counts(model),
         normalization=data.stats, training_windows=len(data), validation_records=len(inventory),
         training_subjects=sorted({r['subject_id'] for r in data.rows}),
@@ -145,16 +152,15 @@ def train_one(fold, seed, arm, data, inventory, device):
                 progress.set_postfix(loss=sums['loss']/seen, anchor=sums['anchor']/seen,
                     gnorm=gnorm_sum/step, lr=optimizer.param_groups[0]['lr'])
         metrics = validate(model, inventory, data.stats, device)
-        score = metrics['selection_window_pcc']
+        score = metrics['selection']['score']
         if score is None or not np.isfinite(score):
-            raise FloatingPointError('Missing/nonfinite M2 selection metric')
+            raise FloatingPointError('Missing/nonfinite v2 harmonic selection metric')
         improved = score > best
         if improved:
-            best, wait = score, 0
+            best = score
             atomic_torch_save(directory/'best.pt', dict(model=model.state_dict(), epoch=epoch,
                 validation=metrics, metric_freeze_sha256=signature, oracle=arm == 4))
-        else:
-            wait += 1
+        wait = patience_after_epoch(epoch,improved,wait)
         row = dict(epoch=epoch, fold=fold, seed=seed, arm=arm,
             train={k: v/seen for k, v in sums.items()}, val=metrics,
             lr=optimizer.param_groups[0]['lr'], average_gnorm=gnorm_sum/len(loader),
@@ -169,12 +175,13 @@ def train_one(fold, seed, arm, data, inventory, device):
         m1 = metrics['M1']['pcc']['mean']
         tqdm.write(f"fold={fold} seed={seed} arm={arm} epoch={epoch} loss={row['train']['loss']:.5f} "
             f"M1={m1 if m1 is not None else 'NA'} cov={metrics['M1']['coverage']['mean']:.3f} "
-            f"M2={score:.5f} M3={metrics['M3']['pcc']['mean']:.5f} "
+            f"select={score:.5f} recordPCC={metrics['record_optimal']['pcc']['mean']:.5f} "
+            f"M2={metrics['M2']['pcc']['mean']:.5f} M3={metrics['M3']['pcc']['mean']:.5f} "
             f"wait={wait}/15 seconds={row['seconds']:.1f} {'★' if improved else ''}")
     frozen = torch.load(directory/'best.pt', map_location='cpu', weights_only=False)
     model.load_state_dict(frozen['model'])
     metrics = validate(model, inventory, data.stats, device, directory/'validation_predictions')
-    assert abs(metrics['selection_window_pcc']-frozen['validation']['selection_window_pcc']) < 1e-8
+    assert abs(metrics['selection']['score']-frozen['validation']['selection']['score']) < 1e-8
     verify()
     result = dict(**meta, epochs=len(history), best_epoch=frozen['epoch'], validation=metrics,
                   completed=True, maximum_cuda_memory_bytes=torch.cuda.max_memory_allocated() if device.startswith('cuda') else None)
@@ -191,7 +198,7 @@ def main():
     parser.add_argument('--device', default='cuda:0')
     args = parser.parse_args()
     verify()
-    if not (env.OUT/'A_supplement/COMPLETE.json').exists():
+    if not (env.V1_OUT/'A_supplement/COMPLETE.json').exists():
         raise RuntimeError('Step1 supplement must complete before screening')
     code_state()
     torch.set_num_threads(1)
@@ -210,7 +217,7 @@ def main():
                 atomic_json(env.OUT/'progress.json', dict(completed=len(results), total=36,
                     last=results[-1], confirmation_11fold_authorized=False))
         del data, inventory
-    from report import generate
+    from v2_report import generate
     generate()
     print('COMPLETE:36 screening runs; confirmation remains BLOCKED', flush=True)
 

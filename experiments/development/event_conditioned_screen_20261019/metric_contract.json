@@ -1,5 +1,5 @@
 {
-  "version": "continuous_screen_m1_m2_m3_v1",
+  "version": "continuous_screen_v2_record150_harmonic",
   "frozen_before_screening": true,
   "sampling_rate_hz": 200,
   "retained_support": "A approved_layout, record samples[288,L-288), complete1024sample M2/M3 blocks",
@@ -17,7 +17,17 @@
     "coverage": "matched GT R / ALL GT R within retained support; also report scored beats / ALL GT R",
     "status": "REFERENCE-ASSISTED CONDITIONAL MORPHOLOGY, not native unaligned fidelity"
   },
-  "M2": {"definition": "unchanged A window_metrics, complete1024points, no lag/gain adjustment", "aggregation": "subject Fisher-z then median[IQR] and mean", "selection": true},
+  "M2": {"definition": "unchanged A window_metrics, complete1024points, no lag/gain adjustment", "aggregation": "subject Fisher-z then median[IQR] and mean", "selection": false, "screening_gate": false},
+  "record_optimal": {
+    "definition": "one reference-selected integer lag per entire retained record, -30..30samples at200Hz, no amplitude fitting or polarity flip",
+    "common_support": "reference[318:L-318], prediction[318+lag:L-318+lag]; all61lags same length",
+    "ties": "highest PCC, then minimum absolute lag, then negative lag",
+    "aggregation": "equal-record Fisher-z within subject; equal-subject arithmetic mean; seed means within subject before paired screen",
+    "status": "GT-assisted timing-tolerant screening endpoint, NOT deployable or strict native-time fidelity",
+    "selection": false, "screening_gate": true
+  },
+  "checkpoint_v2": "subject-macro harmonic(max(0,M1)*matched_coverage,waveform_R_F1); missing M1=0 for selection only; no0.8eligibility floor, ties earlier",
+  "M1_coverage_product": "within subject frozen M1 Fisher-z PCC times pooled matched GT coverage; raw product for screening, max(0,M1) only for checkpoint score",
   "M3": {
     "definition": "max PCC over integer lag -10..10, reference window[10:1014], prediction[10+lag:1014+lag], fixed1004sample comparison for ALL lags",
     "positive_lag": "prediction delayed relative to reference",

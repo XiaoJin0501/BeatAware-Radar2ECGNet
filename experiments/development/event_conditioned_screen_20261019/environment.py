@@ -8,7 +8,10 @@ ROOT = HERE.parents[2]
 RESOURCE_ROOT = Path(os.environ.get('REM_REFERENCE_ROOT', '/home/qhh2237/Projects/BeatAware-Radar2ECGNet'))
 A = RESOURCE_ROOT/'experiments/development/structured_decoder_v0_20261017_ab'
 FROZEN = Path('/tmp/rem_dual_head_formal')
-OUT = Path(os.environ.get('REM_SCREEN_OUT', RESOURCE_ROOT/'experiments/development/event_conditioned_screen_20261019/results'))
+V1_OUT = RESOURCE_ROOT/'experiments/development/event_conditioned_screen_20261019/results'
+OUT = Path(os.environ.get('REM_SCREEN_OUT', RESOURCE_ROOT/'experiments/development/event_conditioned_screen_20261019/results_v2'))
+if OUT.resolve()==V1_OUT.resolve():
+    raise RuntimeError('v2 must never write v1 outputs')
 os.environ['MPLCONFIGDIR'] = str(OUT/'.cache/matplotlib')
 os.environ['NUMBA_CACHE_DIR'] = str(OUT/'.cache/numba')
 os.environ.setdefault('SSQ_PARALLEL', '0')
