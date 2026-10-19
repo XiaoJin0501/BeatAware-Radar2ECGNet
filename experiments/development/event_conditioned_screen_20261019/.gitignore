@@ -1,0 +1,5 @@
+results/
+.cache/
+*.xml
+*.log
+__pycache__/

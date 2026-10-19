@@ -1,0 +1,15 @@
+{
+  "experiment_id": "q1_event_conditioned_continuous_screen_v1",
+  "tier": "pilot",
+  "publishable": false,
+  "status": "AUTHOR_APPROVED_36_RUN_SCREENING_ONLY",
+  "spec": "experiments/development/event_conditioned_screen_20261019/spec.json",
+  "metric_contract": "experiments/development/event_conditioned_screen_20261019/metric_contract.json",
+  "baseline": "arm2 feature-gated continuous global-local decoder",
+  "changed_variable": "arm3 replaces feature gates by detached predicted event probability gates",
+  "folds": [1, 2, 3],
+  "seeds": [42, 43, 44],
+  "arms": [1, 2, 3, 4],
+  "test_access": false,
+  "confirmation_11fold_authorized": false
+}
