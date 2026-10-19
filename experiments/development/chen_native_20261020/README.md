@@ -1,6 +1,12 @@
 # Chen native categorical/autoregressive preparation
 
-**Implementation + unit tests + CPU smoke ONLY. No formal training authorised.**
+2026-10-20 follow-up: see [inference/quantisation/timing clarifications and the
+conditional9-run schedule](INFERENCE_AND_SCHEDULE.md). The9-run development
+training is author-approved only after36/36v2 completion; it is not started.
+
+**Current executable scope: implementation + unit tests + CPU smoke ONLY.
+Formal development training is conditionally approved after36/36v2completion,
+not authorised to start now.**
 This is a paper-guided reimplementation with disclosed assumptions, not official
 code and not a claim of exact replication. Do not reuse the historical dual-head
 Chen adaptation's weights or numbers for this model.
@@ -115,7 +121,8 @@ evidence. Full record inference/evaluation entry points exist and have alignment
 tests. A random-initialisation CPU check also ran one actual35505point validation
 record through generation/stitch/scoring:34929retained points,34complete windows.
 This is not trained-model quality evidence. Trained-model evaluation and formal
-pilot training await approval.
+development training await v2 completion and committed production preflight as
+specified in the conditional schedule.
 No weights are saved, so there are none to reuse or delete.
 
 New outputs are exclusively
