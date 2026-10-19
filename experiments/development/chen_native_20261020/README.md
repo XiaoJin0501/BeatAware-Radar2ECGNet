@@ -112,7 +112,10 @@ fold1,16actual640-point train windows,batch16,2epochs(one batch each); one real
 8s validation excerpt generates all1600points autoregressively each epoch.
 This is NOT a whole-record quality evaluation and its values are NOT performance
 evidence. Full record inference/evaluation entry points exist and have alignment
-tests; full-record model evaluation and formal pilot training await approval.
+tests. A random-initialisation CPU check also ran one actual35505point validation
+record through generation/stitch/scoring:34929retained points,34complete windows.
+This is not trained-model quality evidence. Trained-model evaluation and formal
+pilot training await approval.
 No weights are saved, so there are none to reuse or delete.
 
 New outputs are exclusively
