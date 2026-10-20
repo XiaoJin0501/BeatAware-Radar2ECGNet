@@ -1,0 +1,12 @@
+{
+  "experiment_id":"q1_final_resolution_screen_20261020",
+  "tier":"pilot", "publishable":false,
+  "configuration":"experiments/development/final_resolution_20261020/spec.json",
+  "scope":"author-approved final27-run MMECG architecture screen; reuse9v2arm1 baselines",
+  "baseline":"frozen v2 arm1; native continuous waveform evaluation",
+  "changed_variables":["native-resolution RCG fusion","waveform-only finite-lag soft-min"],
+  "selection_priority":["D","C","B","A"],
+  "test_access":false,
+  "new_designs_after_completion":false,
+  "formal_expansion_scope":"awaiting author clarification"
+}
