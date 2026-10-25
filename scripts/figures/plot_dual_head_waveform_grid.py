@@ -192,7 +192,7 @@ def grid(ax,radar=False,duration=5.12):
     for spine in ax.spines.values():spine.set_linewidth(.4);spine.set_color('#777777')
 
 
-def plot(cases,output):
+def plot(cases,output,metric_label='PCC',morphology=False):
     plt.rcParams.update({'font.family':'Times New Roman','font.size':7,'axes.linewidth':.4,
         'pdf.fonttype':42,'ps.fonttype':42,'svg.fonttype':'none','path.simplify':False})
     fig=plt.figure(figsize=(7.16,6.65))
@@ -217,8 +217,8 @@ def plot(cases,output):
                 ax.plot(time,y,color='#262626',lw=.55,zorder=4)
                 if row>0:
                     score=1. if key=='gt' else meta['window_pcc_by_method'][key]
-                    ax.text(.98,.95,f'PCC = {score:.2f}',ha='right',va='top',transform=ax.transAxes,
-                        fontsize=5.7,bbox=dict(facecolor=ax.get_facecolor(),edgecolor='none',pad=.15),zorder=7)
+                    ax.text(.98,.95,f'{metric_label} = {score:.2f}',ha='right',va='top',transform=ax.transAxes,
+                        fontsize=5.1 if morphology else 5.7,bbox=dict(facecolor=ax.get_facecolor(),edgecolor='none',pad=.15),zorder=7)
                 if key=='rem_net':
                     for k,color in COLORS.items():
                         p=arrays['pred_'+k];p=p[(p>=0)&(p<1024)]
@@ -237,12 +237,13 @@ def plot(cases,output):
         bar.text(1.15,-.44,'1 s',transform=bar.get_xaxis_transform(),ha='center',va='top',fontsize=6.5)
         if ds=='crrvs':
             meta,arrays=data[0]  # Fixed Resting example; no second quality selection.
-            r=arrays['pred_r']
+            r=arrays['gt_r'] if morphology else arrays['pred_r']
             # One predicted-RR-duration crop, R at quarter phase to expose QRS/T.
             # Both traces use identical absolute indices: NO independent R alignment.
             pairs=[]
             for r0,r1 in zip(r[:-1],r[1:]):
-                rr=r1-r0;a=int(round(r0-.25*rr));b=int(round(r0+.75*rr))
+                rr=r1-r0
+                a,b=(int(r0),int(r1)) if morphology else (int(round(r0-.25*rr)),int(round(r0+.75*rr)))
                 if a>=0 and b<1024:pairs.append((a,b,float(r0)))
             if not pairs:raise ValueError('Chosen Resting window has no complete predicted-RR-duration crop; no silent replacement')
             a,b,r0=min(pairs,key=lambda p:(abs(p[2]-512),p[2]))
@@ -258,10 +259,14 @@ def plot(cases,output):
                     dx={'q':-6,'r':0,'s':6,'t':0}[k]
                     ax.annotate(k.upper(),((point-a)/FS,value),xytext=(dx,6),textcoords='offset points',ha='center',fontsize=6,color=color)
             ax.legend(loc='lower center',ncol=1,fontsize=6,frameon=False,handlelength=1.8)
-            ax.text(.98,.98,f"PCC = {pcc(arrays['rem_net'][a:b],arrays['gt'][a:b]):.2f}",transform=ax.transAxes,ha='right',va='top',fontsize=5.8)
+            if morphology:
+                beat_index=int(np.argmin(abs(arrays['beat_bounds'][:,0]-a)))
+                score=pcc(arrays['rem_net_shapes'][beat_index],arrays['reference_shapes'][beat_index])
+            else:score=pcc(arrays['rem_net'][a:b],arrays['gt'][a:b])
+            ax.text(.98,.98,f"{metric_label} = {score:.2f}",transform=ax.transAxes,ha='right',va='top',fontsize=5.1 if morphology else 5.8)
             head=fig.add_subplot(gs[0,3]);head.axis('off')
             head.text(.5,1.04,'Single-beat zoom (1 RR)',ha='center',va='bottom',transform=head.transAxes,fontsize=7.1,fontweight='bold')
-            head.text(.5,.45,f"Resting zoom\n{(b-a)/FS:.2f} s; no time alignment",ha='center',va='center',fontsize=6)
+            head.text(.5,.45,f"Resting zoom\n{(b-a)/FS:.2f} s; {'reference R–R' if morphology else 'no time alignment'}",ha='center',va='center',fontsize=6)
             meta['zoom']=dict(source_scene='Resting',local_start=a,local_stop=b,
                 predicted_r=r0,rule='one predicted-RR-duration, -.25RR to +.75RR about predicted R nearest window center; same absolute crop for both traces; no alignment')
     legend=[Line2D([],[],marker='o',color=COLORS[k],lw=0,markersize=3,label=k.upper()) for k in 'qrst']
