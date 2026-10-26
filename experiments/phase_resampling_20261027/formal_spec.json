@@ -1,0 +1,46 @@
+{
+  "id": "phase_factorial_ablation_20261027",
+  "status": "AUTHOR_APPROVED_OPTION1",
+  "training_authorized": true,
+  "formal_test_authorized": true,
+  "scope": "ONLY requested ablation tables A0-A4/S1/S2, not former Stage2 R1/R2/R3 expansion or baseline retraining",
+  "datasets": {"mmecg": 11, "crrvs": 5},
+  "seed_base": 42,
+  "actual_seed": "42+physical fold, same original protocol",
+  "variants": {"A0":"interp", "A1":"window_p", "A2":"phase_d", "A3":"phase_p", "A4":"phase_pd", "S1":"shape_only", "S2":"event_only"},
+  "single_task_definitions": {
+    "S1": "A0 window-coordinate shape path; only L_shape, no GT/learned anchors in shape generation; inactive event head retained for structural compatibility",
+    "S2": "same stem/TCN/event head; only 0.3*L_anchor; inactive shape head retained, shape scores NA",
+    "selection_S1": "validation shape arithmetic PCC, then -RMSE, then R2, same historical shape-only runner",
+    "selection_S2": "validation independent event macro F1@100ms, then -anchor BCE; no shape selection"
+  },
+  "multitask_selection": "original validation harmonic selector unchanged",
+  "training_recipe": "same Stage1 config; AdamW 1e-4 wd1e-4; batch16; max100 epochs; patience15; MM drop_lastFalse, CR True; no scheduler/augmentation changes",
+  "reuse": "16 A0 originals, six Stage1 A3/A4, three audited MMECG S1 folds1/5/9; all validation-selected",
+  "new_trainings_expected": 87,
+  "evaluate": "After ALL training is done/frozen, one final test inference/export per variant/fold; no test-based selection; old artifacts unchanged",
+  "statistics": {
+    "unit": "subject, separately for each dataset; 11 MMECG and30 CR_RVS subjects expected",
+    "PCC": "per-subject Fisher-z average across its windows, then arithmetic subject mean; percent for display",
+    "RMSE": "arithmetic window mean within subject then equal-subject mean",
+    "R_MAE": "frozen R-based one-to-one +/-150ms formal accumulator within subject, arithmetic mean ms",
+    "delta": "mean subject PCC(variant)-PCC(A4), percentage points, negative means worse",
+    "bootstrap": "10000 paired-subject resamples, percentile95% CI, local RNG seed42; no seed/window pseudo-replication",
+    "wilcoxon": "two-sided signed rank, wilcox zero method, auto method; all-zero differences -> p1",
+    "holm_table1": "four A0/A1/A2/A3-vs-A4 PCC comparisons per dataset",
+    "holm_table2": "four preplanned per-subject factorial/context PCC contrasts per dataset, separate family",
+    "table3": "descriptive only, no additional unregistered significance tests",
+    "star": "Holm-adjusted p<0.05; significant inferior variants are also marked, direction shown by delta"
+  },
+  "factorial_contrasts": {
+    "phase": {"A0":-0.5,"A1":-0.5,"A2":0.5,"A4":0.5},
+    "event_probability": {"A0":-0.5,"A1":0.5,"A2":-0.5,"A4":0.5},
+    "interaction": {"A0":1,"A1":-1,"A2":-1,"A4":1},
+    "window_context": {"A3":-1,"A4":1}
+  },
+  "coverage": "per-subject frozen direct eligible/evaluable ratio; pooled numerator/denominator also exported; matched-only timing errors never hide failures",
+  "fallback": "all phase-conditioned windows scored, training-only GT fallback never used at test; non-phase paths NA",
+  "capacity_caveat": "author chose retain unequal head dimensions/checkpoint reuse; report allocated and active parameters; factorial contrasts describe architecture differences, not capacity-controlled causal effects",
+  "coupling": "forward conditioning with stop-gradient on events/anchors, not bidirectional shape-to-event gradients",
+  "output": "experiments/phase_resampling_20261027/formal_ablation_20261027"
+}

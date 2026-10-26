@@ -75,10 +75,10 @@ def choose_bounds(pred,valid,reference,training,epoch_index,total_epochs,oracle=
 
 class AnchorConditionedREM(FrozenDualHeadREM):
     def __init__(self,shape_input='phase_p',in_bins=50,width=128,head_width=64,dropout=.1):
-        if shape_input not in {'interp','phase','phase_p','phase_pd'}:raise ValueError(shape_input)
+        if shape_input not in {'interp','window_p','phase','phase_d','phase_p','phase_pd'}:raise ValueError(shape_input)
         super().__init__('qrst',in_bins,width,head_width,dropout)
         self.shape_input=shape_input
-        channels={'interp':width,'phase':width,'phase_p':width+4,'phase_pd':2*width+4}[shape_input]
+        channels={'interp':width,'window_p':width+4,'phase':width,'phase_d':2*width,'phase_p':width+4,'phase_pd':2*width+4}[shape_input]
         if channels!=width:
             self.shape_head[0]=nn.Conv1d(channels,head_width,5,padding=2,bias=False)
 
@@ -86,6 +86,10 @@ class AnchorConditionedREM(FrozenDualHeadREM):
         if self.shape_input=='interp':
             return dict(shape=torch.sigmoid(self.shape_head(F.interpolate(latent,size=200,mode='linear',align_corners=False))),
                         anchor_logits=logits)
+        if self.shape_input=='window_p':
+            h_window=F.interpolate(latent,size=200,mode='linear',align_corners=False)
+            p_window=F.interpolate(logits.sigmoid().detach(),size=200,mode='linear',align_corners=False)
+            return dict(shape=torch.sigmoid(self.shape_head(torch.cat((h_window,p_window),dim=1))),anchor_logits=logits)
         pred,valid,status=predicted_pairs(logits,reference_bounds)
         bounds,alpha=choose_bounds(pred,valid,reference_bounds,self.training,epoch_index,total_epochs,oracle)
         t_i=phase_alignment(bounds)
@@ -95,7 +99,7 @@ class AnchorConditionedREM(FrozenDualHeadREM):
         p_beat=phase_resample(p_det,t_i)
         components=[h_beat]
         if self.shape_input in {'phase_p','phase_pd'}:components.append(p_beat)
-        if self.shape_input=='phase_pd':components.append(F.interpolate(latent,size=200,mode='linear',align_corners=False))
+        if self.shape_input in {'phase_d','phase_pd'}:components.append(F.interpolate(latent,size=200,mode='linear',align_corners=False))
         return dict(shape=torch.sigmoid(self.shape_head(torch.cat(components,dim=1))),anchor_logits=logits,
                     t_i=t_i,anchor_bounds=bounds,predicted_bounds=pred,anchor_valid=valid,anchor_status=status,
                     anchor_mix_alpha=alpha,outside_grid_fraction=((t_i<0)|(t_i>1599)).float().mean(1),oracle=oracle)
