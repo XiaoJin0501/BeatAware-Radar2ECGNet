@@ -27,19 +27,31 @@ def definitions(relative,names,namespace):
     exec(compile(code,str(path),'exec'),namespace)
 
 namespace=dict(torch=torch,nn=nn,F=F,np=np,warnings=warnings,find_peaks=find_peaks,
-               WIN=1600,FS=200,LATENT_T=400,FIDUCIALS=('q','r','s','t'))
+               WIN=1600,FS=200,RPEAK_SIGMA_DEFAULT=4.,LATENT_T=400,FIDUCIALS=('q','r','s','t'))
 definitions('src/models/continuous/ce_net.py',{'WSSTStem','_TCN'},namespace)
 definitions('src/models/continuous/dual_head_rem.py',{'DualHeadREM'},namespace)
-definitions('src/data/mmecg_dataset.py',{'_center_cycle_bounds_from_rpeaks'},namespace)
+definitions('src/data/mmecg_dataset.py',{'_center_cycle_bounds_from_rpeaks','_gaussian_mask'},namespace)
 clinical_path=FROZEN/'src/utils/clinical_endpoints.py'
 spec=importlib.util.spec_from_file_location('phase_frozen_clinical',clinical_path)
 clinical=importlib.util.module_from_spec(spec);spec.loader.exec_module(clinical)
 SOURCES[str(clinical_path)]=hashlib.sha256(clinical_path.read_bytes()).hexdigest()
 namespace['delineate_signal']=clinical.delineate_signal
-definitions('scripts/run_dual_head_interaction.py',{'shape_target','structured_decode','extract_points','losses'},namespace)
+namespace['match_beats']=clinical.match_beats
+definitions('scripts/run_dual_head_interaction.py',{'shape_target','structured_decode','independent_decode',
+    'extract_points','losses','pcc_per_row','shape_metrics','score_events'},namespace)
 FrozenDualHeadREM=namespace['DualHeadREM']
 shape_target=namespace['shape_target']
 structured_decode=namespace['structured_decode']
 extract_points=namespace['extract_points']
 center_bounds=namespace['_center_cycle_bounds_from_rpeaks']
 losses=namespace['losses']
+gaussian_mask=namespace['_gaussian_mask']
+pcc_per_row=namespace['pcc_per_row']
+shape_metrics=namespace['shape_metrics']
+score_events=namespace['score_events']
+namespace['TOLERANCE_SAMPLES']=30
+namespace['INTERVALS']=('qq','rr','ss','tt')
+definitions('scripts/evaluate_formal_anchor_intervals.py',{'empty_bucket','finite_points','accumulate_window','finalise'},namespace)
+empty_bucket=namespace['empty_bucket']
+accumulate_window=namespace['accumulate_window']
+finalise=namespace['finalise']
