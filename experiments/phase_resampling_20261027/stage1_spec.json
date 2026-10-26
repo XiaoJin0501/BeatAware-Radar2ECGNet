@@ -1,6 +1,8 @@
 {
   "id": "phase_resampling_20261027_stage1",
   "status": "AUTHOR_APPROVED_STAGE1_20261027",
+  "implementation_commit": "81edb2d",
+  "run_branch": "exp/anchor-phase-stage1-20261027",
   "category": "pilot",
   "publishable": false,
   "training_authorized": true,

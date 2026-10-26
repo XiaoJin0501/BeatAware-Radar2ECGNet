@@ -1,0 +1,17 @@
+{
+  "id": "phase_resampling_20261027_stage1",
+  "category": "pilot",
+  "publishable": false,
+  "implementation_commit": "81edb2d",
+  "branch": "exp/anchor-phase-stage1-20261027",
+  "test_access_authorized": false,
+  "stage2_authorized": false,
+  "author_approval": "2026-10-27 confirmation; three development folds equally weighted",
+  "spec": "experiments/phase_resampling_20261027/stage1_spec.json",
+  "output": "/home/qhh2237/Projects/BeatAware-Radar2ECGNet/experiments/phase_resampling_20261027/stage1",
+  "metrics": "frozen shape metrics/rank and formal R-pair event MAE; validation only",
+  "new_trainings": 6,
+  "baseline": "existing original interp checkpoints on validation only",
+  "engineering_preflight": "12 tests and one GPU 16+16-window end-to-end CR_RVS phase_pd run passed",
+  "stage0": "1579 validation windows identity PASS, 9 tests PASS"
+}
