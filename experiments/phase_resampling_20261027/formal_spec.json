@@ -1,6 +1,8 @@
 {
   "id": "phase_factorial_ablation_20261027",
   "status": "AUTHOR_APPROVED_OPTION1",
+  "implementation_commit": "442e454",
+  "run_branch": "exp/phase-formal-ablation-20261027",
   "training_authorized": true,
   "formal_test_authorized": true,
   "scope": "ONLY requested ablation tables A0-A4/S1/S2, not former Stage2 R1/R2/R3 expansion or baseline retraining",

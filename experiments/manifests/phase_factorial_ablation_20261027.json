@@ -1,0 +1,21 @@
+{
+  "id": "phase_factorial_ablation_20261027",
+  "tier": "final_candidate",
+  "publishable": false,
+  "implementation_commit": "442e454",
+  "branch": "exp/phase-formal-ablation-20261027",
+  "author_approval": "2026-10-27 complete manuscript ablations, option1 retain capacities and reuse checkpoints",
+  "spec": "experiments/phase_resampling_20261027/formal_spec.json",
+  "datasets": "MMECG all11 folds; CR_RVS all5 folds; seedbase42",
+  "combinations": 112,
+  "reused_checkpoints": 25,
+  "new_training_runs": 87,
+  "test_policy": "only after all112 selections frozen; once per variant/fold; never selection",
+  "test_authorization_scope": "only requested A0-A4/S1/S2 tables and S1 supplement",
+  "old_stage2_or_other_routes_authorized": false,
+  "preflight": "21 tests passed; strict25-source checkpoint audit passed; GPU16-window A1 engineering passed",
+  "output": "/home/qhh2237/Projects/BeatAware-Radar2ECGNet/experiments/phase_resampling_20261027/formal_ablation_20261027",
+  "predictions": "runs/<dataset>/fold_XX/<arm>/test_predictions.npz and test_windows.csv.gz",
+  "statistics": "subject Fisher-z PCC, paired-subject mean bootstrap10000 percentile95CI, prespecified two-sided Wilcoxon/Holm families",
+  "integrity": "head capacities differ and are reported; active/inactive task outputs explicit; no continuous predictions or GT anchor generation"
+}
