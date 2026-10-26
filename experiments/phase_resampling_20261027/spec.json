@@ -1,0 +1,32 @@
+{
+  "id": "phase_resampling_20261027",
+  "stage": 0,
+  "training_authorized_this_stage": false,
+  "test_access_authorized": false,
+  "seed_base": 42,
+  "stage0_identity_splits": "ALL validation windows, physical folds 1 and 2, both datasets",
+  "logical_fold_mapping": "user fold0/1 map to existing fold_01/fold_02",
+  "variants": ["interp", "phase", "phase_p", "phase_pd"],
+  "phase_alignment_output": "t_i only; [B,200] native sample coordinates",
+  "grid_endpoints": "r0 + (i/199)*(r1-r0-1), since existing target takes ECG[r0:r1]",
+  "gradient": "shape->H->encoder; no shape->anchors/P_det/logits; anchor BCE unchanged",
+  "fallback": "nearest decoded R or 800, median predicted RR or160; border sampling, never dropped",
+  "reference_train_schedule": {"reference_until": 0.15, "mixture_until": 0.45, "total_epochs": 100},
+  "soft_argmax": {"tau": 1.0, "radius_samples": 10},
+  "valid_predicted_RR_samples": [60, 400],
+  "match_tolerance_samples": 30,
+  "T1": {"pcc_min": 0.999, "max_abs_diff_strictly_below": 0.001},
+  "existing_recipe": {
+    "optimizer": "AdamW", "lr": 0.0001, "weight_decay": 0.0001,
+    "lr_schedule": "none", "batch_size": 16, "max_epochs": 100, "patience": 15,
+    "dropout": 0.1, "data_augmentation": "none in original dual-head runners",
+    "loss": "existing losses(): L1 + 0.5*(1-PCC) +0.3*BCE",
+    "anchor_target_sigma_samples": 4,
+    "actual_run_seed": "42 + physical fold index, unchanged from original runners",
+    "MMECG_drop_last": false, "CR_RVS_drop_last": true,
+    "checkpoint_rank": "hmean(validation shape arithmetic PCC, independent event macro F1@100ms), then shape PCC, then -RMSE",
+    "reporting_note": "Fisher-z subject reporting requested separately; do not silently change existing checkpoint selector"
+  },
+  "stage1": {"mmecg_logical_folds": [0,1], "crrvs_logical_folds": [0], "variants": ["phase_p","phase_pd"], "validation_only": true},
+  "stage2_requires_separate_confirmation": true
+}
