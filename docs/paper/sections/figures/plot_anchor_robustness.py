@@ -53,7 +53,8 @@ def save_csv(path,rows):
 @torch.no_grad()
 def infer(device):
     ASSETS.mkdir(parents=True,exist_ok=True);torch.set_num_threads(2)
-    torch.backends.cudnn.deterministic=True;torch.backends.cudnn.benchmark=False
+    # Match the ORIGINAL final-test subprocess defaults (not training flags).
+    torch.backends.cudnn.deterministic=False;torch.backends.cudnn.benchmark=False
     for ds,nfold in (('mmecg',11),('crrvs',5)):
         rngs={(s,r):np.random.default_rng(r) for s in SIGMAS for r in range(5)}
         for fold in range(1,nfold+1):

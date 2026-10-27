@@ -47,3 +47,9 @@ Figure3.5x1.75in, two panels, independent y axes; REM-Net color#31688E reused
 from existing comparison figure; shaded subject bootstrap CI, predicted star,
 context dashed gray line only. Plot script resides alongside output assets.
 Dedicated source-data REPORT.md avoids overwriting any other REPORT.md.
+
+GPU numerical preflight: original final-test subprocess uses cuDNN
+deterministic=False, benchmark=False (unlike training). Match those exact eval
+settings. With deterministic=False, original first-batch shapes reproduce
+bitwise; True changes algorithm/numerics by about1e-4. The1e-5 shape equality
+guard is retained; no threshold relaxed and no quality result inspected.
