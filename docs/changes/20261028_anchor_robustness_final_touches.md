@@ -14,3 +14,9 @@ observations and crossover definitions are unchanged.
 Validation: 7 tests passed using tests/test_anchor_robustness_delta.py and
 tests/test_anchor_robustness.py. Visually checked PNG; PDF is vector 3.5 by
 1.75 inches with embedded TrueType fonts. No unrelated manuscript files changed.
+
+Subsequent user-directed presentation revision: shortened three-item single-row
+legend; orange (#D55E00) stars and whiskers; removed annotation and horizontal
+grid; 3-point white-edged curve markers; one-decimal y ticks; left y label only.
+Axis labels remain 8 pt and ticks 7 pt. Regenerated PDF/SVG/600-dpi PNG and
+visually checked the complete legend and panel layout. Statistical data unchanged.

@@ -113,27 +113,22 @@ def plot(rows,points):
         r=sorted([v for v in rows if v['dataset']==ds],key=lambda v:v['realised_err_ms']);p=next(v for v in points if v['dataset']==ds)
         x=np.array([v['realised_err_ms'] for v in r]);y=np.array([v['delta_context_pp'] for v in r])
         ax.fill_between(x,[v['ci_low_pp'] for v in r],[v['ci_high_pp'] for v in r],color=old.COLOR,alpha=.18,lw=0)
-        ax.plot(x,y,'-o',color=old.COLOR,lw=1.2,ms=3.5)
+        ax.plot(x,y,'-o',color=old.COLOR,lw=1.2,ms=3,mec='white',mew=.4)
         ax.axhline(0,color='#7F7F7F',ls='--',lw=1,label='Context only')
         ax.errorbar(p['realised_err_ms'],p['delta_context_pp'],yerr=[[p['delta_context_pp']-p['ci_low_pp']],[p['ci_high_pp']-p['delta_context_pp']]],
-            marker='*',ms=7,mfc=old.COLOR,mec='black',mew=.6,color=old.COLOR,elinewidth=.7,capsize=2,lw=0,zorder=5)
+            marker='*',ms=7,mfc='#D55E00',mec='black',mew=.6,color='#D55E00',elinewidth=.7,capsize=2,lw=0,zorder=5)
         lo=min(t[0] for t in ranges) if shared else limits[0];hi=max(t[1] for t in ranges) if shared else limits[1]
-        pad=.1*max(hi-lo,1);ax.set_ylim(lo-pad,hi+pad+(.4 if ds=='mmecg' or shared else 0));ax.set_xlim(0,1.06*max(x.max(),p['realised_err_ms']))
+        pad=.1*max(hi-lo,1);ax.set_ylim(lo-pad,hi+pad);ax.set_xlim(0,1.06*max(x.max(),p['realised_err_ms']))
         ticks=[0,20,40,60,80,100]
         ax.set_xticks(ticks);ax.set_xticklabels([f'{v:.0f}' for v in ticks]);ax.yaxis.set_major_locator(MaxNLocator(5,steps=[1,2,2.5,5,10]))
-        ax.yaxis.set_major_formatter(FuncFormatter(lambda v,pos:Formatter.fix_minus(f'{v:g}')));ax.set(xlabel='Anchor error (ms)',ylabel=r'$\Delta$PCC (pp)',title=title)
-        ax.spines[['top','right']].set_visible(False);ax.set_axisbelow(True);ax.grid(axis='y',color='#E6E6E6',lw=.5)
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda v,pos:Formatter.fix_minus(f'{v:.1f}')));ax.set(xlabel='Anchor error (ms)',ylabel=r'$\Delta$PCC (pp)' if ds=='mmecg' else '',title=title)
+        ax.spines[['top','right']].set_visible(False);ax.set_axisbelow(True);ax.grid(False)
         ax.text(-.22,1.12,f'({letter})',transform=ax.transAxes,fontweight='bold',fontsize=8,va='bottom')
-        if ds=='mmecg':
-            ax.annotate('reference anchors',xy=(0,y[0]),xytext=(.04,.985),textcoords='axes fraction',fontsize=5.5,ha='left',va='top',
-                arrowprops=dict(arrowstyle='-',color=old.COLOR,lw=.45,shrinkA=1,shrinkB=3),color=old.COLOR)
-    handles=[Line2D([0],[0],color=old.COLOR,ls='-',marker='o',ms=3,lw=1.2,label='REM-Net, jittered reference anchors'),
-        Line2D([0],[0],color=old.COLOR,ls='none',marker='*',ms=7,mec='black',mew=.6,label='REM-Net, predicted anchors'),
+    handles=[Line2D([0],[0],color=old.COLOR,ls='-',marker='o',ms=3,mec='white',mew=.4,lw=1.2,label='Jittered reference anchors'),
+        Line2D([0],[0],color='#D55E00',ls='none',marker='*',ms=7,mec='black',mew=.6,label='Predicted anchors'),
         Line2D([0],[0],color='#7F7F7F',ls='--',lw=1,label='Context only (Δ = 0)')]
-    # Exact requested labels need two shared rows at IEEE single-column width.
-    fig.legend(handles=handles[:2],loc='lower center',bbox_to_anchor=(.5,.065),ncol=2,frameon=False,fontsize=6.5,handlelength=.9,columnspacing=.6,handletextpad=.25)
-    fig.legend(handles=handles[2:],loc='lower center',bbox_to_anchor=(.5,-.025),ncol=1,frameon=False,fontsize=6.5,handlelength=1.2,handletextpad=.35)
-    fig.subplots_adjust(left=.13,right=.985,bottom=.36,top=.79,wspace=.55)
+    fig.legend(handles=handles,loc='lower center',bbox_to_anchor=(.5,.005),ncol=3,frameon=False,fontsize=6.5,handlelength=.9,columnspacing=.6,handletextpad=.25)
+    fig.subplots_adjust(left=.13,right=.985,bottom=.31,top=.79,wspace=.55)
     previous=ASSETS/'previous_absolute_figure';previous.mkdir(exist_ok=True)
     for ext in ('pdf','svg','png'):
         target=FIGURES/f'fig_anchor_robustness.{ext}'
@@ -178,7 +173,7 @@ def report(rows,points,crossings,summaries,shared):
         'Independent Gaussian perturbations differ from the empirical correlated predicted-error distribution; the star need not lie on the jitter curve.',
         'Crossover is loss of paired statistical support above Context, not necessarily a mean intersection. No new significance-based model or checkpoint selection.',
         'CI bands are pointwise, not simultaneous; the interpolated crossover is a grid-dependent diagnostic, not a95% confidence interval for the threshold itself.',
-        'Requested full legend labels use two shared rows to avoid clipping at3.5in width; font sizes, data coordinates and curve statistics are unchanged.',
+        'Shortened legend labels use one shared row; orange predicted-anchor stars and whiskers, white-edged 3-point markers, no annotation or horizontal grid, and a left-panel-only y label. Axis labels are8pt and ticks7pt; data coordinates and curve statistics are unchanged.',
         'All old data and reports remain unchanged. Only the three requested figure files are replaced, after archival. The new delta source is anchor_robustness_delta.csv.'])
     (ASSETS/'REPORT.md').write_text('\n'.join(lines)+'\n')
 
