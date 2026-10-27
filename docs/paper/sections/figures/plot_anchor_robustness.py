@@ -52,14 +52,14 @@ def save_csv(path,rows):
         w=csv.DictWriter(f,fieldnames=list(rows[0]));w.writeheader();w.writerows(rows)
 
 @torch.no_grad()
-def infer(device):
-    ASSETS.mkdir(parents=True,exist_ok=True);torch.set_num_threads(2)
+def infer(device,sigmas=SIGMAS,assets=ASSETS):
+    assets=Path(assets);assets.mkdir(parents=True,exist_ok=True);torch.set_num_threads(2)
     # Match the ORIGINAL final-test subprocess defaults (not training flags).
     torch.backends.cudnn.deterministic=False;torch.backends.cudnn.benchmark=False
     for ds,nfold in (('mmecg',11),('crrvs',5)):
-        rngs={(s,r):np.random.default_rng(r) for s in SIGMAS for r in range(5)}
+        rngs={(s,r):np.random.default_rng(r) for s in sigmas for r in range(5)}
         for fold in range(1,nfold+1):
-            path=ASSETS/f'{ds}_fold_{fold:02d}.npz';state=path.with_suffix('.json')
+            path=assets/f'{ds}_fold_{fold:02d}.npz';state=path.with_suffix('.json')
             directory=original.run_dir(ds,fold,'A4');selected=json.loads((directory/'selected.json').read_text())
             if path.exists() and state.exists():
                 cached=json.loads(state.read_text())
@@ -73,9 +73,10 @@ def infer(device):
             model=original.model_for(ds,'A4').to(device)
             model.load_state_dict(torch.load(selected['checkpoint'],map_location=device,weights_only=False)['model']);model.eval()
             with np.load(directory/'test_predictions.npz') as z:incumbent=z['shape']
-            n=len(data);pcs=np.empty((6,5,n),np.float32);errors=np.empty((6,5,n),np.float64)
-            failures=np.zeros((6,5,n),bool);outside=np.zeros((6,5,n),np.float32)
+            n=len(data);pcs=np.empty((len(sigmas),5,n),np.float32);errors=np.empty((len(sigmas),5,n),np.float64)
+            failures=np.zeros((len(sigmas),5,n),bool);outside=np.zeros((len(sigmas),5,n),np.float32)
             pred_pc=np.empty(n,np.float32);pred_error=np.empty(n,np.float64);pred_matched=np.zeros(n,bool);pred_fallback=np.zeros(n,bool)
+            pred_signed=np.empty((n,2),np.float64);pred_valid=np.zeros(n,bool)
             max_pred_difference=0.;max_oracle_difference=0.
             for begin in tqdm(range(0,n,16),desc=f'{ds} fold{fold} jitter',disable=not sys.stderr.isatty(),mininterval=1):
                 end=min(begin+16,n)
@@ -94,6 +95,8 @@ def infer(device):
                 pred_numpy=pred.cpu().numpy();max_pred_difference=max(max_pred_difference,float(abs(pred_numpy-incumbent[begin:end]).max()))
                 pred_pc[begin:end]=original.frozen.pcc_per_row(pred_numpy,data.shapes[begin:end])
                 pred_error[begin:end]=abs(bounds.cpu().numpy()-reference[begin:end]).mean(1)*5
+                pred_signed[begin:end]=(bounds.cpu().numpy()-reference[begin:end])*5
+                pred_valid[begin:end]=valid.cpu().numpy()
                 pred_matched[begin:end]=[s=='matched' for s in status];pred_fallback[begin:end]=~valid.cpu().numpy()
                 fallback=bounds.cpu().numpy().copy()
                 for j,p in enumerate(p_full.cpu().numpy()):
@@ -103,7 +106,7 @@ def infer(device):
                     direct=model.decode_features(h,logits,refs,oracle=True)['shape'][:,0]
                     ref_pred,_=shape_at(refs);max_oracle_difference=float(abs(direct-ref_pred).max().cpu())
                     if max_oracle_difference>1e-6:raise RuntimeError('oracle injection differs from existing decode_features')
-                for si,sigma in enumerate(SIGMAS):
+                for si,sigma in enumerate(sigmas):
                     for repeat in range(5):
                         used,failed,_=jitter_pairs(reference[begin:end],sigma,rngs[sigma,repeat],fallback)
                         used_tensor=torch.as_tensor(used,dtype=inputs.dtype,device=device)
@@ -115,8 +118,10 @@ def infer(device):
             if max_pred_difference>1e-5:raise RuntimeError(f'predicted shape changed: {max_pred_difference}')
             original.core.atomic_npz(path,dict(pcc=pcs,realised_error_ms=errors,fallback=failures,outside_grid_fraction=outside,
                 predicted_pcc=pred_pc,predicted_error_ms=pred_error,predicted_matched=pred_matched,predicted_fallback=pred_fallback,
+                predicted_signed_errors_ms=pred_signed,predicted_valid=pred_valid,
                 subject=data.subjects,record=data.records,start=data.starts))
             original.core.atomic_json(state,dict(dataset=ds,fold=fold,checkpoint=selected['checkpoint'],checkpoint_sha256=selected['checkpoint_sha256'],
+                sigmas_ms=list(sigmas),
                 max_predicted_shape_difference=max_pred_difference,max_oracle_injection_difference=max_oracle_difference,
                 rng_state_after={f'{k[0]}_{k[1]}':rng.bit_generator.state for k,rng in rngs.items()}))
             print('completed inference',ds,fold,'of',nfold,'windows',n,flush=True)
