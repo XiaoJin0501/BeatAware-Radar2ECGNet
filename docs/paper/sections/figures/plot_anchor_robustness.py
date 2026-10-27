@@ -7,6 +7,7 @@ import sys
 import csv
 import json
 import argparse
+import subprocess
 from pathlib import Path
 import numpy as np
 import torch
@@ -203,8 +204,9 @@ def plot(rows,points):
         ax.set(xlabel='Anchor error (ms)',ylabel='PCC (%)',title=title)
         ax.spines[['top','right']].set_visible(False);ax.set_axisbelow(True);ax.grid(axis='y',color='#E6E6E6',lw=.5)
         ax.text(-.22,1.12,f'({letter})',transform=ax.transAxes,fontweight='bold',fontsize=8,va='bottom')
-        ax.annotate('reference anchors',xy=(x[0],y[0]),xytext=(.12,.07),textcoords='axes fraction',fontsize=5.5,
-                    arrowprops=dict(arrowstyle='-',color=COLOR,lw=.45),color=COLOR)
+        if ds=='mmecg':
+            ax.annotate('reference anchors',xy=(x[0],y[0]),xytext=(4,8),textcoords='offset points',fontsize=5.5,
+                        arrowprops=dict(arrowstyle='-',color=COLOR,lw=.45,shrinkA=1,shrinkB=3),color=COLOR)
     handles=[Line2D([0],[0],color=COLOR,ls='-',marker='o',ms=3,lw=1.2,label='REM-Net (jittered)'),
         Line2D([0],[0],color=COLOR,ls='none',marker='*',ms=7,mec='black',mew=.6,label='REM-Net (predicted anchors)'),
         Line2D([0],[0],color='#7F7F7F',ls='--',lw=1,label='Context only')]
@@ -223,7 +225,7 @@ def report(rows,details,points,crossings):
         lines.extend([f'## {ds.upper()}','','| Sigma ms | Realised error ms | PCC % [95% CI] | Δ vs oracle pp [95% CI] | Fallback % |',
             '|---:|---:|---|---|---:|'])
         for r in details:
-            if r['dataset']==ds:lines.append(f"| {r['sigma_ms']} | {r['realised_err_ms']:.2f} | {100*r['pcc_mean']:.2f} [{100*r['ci_low']:.2f}, {100*r['ci_high']:.2f}] | {100*r['delta_vs_oracle']:+.2f} [{100*r['delta_ci_low']:+.2f}, {100*r['delta_ci_high']:+.2f}] | {100*r['fallback_rate']:.3f} |")
+            if r['dataset']==ds:lines.append(f"| {r['sigma_ms']} | {r['realised_err_ms']:.2f} | {100*r['pcc_mean']:.2f} [{100*r['ci_low']:.2f}, {100*r['ci_high']:.2f}] | {100*r['delta_vs_oracle']:+.3f} [{100*r['delta_ci_low']:+.3f}, {100*r['delta_ci_high']:+.3f}] | {100*r['fallback_rate']:.3f} |")
         for p in points:
             if p['dataset']!=ds:continue
             lines.extend(['',f"{p['point']}: PCC={100*p['pcc_mean']:.2f}% [{100*p['ci_low']:.2f}, {100*p['ci_high']:.2f}]."])
@@ -232,15 +234,19 @@ def report(rows,details,points,crossings):
         label=f"{c['statistical_crossover_realised_ms']:.2f}ms" if c['statistical_crossover_realised_ms'] is not None else f">80ms nominal sigma (realised >{c['largest_realised_ms']:.2f}ms within the tested range)"
         lines.extend(['',f'Statistical crossover: **{label}**.'])
         if c['oracle_already_not_above_context']:lines.append('At sigma0 the oracle is already not demonstrably above Context only; no positive noise-tolerance threshold is supported.')
-        lines.append(f"Central mean crossing (separate descriptive quantity): {c['mean_crossover_realised_ms']}ms.")
+        central=f"{c['mean_crossover_realised_ms']:.2f}ms" if c['mean_crossover_realised_ms'] is not None else f"not observed through sigma80ms (realised {c['largest_realised_ms']:.2f}ms)"
+        lines.append(f'Central mean crossing (separate descriptive quantity): {central}.')
     lines.extend(['','## Definitions, limitations and deviations','',
         '* Jitter is GT-assisted diagnostic, not deployable reconstruction performance. Event probabilities remain model predictions, not GT probability tracks.',
         '* The predicted star uses conditional matched-window anchor error on x, but unconditional all-window PCC on y, as requested; it is not perfectly equivalent to homogeneous Gaussian jitter.',
+        '* Reference-anchor oracle is an intervention on a decoder trained with a reference-to-predicted curriculum, not a guaranteed numerical upper bound. Predicted-anchor PCC can exceed this reference-anchor point.',
         '* Crossover interpolates the lower CI boundary of the SUBJECT-PAIRED difference versus A0. It is not the intersection of separate marginal CI bands.',
         '* A statistical crossover at0 is retained; no manipulation to create a favorable curve. >80 refers to nominal sigma, not measured x; both bounds are reported.',
         '* All reference RR bounds satisfy constraints. Fractional anchors and exclusive-right endpoint convention preserved. Border sampling handles out-of-window coordinates; rates are in companion statistics CSV.',
         '* Noise streams use local fixed repeat seeds0–4, reset for each dataset/sigma (common random numbers across sigma); independent boundary draws. Redraw max10, then GT-free standard predicted fallback.',
         '* Color#31688E is reused from existing REM-Net comparison figures. Dedicated source-data/REPORT.md avoids generic-report filename collisions.',
+        '* Oracle annotation is shown with a short leader in MMECG only; omitted in CR_RVS to avoid collision with the nearby predicted-star CI whisker in the single-column layout.',
+        '* Original final-test cuDNN evaluation defaults (deterministic=False, benchmark=False) are preserved. The initial mismatch under training-style flags was fixed without relaxing the replay threshold.',
         '* Weight hashes and exact predicted/oracle injection equivalence checks are in16 fold JSON manifests; per-window diagnostic arrays and per-subject repeat results are preserved.',
         '* Existing figures, targets, model code and original evaluation artifacts are unchanged.'])
     (ASSETS/'REPORT.md').write_text('\n'.join(lines)+'\n')
@@ -249,6 +255,14 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('--infer',action='store_true');parser.add_argument('--device',default='cuda:0');args=parser.parse_args()
     if args.infer:infer(torch.device(args.device))
     rows,details,points,crossings=aggregate();plot(rows,points);report(rows,details,points,crossings)
+    manifest=dict(inference_only=True,training=False,seed_base=42,repeats=list(range(5)),bootstrap_subject_resamples=10000,
+        git_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+        protocol_sha256=original.sha(ASSETS/'PROTOCOL.md'),script_sha256=original.sha(__file__),
+        model_code_sha256=original.sha(ROOT/'experiments/phase_resampling_20261027/architecture.py'),
+        bootstrap_code_sha256=original.sha(ROOT/'experiments/phase_resampling_20261027/ablation_statistics.py'),
+        folds=[json.loads(p.read_text()) for p in sorted(ASSETS.glob('*_fold_*.json'))],
+        output_sha256={str(p.relative_to(ROOT)):original.sha(p) for p in [FIGURES/'anchor_robustness.csv',*(FIGURES/f'fig_anchor_robustness.{e}' for e in ('pdf','svg','png'))]})
+    (ASSETS/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print('Anchor robustness inference/exports complete; no training.',flush=True)
 
 if __name__=='__main__':main()
