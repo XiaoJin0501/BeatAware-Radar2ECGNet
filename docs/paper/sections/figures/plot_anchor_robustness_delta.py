@@ -9,12 +9,18 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.ticker import MaxNLocator,FuncFormatter
+from matplotlib.ticker import MaxNLocator,FuncFormatter,Formatter
 import plot_anchor_robustness as old
 
 FIGURES=old.FIGURES
 ASSETS=FIGURES/'source_data/anchor_robustness_delta_20261028'
 EXTENSION=(128,256,512,1024)
+
+def subject_balanced_median(arrays):
+    arrays=[np.sort(np.asarray(a,float)) for a in arrays if len(a)]
+    x=np.unique(np.concatenate(arrays))
+    cdf=np.mean([np.searchsorted(a,x,side='right')/len(a) for a in arrays],axis=0)
+    return float(x[np.flatnonzero(cdf>=.5-1e-12)[0]])
 
 def error_components(signed):
     signed=np.asarray(signed,float);common=signed.mean(1);differential=(signed[:,1]-signed[:,0])/2
@@ -30,7 +36,7 @@ def build(extended):
     for r in original:
         ds=r['dataset'];s=r['subject'];sigma=int(r['sigma_ms'])
         subjects[ds].setdefault(s,{}).setdefault(sigma,[]).append({k:float(r[k]) for k in ('pcc','realised_err_ms','fallback_rate')})
-    baselines={};predicted={};components=[]
+    baselines={};predicted={};components=[];median_arrays={}
     for ds,nfold in (('mmecg',11),('crrvs',5)):
         baseline={};predicted[ds]={}
         for fold in range(1,nfold+1):
@@ -55,6 +61,9 @@ def build(extended):
                     for group,mask in [('matched',idx&z['predicted_matched']),('valid',idx&z['predicted_valid']),('all',idx)]:
                         if not mask.any():continue
                         values=error_components(z['predicted_signed_errors_ms'][mask])
+                        target=median_arrays.setdefault((ds,group),dict(r=[],rr=[]))
+                        target['r'].append(abs(z['predicted_signed_errors_ms'][mask,0]))
+                        target['rr'].append(values['rr_span_error_ms'])
                         energy=values['common_energy'].mean()+values['differential_energy'].mean()
                         components.append(dict(dataset=ds,subject=s,group=group,n_windows=int(mask.sum()),
                             **{k:float(v.mean()) for k,v in values.items()},common_energy_share=float(values['common_energy'].mean()/energy) if energy>0 else None))
@@ -83,13 +92,17 @@ def build(extended):
             mean,lo,hi=old.bootstrap_mean(np.array([r['rr_span_error_ms'] for r in selected]))
             summaries.append(dict(dataset=ds,group=group,n_subjects=len(selected),n_windows=sum(r['n_windows'] for r in selected),
                 rr_span_error_ms=mean,rr_span_ci_low_ms=lo,rr_span_ci_high_ms=hi,
+                median_r_error_ms=subject_balanced_median(median_arrays[ds,group]['r']),
+                median_rr_error_ms=subject_balanced_median(median_arrays[ds,group]['rr']),
+                pooled_median_r_error_ms=float(np.median(np.concatenate(median_arrays[ds,group]['r']))),
+                pooled_median_rr_error_ms=float(np.median(np.concatenate(median_arrays[ds,group]['rr']))),
                 **{k:float(np.mean([r[k] for r in selected])) for k in ('anchor_error_ms','common_abs_ms','differential_abs_ms','same_sign','common_energy_share')}))
     return rows,per_subject,points,crossings,components,summaries
 
 def plot(rows,points):
     plt.rcParams.update({'font.family':'STIXGeneral','mathtext.fontset':'stix','font.size':7,'axes.labelsize':8,
         'xtick.labelsize':7,'ytick.labelsize':7,'axes.titlesize':8,'pdf.fonttype':42,'svg.fonttype':'none',
-        'axes.linewidth':.6,'xtick.direction':'out','ytick.direction':'out','xtick.major.size':2.5,'ytick.major.size':2.5})
+        'axes.linewidth':.6,'axes.unicode_minus':True,'xtick.direction':'out','ytick.direction':'out','xtick.major.size':2.5,'ytick.major.size':2.5})
     ranges=[]
     for ds in ('mmecg','crrvs'):
         items=[r for r in rows if r['dataset']==ds]+[p for p in points if p['dataset']==ds]
@@ -105,21 +118,22 @@ def plot(rows,points):
         ax.errorbar(p['realised_err_ms'],p['delta_context_pp'],yerr=[[p['delta_context_pp']-p['ci_low_pp']],[p['ci_high_pp']-p['delta_context_pp']]],
             marker='*',ms=7,mfc=old.COLOR,mec='black',mew=.6,color=old.COLOR,elinewidth=.7,capsize=2,lw=0,zorder=5)
         lo=min(t[0] for t in ranges) if shared else limits[0];hi=max(t[1] for t in ranges) if shared else limits[1]
-        pad=.1*max(hi-lo,1);ax.set_ylim(lo-pad,hi+pad);ax.set_xlim(0,1.06*max(x.max(),p['realised_err_ms']))
-        # Retain realised-error ticks while avoiding six crowded near-origin labels.
-        ticks=[v['realised_err_ms'] for v in r if v['sigma_ms'] in (0,20,40,80,max(v['sigma_ms'] for v in r))]
-        ax.set_xticks(ticks);ax.set_xticklabels([f'{v:.0f}' for v in ticks]);ax.yaxis.set_major_locator(MaxNLocator(4,steps=[1,2,2.5,5,10]))
-        ax.yaxis.set_major_formatter(FuncFormatter(lambda v,pos:f'{v:g}'));ax.set(xlabel='Anchor error (ms)',ylabel=r'$\Delta$PCC (pp)',title=title)
+        pad=.1*max(hi-lo,1);ax.set_ylim(lo-pad,hi+pad+(.4 if ds=='mmecg' or shared else 0));ax.set_xlim(0,1.06*max(x.max(),p['realised_err_ms']))
+        ticks=[0,20,40,60,80,100]
+        ax.set_xticks(ticks);ax.set_xticklabels([f'{v:.0f}' for v in ticks]);ax.yaxis.set_major_locator(MaxNLocator(5,steps=[1,2,2.5,5,10]))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda v,pos:Formatter.fix_minus(f'{v:g}')));ax.set(xlabel='Anchor error (ms)',ylabel=r'$\Delta$PCC (pp)',title=title)
         ax.spines[['top','right']].set_visible(False);ax.set_axisbelow(True);ax.grid(axis='y',color='#E6E6E6',lw=.5)
         ax.text(-.22,1.12,f'({letter})',transform=ax.transAxes,fontweight='bold',fontsize=8,va='bottom')
-        annotation='reference\nanchors' if ds=='mmecg' else 'reference anchors'
-        ax.annotate(annotation,xy=(0,y[0]),xytext=(4,8),textcoords='offset points',fontsize=5.5,ha='left',va='bottom',
-            arrowprops=dict(arrowstyle='-',color=old.COLOR,lw=.45,shrinkA=1,shrinkB=3),color=old.COLOR)
-    handles=[Line2D([0],[0],color=old.COLOR,ls='-',marker='o',ms=3,lw=1.2,label='REM-Net (jittered)'),
-        Line2D([0],[0],color=old.COLOR,ls='none',marker='*',ms=7,mec='black',mew=.6,label='REM-Net (predicted anchors)'),
-        Line2D([0],[0],color='#7F7F7F',ls='--',lw=1,label='Context only')]
-    fig.legend(handles=handles,loc='lower center',bbox_to_anchor=(.5,-.01),ncol=3,frameon=False,fontsize=6.5,handlelength=1.2,columnspacing=.6,handletextpad=.35)
-    fig.subplots_adjust(left=.13,right=.985,bottom=.32,top=.79,wspace=.55)
+        if ds=='mmecg':
+            ax.annotate('reference anchors',xy=(0,y[0]),xytext=(.04,.985),textcoords='axes fraction',fontsize=5.5,ha='left',va='top',
+                arrowprops=dict(arrowstyle='-',color=old.COLOR,lw=.45,shrinkA=1,shrinkB=3),color=old.COLOR)
+    handles=[Line2D([0],[0],color=old.COLOR,ls='-',marker='o',ms=3,lw=1.2,label='REM-Net, jittered reference anchors'),
+        Line2D([0],[0],color=old.COLOR,ls='none',marker='*',ms=7,mec='black',mew=.6,label='REM-Net, predicted anchors'),
+        Line2D([0],[0],color='#7F7F7F',ls='--',lw=1,label='Context only (Δ = 0)')]
+    # Exact requested labels need two shared rows at IEEE single-column width.
+    fig.legend(handles=handles[:2],loc='lower center',bbox_to_anchor=(.5,.065),ncol=2,frameon=False,fontsize=6.5,handlelength=.9,columnspacing=.6,handletextpad=.25)
+    fig.legend(handles=handles[2:],loc='lower center',bbox_to_anchor=(.5,-.025),ncol=1,frameon=False,fontsize=6.5,handlelength=1.2,handletextpad=.35)
+    fig.subplots_adjust(left=.13,right=.985,bottom=.36,top=.79,wspace=.55)
     previous=ASSETS/'previous_absolute_figure';previous.mkdir(exist_ok=True)
     for ext in ('pdf','svg','png'):
         target=FIGURES/f'fig_anchor_robustness.{ext}'
@@ -146,6 +160,12 @@ def report(rows,points,crossings,summaries,shared):
             '|---|---:|---:|---|---:|---:|---:|---:|'])
         for a in summaries:
             if a['dataset']==ds:lines.append(f"| {a['group']} | {a['n_windows']} | {a['anchor_error_ms']:.2f} | {a['rr_span_error_ms']:.2f} [{a['rr_span_ci_low_ms']:.2f}, {a['rr_span_ci_high_ms']:.2f}] | {a['common_abs_ms']:.2f} | {a['differential_abs_ms']:.2f} | {100*a['same_sign']:.1f} | {100*a['common_energy_share']:.1f} |")
+        lines.extend(['','### Median absolute predicted-anchor errors','',
+            'R error means the FIRST R boundary error e0, not the mean error of both boundaries. RR error is e1−e0. Primary medians use an equal-subject empirical mixture CDF; pooled-window medians are supplied separately.','',
+            '| Subset | Median absolute R error (ms) | Median absolute RR error (ms) | Pooled median absolute R error (ms) | Pooled median absolute RR error (ms) |',
+            '|---|---:|---:|---:|---:|'])
+        for a in summaries:
+            if a['dataset']==ds:lines.append(f"| {a['group']} | {a['median_r_error_ms']:.2f} | {a['median_rr_error_ms']:.2f} | {a['pooled_median_r_error_ms']:.2f} | {a['pooled_median_rr_error_ms']:.2f} |")
         a=next(a for a in summaries if a['dataset']==ds and a['group']=='matched')
         support=a['common_abs_ms']>a['differential_abs_ms'] and a['same_sign']>.5
         lines.extend(['','Matched-pair diagnostics '+('support common-mode dominance within paired endpoints.' if support else 'do NOT support a claim of mostly common-mode errors.')])
@@ -158,6 +178,7 @@ def report(rows,points,crossings,summaries,shared):
         'Independent Gaussian perturbations differ from the empirical correlated predicted-error distribution; the star need not lie on the jitter curve.',
         'Crossover is loss of paired statistical support above Context, not necessarily a mean intersection. No new significance-based model or checkpoint selection.',
         'CI bands are pointwise, not simultaneous; the interpolated crossover is a grid-dependent diagnostic, not a95% confidence interval for the threshold itself.',
+        'Requested full legend labels use two shared rows to avoid clipping at3.5in width; font sizes, data coordinates and curve statistics are unchanged.',
         'All old data and reports remain unchanged. Only the three requested figure files are replaced, after archival. The new delta source is anchor_robustness_delta.csv.'])
     (ASSETS/'REPORT.md').write_text('\n'.join(lines)+'\n')
 

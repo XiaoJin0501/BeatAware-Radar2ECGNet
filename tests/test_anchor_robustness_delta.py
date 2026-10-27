@@ -19,3 +19,8 @@ def test_paired_ci_is_not_difference_of_marginal_intervals():
     mean,lo,hi=m.old.bootstrap_mean(pred-context)
     assert np.allclose([mean,lo,hi],[.01,.01,.01])
     assert (m.old.bootstrap_mean(context)[2]-m.old.bootstrap_mean(context)[1])>.01
+
+def test_subject_balanced_median_is_not_pooled_window_median():
+    arrays=[np.array([0.]),np.full(9,100.)]
+    assert m.subject_balanced_median(arrays)==0
+    assert np.median(np.concatenate(arrays))==100
