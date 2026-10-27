@@ -112,7 +112,8 @@ def plot(rows,points):
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v,pos:f'{v:g}'));ax.set(xlabel='Anchor error (ms)',ylabel=r'$\Delta$PCC (pp)',title=title)
         ax.spines[['top','right']].set_visible(False);ax.set_axisbelow(True);ax.grid(axis='y',color='#E6E6E6',lw=.5)
         ax.text(-.22,1.12,f'({letter})',transform=ax.transAxes,fontweight='bold',fontsize=8,va='bottom')
-        ax.annotate('reference anchors',xy=(0,y[0]),xytext=(4,8),textcoords='offset points',fontsize=5.5,
+        annotation='reference\nanchors' if ds=='mmecg' else 'reference anchors'
+        ax.annotate(annotation,xy=(0,y[0]),xytext=(4,8),textcoords='offset points',fontsize=5.5,ha='left',va='bottom',
             arrowprops=dict(arrowstyle='-',color=old.COLOR,lw=.45,shrinkA=1,shrinkB=3),color=old.COLOR)
     handles=[Line2D([0],[0],color=old.COLOR,ls='-',marker='o',ms=3,lw=1.2,label='REM-Net (jittered)'),
         Line2D([0],[0],color=old.COLOR,ls='none',marker='*',ms=7,mec='black',mew=.6,label='REM-Net (predicted anchors)'),
@@ -151,9 +152,12 @@ def report(rows,points,crossings,summaries,shared):
     lines.extend(['','## Interpretation safeguards','',
         'c=(e0+e1)/2, d=(e1−e0)/2, RR-span error=2|d|. Common-energy share is per-subject mean(c²)/(mean(c²)+mean(d²)), then subject macro.',
         'Primary star error and span diagnosis use the SAME matched subset; report valid/all subsets separately. Star y/CI always retains ALL windows.',
+        'Do not replace ALL-window errors by matched-subset errors. Valid/all rows include unmatched cycle choices and fallback; common-mode energy alone does not demonstrate correct beat correspondence or a small physiological latency.',
+        'These are errors of the SPECIFIC central phase-grid pair against the target central pair, without rematching to another cycle. They are not the usual per-beat event-head R-MAE or all-beat RR-interval MAE.',
         'Same-sign rate and larger common component can support common-mode dominance WITHIN PAIRS, not a constant per-record offset or acquisition synchronization explanation.',
         'Independent Gaussian perturbations differ from the empirical correlated predicted-error distribution; the star need not lie on the jitter curve.',
         'Crossover is loss of paired statistical support above Context, not necessarily a mean intersection. No new significance-based model or checkpoint selection.',
+        'CI bands are pointwise, not simultaneous; the interpolated crossover is a grid-dependent diagnostic, not a95% confidence interval for the threshold itself.',
         'All old data and reports remain unchanged. Only the three requested figure files are replaced, after archival. The new delta source is anchor_robustness_delta.csv.'])
     (ASSETS/'REPORT.md').write_text('\n'.join(lines)+'\n')
 
@@ -173,8 +177,20 @@ def main():
     old.save_csv(ASSETS/'predicted_anchor_components.csv',summaries)
     (ASSETS/'crossovers.json').write_text(json.dumps(crossings,indent=2)+'\n')
     shared=plot(rows,points);report(rows,points,crossings,summaries,shared)
+    matched={s['dataset']:s for s in summaries if s['group']=='matched'}
+    (ASSETS/'caption.tex').write_text(
+        r'\caption{Anchor robustness of REM-Net relative to the window-time parallel-head model (Context only). '
+        r'The ordinate is the subject-paired PCC difference in percentage points; shading and star whiskers are pointwise subject-bootstrap 95\% confidence intervals. '
+        r'The first curve point uses reference anchors. The horizontal axis is realised mean absolute error of the two phase-grid boundaries, not nominal jitter sigma. '
+        r'The star uses predicted anchors, with horizontal position measured on matched central R--R pairs and PCC assessed on all windows. '
+        f"On matched pairs, RR-span MAE is {matched['mmecg']['rr_span_error_ms']:.2f}/{matched['crrvs']['rr_span_error_ms']:.2f} ms for MMECG/CR\\_RVS, "
+        f"versus endpoint MAE {matched['mmecg']['anchor_error_ms']:.2f}/{matched['crrvs']['anchor_error_ms']:.2f} ms, consistent with a stronger common-mode component within these pairs. "
+        r'This subset-specific result does not establish a record-constant synchronization offset.}'+'\n')
+    import subprocess
     (ASSETS/'manifest.json').write_text(json.dumps(dict(inference_only=True,training=False,extra_sigmas=extended,shared_y_limits=shared,
+        git_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=old.ROOT,text=True).strip(),script_sha256=old.original.sha(__file__),
         original_source_csv_sha256=old.original.sha(FIGURES/'anchor_robustness.csv'),protocol_sha256=old.original.sha(ASSETS/'PROTOCOL.md'),
+        output_sha256={p.name:old.original.sha(p) for p in [FIGURES/'anchor_robustness_delta.csv',*(FIGURES/f'fig_anchor_robustness.{ext}' for ext in ('pdf','svg','png'))]},
         extra_fold_manifests=[json.loads(p.read_text()) for p in sorted(ASSETS.glob('sigma_*/*_fold_*.json'))]),indent=2)+'\n')
     print('Paired-delta figure/report complete; no training.',flush=True)
 
