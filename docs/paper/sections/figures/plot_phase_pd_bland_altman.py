@@ -182,8 +182,10 @@ def interval_inference(items,clinical_ok):
                             with np.load(RAW/name/(rid+'.npz')) as z:records[rid]=z['ecg']
                         x=records[rid][start:start+1600];ref=delineate(x)
                         anchors=formal.frozen.structured_decode(probs[b].cpu().numpy())
-                        # Retain frozen ordered-decoder integer R times, used in delineation too.
-                        r=anchors['r'];bounds=np.c_[r[:-1],r[1:]] if len(r)>1 else np.empty((0,2))
+                        # Same frozen soft-argmax as phase_pd's native phase-grid path.
+                        r=np.array([float(soft_refine(logits[b,1],v)) for v in anchors['r']])
+                        anchors['r']=r
+                        bounds=np.c_[r[:-1],r[1:]] if len(r)>1 else np.empty((0,2))
                         good=(np.diff(bounds,axis=1)[:,0]>=60)&(np.diff(bounds,axis=1)[:,0]<=400) if len(bounds) else np.zeros(0,bool)
                         y=np.zeros(1600,float);covered=np.zeros(1600,bool)
                         if np.any(good):
@@ -191,10 +193,12 @@ def interval_inference(items,clinical_ok):
                             features=torch.cat((phase_resample(full[b:b+1].expand(nb,-1,-1),ti),phase_resample(probs[b:b+1].expand(nb,-1,-1),ti),context[b:b+1].expand(nb,-1,-1)),1)
                             shapes=model.shape_head(features).sigmoid()[:,0].cpu().numpy()
                             for (a,c),shape in zip(bounds[good],shapes):
-                                a,c=int(a),int(c);y[a:c]=np.interp(np.linspace(0,199,c-a),np.arange(200),shape);covered[a:c]=True
+                                indices=np.arange(max(0,int(np.ceil(a))),min(1600,int(np.ceil(c))))
+                                y[indices]=np.interp(indices,np.linspace(a,c-1,200),shape);covered[indices]=True
                         # Existing structured.synthesize uncovered-region fallback: fixed baseline=0.
                         foldfb.append(dict(dataset=ds,fold=fold,subject=subject,record=rid,start=start,
-                            fallback_fraction=float(1-covered[288:1312].mean()),invalid_pairs=int((~good).sum()),pairs=len(bounds)))
+                            fallback_fraction=float(1-covered[288:1312].mean()),invalid_pairs=int((~good).sum()),pairs=len(bounds),
+                            reference_central_beats=int(np.sum((ref['r']>=288)&(ref['r']<1312)))))
                         metrics=['rr','qs_peak','qt_peak']+(['qrs','qt'] if clinical_ok else [])
                         pred=delineate(y,r) if clinical_ok else anchors
                         foldrows+=make_rows(ds,fold,subject,rid,start,ref,pred,metrics)
@@ -263,7 +267,7 @@ def main():
     report+=['','## Frozen protocol and deviations',
         '- Reference: raw-record regenerated 200Hz ECG, existing raw_reference caches; crop by original record/start indices. No continuous-model predictions used.',
         '- Roundtrip and inference delineation use the same ecg_clean and ecg_delineate(method=prominence) default parameters as frozen clinical_endpoints.py; supplied R replaces only internal R detection. Reference R is independently detected. Endpoint matching requires the same R match and both endpoints within150ms. No normal-range filters.',
-        '- Each adjacent ordered-decoder R pair gets its own phase_pd feature resampling and shape-head forward, not a repeated template. Native integer ordered-decoder R positions are retained for synthesis and delineation (no extra soft-refinement shift). Exclusive-right target convention uses linspace(a,b−1,200).',
+        '- Each adjacent ordered-decoder R pair gets its own phase_pd feature resampling and shape-head forward, not a repeated template. Native soft_refine (softmax of R logits over integer peak±10samples, tau1) defines both fractional phase-grid boundaries and supplied R. NeuroKit accepts integer R, so supplied fractional R is rounded only at delineation. Exclusive-right target convention uses linspace(a,b−1,200); inverse maps at actual integer time samples, no integer-boundary truncation.',
         '- Fixed zero baseline for uncovered/invalid RR regions, as existing structured.synthesize; no GT or subject amplitude enters inference. RR bounds0.3–2s; no event-node warp. Per-window8s contexts retain[288:1312]. No model-side smoothing or GT alignment.',
         '- Overlapping heartbeats deduplicate by dataset/subject/record/referenceR/metric, selecting the window with referenceR closest to its centre, then earliest start, independently of predictions. Actual pairs remain individual beat pairs. HR is per available central window, 60/mean adjacentRR; windows lacking two predicted R remain failures.',
         '- LoA: Bland & Altman2007 §3 (changing true value), unequal-count one-way ANOVA on paired differences: within=MSE; between=max(0,(MS_subject−MSE)/((N−sum(n_i²)/N)/(K−1))). Bias is mean of individual differences. Naive LoA also supplied. Bootstrap resamples subjects with all their observations,10000 repetitions, local seed42. ICC(A,1) is pooled absolute-agreement ICC; regression is pooled paired difference on paired mean with subject-bootstrap CI.',
@@ -277,13 +281,16 @@ def main():
     report+=['','## Display clipping (retained in all statistics)']+[str(c) for c in clips]
     (OUT/'REPORT.md').write_text('\n'.join(report)+'\n')
     if not (FIG/'REPORT.md').exists():(FIG/'REPORT.md').write_text('\n'.join(report)+'\n')
-    tex=['% New addendum only; existing Table III untouched.','\\begin{tabular}{llrrrrr}','Dataset & Method & Metric & MAE & Bias & 95\\% LoA & Coverage \\\\','\\hline']
+    tex=['% New addendum only; existing Table III untouched.','\\begin{tabular}{lllrrrrr}','Dataset & Method & Metric & MAE & Bias & 95\\% LoA & ICC(A,1) & Coverage \\\\','\\hline']
     for ds,name,_ in DATASETS:
         for metric in ('qrs','qt'):
             s=next((r for r in stats if r['dataset']==ds and r['metric']==metric),None)
-            values=f"{s['mae']:.2f} & {s['bias']:.2f} & [{s['loa_low']:.2f},{s['loa_high']:.2f}] & {100*s['coverage']:.1f}\\%" if s else '--- & --- & --- & ---'
+            values=f"{s['mae']:.2f} & {s['bias']:.2f} & [{s['loa_low']:.2f},{s['loa_high']:.2f}] & {s['icc_a1']:.3f} & {100*s['coverage']:.1f}\\%" if s else '--- & --- & --- & --- & ---'
             tex.append(name.replace('_',r'\_')+f' & REM-Net & {metric.upper()} & '+values+r' \\')
-    tex+=['\\end{tabular}','% ICC(A,1) and exact paired counts are in bland_altman_stats.csv.','% Baselines: not assembled here. Failed roundtrip gate: clinical estimates unavailable.']
+        for method in ('Chen-TCN','radarODE-MTL','Conformer','WaveGRU-Net','Attention-DCGAN'):
+            for metric in ('QRS','QT'):tex.append(name.replace('_',r'\_')+f' & {method} & {metric} & --- & --- & --- & --- & ---'+r' \\')
+    tex+=['\\end{tabular}','% Baselines: single-beat output; no continuous assembly evaluated in this task.',
+        '% If roundtrip gate fails, REM-Net clinical values are unavailable too. Units: ms; coverage percent.']
     (OUT/'Table_III_clinical_addendum.tex').write_text('\n'.join(tex)+'\n')
     manifest=dict(training=False,gate_passed=ok,neurokit_version=nk.__version__,script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),frozen_sources=formal.frozen.SOURCES,
         checkpoints=[json.loads((formal.run_dir(ds,f,'A4')/'selected.json').read_text()) for ds,_,n in DATASETS for f in range(1,n+1)])
