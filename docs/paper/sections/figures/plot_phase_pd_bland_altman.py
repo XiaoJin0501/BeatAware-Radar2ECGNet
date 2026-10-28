@@ -158,6 +158,7 @@ def run_roundtrip(items):
 def numeric(rows):
     for row in rows:
         for k in ('ref','pred','centre_distance'):row[k]=float(row[k])
+        for k in ('fold','start','ref_r'):row[k]=int(row[k])
     return rows
 
 def interval_inference(items,clinical_ok):
@@ -216,6 +217,9 @@ def plot(rows,stats,clinical_ok,stem):
     metrics=['hr','rr','qrs','qt'] if clinical_ok else ['hr','rr','qs_peak','qt_peak'];titles=['HR (bpm)','RR (ms)','QRS duration (ms)','QT interval (ms)'] if clinical_ok else ['HR (bpm)','RR (ms)','Q–S peak interval (ms)','Q–T peak interval (ms)']
     fig,axes=plt.subplots(2,4,figsize=(7.16,3.4));clipped=[]
     for row,(ds,name,_) in enumerate(DATASETS):
+        fig.text(.09,.985 if row==0 else .485,
+            'MMECG (77-GHz FMCW)' if row==0 else 'CR_RVS (24-GHz CW)',
+            ha='left',va='top',fontsize=8,fontweight='bold')
         for col,(metric,title) in enumerate(zip(metrics,titles)):
             ax=axes[row,col];st=next(v for v in stats if v['dataset']==ds and v['metric']==metric)
             subset=[r for r in rows if r['dataset']==ds and r['metric']==metric and np.isfinite(r['pred'])]
@@ -231,7 +235,7 @@ def plot(rows,stats,clinical_ok,stem):
             if len(x):
                 xx=np.array([x.min(),x.max()]);ax.plot(xx,st['bias']+st['slope']*(xx-x.mean()),':',color='#D55E00',lw=.8)
             ax.set_ylim(-limit,limit);ax.set_xlabel('Mean '+title);ax.set_title(title,fontsize=8)
-            if col==0:ax.set_ylabel(name+'\nPredicted − reference')
+            if col==0:ax.set_ylabel('Predicted − reference')
             ax.text(-.15,1.1,f'({chr(97+row*4+col)})',transform=ax.transAxes,fontweight='bold',fontsize=8)
             ax.text(.98,.98,f"bias {st['bias']:.1f} [{st['bias_ci_low']:.1f}, {st['bias_ci_high']:.1f}]\nLoA [{st['loa_low']:.1f}, {st['loa_high']:.1f}]",transform=ax.transAxes,ha='right',va='top',fontsize=6.3,bbox=dict(facecolor='white',alpha=.8,edgecolor='none',pad=.7))
             ax.spines[['top','right']].set_visible(False);ax.grid(False)
@@ -272,6 +276,7 @@ def main():
         '- Overlapping heartbeats deduplicate by dataset/subject/record/referenceR/metric, selecting the window with referenceR closest to its centre, then earliest start, independently of predictions. Actual pairs remain individual beat pairs. HR is per available central window, 60/mean adjacentRR; windows lacking two predicted R remain failures.',
         '- LoA: Bland & Altman2007 §3 (changing true value), unequal-count one-way ANOVA on paired differences: within=MSE; between=max(0,(MS_subject−MSE)/((N−sum(n_i²)/N)/(K−1))). Bias is mean of individual differences. Naive LoA also supplied. Bootstrap resamples subjects with all their observations,10000 repetitions, local seed42. ICC(A,1) is pooled absolute-agreement ICC; regression is pooled paired difference on paired mean with subject-bootstrap CI.',
         '- Repeated-measures LoA still assumes homogeneous within-subject variance and independent within-subject residuals. Serial correlation and overlapping HR windows remain limitations; bootstrap preserves subject clusters but does not remove those model assumptions.',
+        '- All171 raw references versus corresponding stored test ECG were separately audited: zero best lag for every record; zero-lag PCC minimum>0.999999999999998. See reference_alignment.csv. Reference endpoints are automated prominence estimates, not independently adjudicated clinical boundary annotations; roundtrip success alone does not validate absolute clinical accuracy.',
         '- Peak fallback uses direct ordered-head Q/S/T peak spacings, not clinical boundaries; these are explicitly labelled peak intervals. HR/RR always use predicted R. No Q–S/Q–T relabelling as clinical QRS/QT.',
         '- Existing manuscript/Table III untouched as requested; new Table_III_clinical_addendum.tex is a reviewable addendum. If roundtrip fails, clinical columns remain unavailable, not populated with unreliable estimates.',
         '- Baseline clinical entries unavailable because no baseline continuous assembly was performed in this task; baseline shape outputs are not intrinsically incapable of assembly.',
