@@ -1,0 +1,23 @@
+{
+  "id": "phase_pd_bland_altman_20261029",
+  "authorization": "User 2026-10-29, inference only; all final phase_pd seed-base42 selected checkpoints",
+  "training": false,
+  "datasets": {"mmecg": 11, "crrvs": 5},
+  "model": "A4 phase_pd",
+  "input_samples": 1600,
+  "retained_samples": [288, 1312],
+  "shape_samples": 200,
+  "delineator": "frozen NeuroKit2 prominence with native defaults; supplied own R anchors",
+  "matching_tolerance_samples": 30,
+  "rr_valid_samples": [60, 400],
+  "roundtrip_gate": {
+    "max_abs_bias_ms": 5,
+    "max_repeated_loa_half_width_ms": 20,
+    "must_pass_each_dataset_and_metric": true,
+    "failure_action": "stop clinical durations; main figure uses HR/RR/Q-S/Q-T peak intervals"
+  },
+  "statistics": "individual paired values; Bland-Altman2007 nonconstant true value, unequal-count ANOVA; subject-cluster bootstrap10000 seed42; naive LoA and ICC(A,1)",
+  "immutable_outputs": "Existing figures, results, weights and manuscript tables",
+  "new_output": "docs/paper/sections/figures/source_data/phase_pd_bland_altman_20261029",
+  "primary_script": "docs/paper/sections/figures/plot_phase_pd_bland_altman.py"
+}
