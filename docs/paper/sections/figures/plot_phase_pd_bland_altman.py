@@ -260,7 +260,9 @@ def main():
         for metric in ['hr','rr','qs_peak','qt_peak']+(['qrs','qt'] if ok else []):
             st=agreement([r for r in rows if r['dataset']==ds and r['metric']==metric]);stats.append(dict(dataset=ds,metric=metric,**st))
     save_csv(FIG/'bland_altman_stats.csv',stats)
-    clips=plot(rows,stats,ok,'fig_bland_altman');plot(rows,stats,False,'fig_bland_altman_peak_intervals');save_csv(OUT/'clipped_points.csv',clips)
+    clips=plot(rows,stats,ok,'fig_bland_altman')
+    peakclips=plot(rows,stats,False,'fig_bland_altman_peak_intervals')
+    save_csv(OUT/'clipped_points.csv',clips);save_csv(OUT/'peak_clipped_points.csv',peakclips)
     report=['# REM-Net phase_pd clinical-interval inference, 2026-10-29','',
         'All16 test folds; frozen A4 seed-base42 checkpoints (actual historical initialization seed42+fold). No training, selection or parameter tuning.',
         '## Roundtrip gate', '', 'PASS' if ok else '**临床间期在该流程下不可靠。** Clinical route stopped; main figure uses peak intervals.',
@@ -278,14 +280,28 @@ def main():
         '- Repeated-measures LoA still assumes homogeneous within-subject variance and independent within-subject residuals. Serial correlation and overlapping HR windows remain limitations; bootstrap preserves subject clusters but does not remove those model assumptions.',
         '- All171 raw references versus corresponding stored test ECG were separately audited: zero best lag for every record; zero-lag PCC minimum>0.999999999999998. See reference_alignment.csv. Reference endpoints are automated prominence estimates, not independently adjudicated clinical boundary annotations; roundtrip success alone does not validate absolute clinical accuracy.',
         '- Peak fallback uses direct ordered-head Q/S/T peak spacings, not clinical boundaries; these are explicitly labelled peak intervals. HR/RR always use predicted R. No Q–S/Q–T relabelling as clinical QRS/QT.',
+        '- When the clinical gate passes, supplementary Q–S/Q–T peak intervals come from prominence peaks on the SAME assembled waveform with supplied predicted R; they are not direct event-head Q/S/T intervals and should not be compared as if they were the old direct-head table.',
+        '- Small mean bias is not interchangeable measurement agreement: all ICC(A,1) values, including negatives, are retained. Low or negative ICC and broad LoA limit clinical claims even after a successful roundtrip gate.',
         '- Existing manuscript/Table III untouched as requested; new Table_III_clinical_addendum.tex is a reviewable addendum. If roundtrip fails, clinical columns remain unavailable, not populated with unreliable estimates.',
         '- Baseline clinical entries unavailable because no baseline continuous assembly was performed in this task; baseline shape outputs are not intrinsically incapable of assembly.',
         '', 'Reference: https://doi.org/10.1080/10543400701329422', '', '## Fallback and detection failures']
     for ds,_,_ in DATASETS:
         a=[r for r in fb if r['dataset']==ds];report.append(f"- {ds}: mean central fallback fraction {np.mean([r['fallback_fraction'] for r in a]):.4%}; {len(a)} windows. Detection failure per metric=1−coverage in bland_altman_stats.csv; reference-unassessable beats are not eligible.")
     report+=['','## Display clipping (retained in all statistics)']+[str(c) for c in clips]
+    report+=['','## Supplement display clipping (retained in all statistics)']+[str(c) for c in peakclips]
     (OUT/'REPORT.md').write_text('\n'.join(report)+'\n')
-    if not (FIG/'REPORT.md').exists():(FIG/'REPORT.md').write_text('\n'.join(report)+'\n')
+    reportpath=FIG/'REPORT.md'
+    if not reportpath.exists() or reportpath.read_text().startswith('# REM-Net phase_pd clinical-interval inference'):
+        reportpath.write_text('\n'.join(report)+'\n')
+    for stem,cc in (('fig_bland_altman',clips),('fig_bland_altman_peak_intervals',peakclips)):
+        counts='; '.join(f"{c['dataset']} {c['metric']}: {c['n_below']} below/{c['n_above']} above" for c in cc)
+        caption=('Bland--Altman agreement of frozen REM-Net phase\\_pd on all test folds. '
+            'Rows: MMECG (77-GHz FMCW), CR\\_RVS (24-GHz CW). '
+            'Solid blue: bias; dashed blue: repeated-observation 95\\% limits of agreement; '
+            'dotted orange: proportional-bias regression. Bias brackets show subject-bootstrap 95\\% CIs. '
+            'Boundary triangles mark observations beyond the display limits; all remain in statistics. '
+            'Displayed-boundary counts: '+counts+'.')
+        (OUT/(stem+'_caption.tex')).write_text('\\caption{'+caption+'}\n')
     tex=['% New addendum only; existing Table III untouched.','\\begin{tabular}{lllrrrrr}','Dataset & Method & Metric & MAE & Bias & 95\\% LoA & ICC(A,1) & Coverage \\\\','\\hline']
     for ds,name,_ in DATASETS:
         for metric in ('qrs','qt'):
@@ -297,7 +313,13 @@ def main():
     tex+=['\\end{tabular}','% Baselines: single-beat output; no continuous assembly evaluated in this task.',
         '% If roundtrip gate fails, REM-Net clinical values are unavailable too. Units: ms; coverage percent.']
     (OUT/'Table_III_clinical_addendum.tex').write_text('\n'.join(tex)+'\n')
-    manifest=dict(training=False,gate_passed=ok,neurokit_version=nk.__version__,script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),frozen_sources=formal.frozen.SOURCES,
+    import subprocess
+    manifest=dict(training=False,gate_passed=ok,neurokit_version=nk.__version__,
+        git_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+        spec_sha256=formal.sha(ROOT/'experiments/specs/phase_pd_bland_altman_20261029.json'),
+        script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),frozen_sources=formal.frozen.SOURCES,
+        raw_reference_sha256={str(RAW/i['name']/(i['record']+'.npz')):formal.sha(RAW/i['name']/(i['record']+'.npz')) for i in { (r['dataset'],r['record']):r for r in items}.values()},
+        output_sha256={p.name:formal.sha(p) for p in [FIG/'bland_altman_stats.csv',FIG/'roundtrip_check.csv',OUT/'paired_values.csv',*(FIG/(stem+'.'+ext) for stem in ('fig_bland_altman','fig_bland_altman_peak_intervals') for ext in ('pdf','svg','png'))]},
         checkpoints=[json.loads((formal.run_dir(ds,f,'A4')/'selected.json').read_text()) for ds,_,n in DATASETS for f in range(1,n+1)])
     (OUT/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n');print('DONE',OUT,flush=True)
 

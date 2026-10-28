@@ -31,3 +31,8 @@ def test_dedup_never_selects_based_on_prediction_success():
     a=dict(**common,start=0,centre_distance=5.,pred=np.nan)
     b=dict(**common,start=10,centre_distance=15.,pred=800.)
     assert np.isnan(ba.dedup([b,a])[0]['pred'])
+
+def test_cached_pair_numeric_types_preserve_earliest_start_tiebreak():
+    common=dict(dataset='mmecg',subject='1',record='a',ref_r='1500',metric='rr',ref='800',pred='805',centre_distance='200',fold='1')
+    rows=ba.numeric([dict(**common,start='1200'),dict(**common,start='800')])
+    assert ba.dedup(rows)[0]['start']==800
