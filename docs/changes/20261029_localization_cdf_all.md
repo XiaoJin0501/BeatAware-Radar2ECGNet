@@ -49,3 +49,11 @@ median_annotations.csv. Main caption states selection, weighting and actual
 R-anchored150ms matching; no falsely endpoint-truncated claim. Supplement graph
 files unchanged. Three existing data-integrity tests pass; main PNG visually
 checked and PDF dimensions515.52x230.4pt confirmed.
+
+Latest requested display revision: main7.16x3.65in to accommodate x labels
+Error(ms) on all8 panels and complete four-sided frames. Main curves now use
+monotone PCHIP through original empirical knots (including original nodes
+beyond120ms to avoid an artificial flat edge); caption/report explicitly say
+inter-knot values are interpolated, not additional measured data or an exact
+ECDF. Source errors, nodes, medians, aggregation and tail denominators unchanged.
+The six-method supplementary plot remains an unchanged exact-step version.

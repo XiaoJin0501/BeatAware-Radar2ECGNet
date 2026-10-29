@@ -8,6 +8,7 @@ os.environ.setdefault('MPLBACKEND','Agg')
 import sys,csv,json,hashlib
 from pathlib import Path
 import numpy as np
+from scipy.interpolate import PchipInterpolator
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 ROOT=Path(__file__).resolve().parents[2];sys.path.insert(0,str(ROOT))
@@ -54,9 +55,9 @@ def main(main_figure=True):
         'axes.labelsize':8,'axes.titlesize':8,'xtick.labelsize':7,'ytick.labelsize':7,
         'axes.linewidth':.6,'axes.unicode_minus':True,'pdf.fonttype':42,'svg.fonttype':'none',
         'xtick.direction':'out','ytick.direction':'out','xtick.major.size':3,'ytick.major.size':3})
-    fig,axes=plt.subplots(2,4,figsize=(7.16,3.2 if main_figure else 3.85),sharey=True)
-    fig.subplots_adjust(left=.075,right=.985,bottom=.15 if main_figure else .115,
-        top=.86 if main_figure else .82,wspace=.35,hspace=.65 if main_figure else .8)
+    fig,axes=plt.subplots(2,4,figsize=(7.16,3.65 if main_figure else 3.85),sharey=True)
+    fig.subplots_adjust(left=.075,right=.985,bottom=.13 if main_figure else .115,
+        top=.88 if main_figure else .82,wspace=.35,hspace=1.0 if main_figure else .8)
     plotted=[];tails=[];annotations=[]
     for row,ds in enumerate(('mmecg','crrvs')):
         pos=axes[row,0].get_position()
@@ -70,7 +71,13 @@ def main(main_figure=True):
             for model in active:
                 nodes=groups[ds,model,metric];x=np.array([float(r['error_ms']) for r in nodes]);f=np.array([float(r['cdf']) for r in nodes])
                 xx,ff=visible_step_nodes(x,f,xmax=xmax);style=METHOD_STYLES[model]
-                ax.step(xx,ff,where='post',**{k:v for k,v in style.items() if k!='label'})
+                if main_figure:
+                    # Fit original knots, including those beyond the display edge.
+                    grid=np.unique(np.r_[np.linspace(max(0,x[0]),min(xmax,x[-1]),1000),x[x<=xmax]])
+                    ax.plot(grid,PchipInterpolator(x,f,extrapolate=False)(grid),
+                        **{k:v for k,v in style.items() if k!='label'})
+                    if x[-1]<xmax:ax.plot([x[-1],xmax],[f[-1],f[-1]],**{k:v for k,v in style.items() if k!='label'})
+                else:ax.step(xx,ff,where='post',**{k:v for k,v in style.items() if k!='label'})
                 if xx[0]==0 and ff[0]>0:
                     ax.vlines(0,0,ff[0],color=style['color'],linewidth=style['linewidth'],linestyle=style['linestyle'],zorder=style['zorder'])
                 plotted.extend(dict(dataset=ds,model=model,metric=metric,error_ms=float(a),cdf=float(b)) for a,b in zip(xx,ff))
@@ -78,11 +85,11 @@ def main(main_figure=True):
                 tails.append(dict(dataset=ds,model=model,metric=metric,display_limit_ms=xmax,cdf_at_display_limit=float(ff[-1]),
                     fraction_above_display_limit=float(1-ff[-1]),cdf_at_150_ms=f150,
                     fraction_above_150_ms=1-f150,maximum_existing_error_ms=float(x[-1])))
-            ax.set(xlim=(0,xmax),ylim=(0,1),xlabel='Absolute error (ms)' if not main_figure or row==1 else '',title=metric.upper())
+            ax.set(xlim=(0,xmax),ylim=(0,1),xlabel='Error (ms)' if main_figure else 'Absolute error (ms)',title=metric.upper())
             if col==0:ax.set_ylabel('CDF')
             ax.set_xticks([0,40,80,120] if main_figure else [0,50,100,150])
             ax.set_yticks([0,.5,1] if main_figure else [0,.25,.5,.75,1]);ax.tick_params(labelleft=True)
-            ax.spines[['top','right']].set_visible(False);ax.grid(False)
+            ax.spines[['top','right']].set_visible(main_figure);ax.grid(False)
             ax.text(-.20,1.055,f'({chr(97+row*4+col)})',transform=ax.transAxes,fontsize=8,fontweight='bold',va='bottom')
             if main_figure:
                 a=medians[ds,'rem_net',metric];b=medians[ds,MAIN_BASELINES[ds],metric]
@@ -125,6 +132,9 @@ def main(main_figure=True):
         caption=caption.replace('REM-Net and five adapted baselines','REM-Net and one dataset-specific adapted baseline')
         caption=caption.replace('Only0--150 ms is displayed; tails beyond150 ms remain in the CDF denominator.',
             'Only0--120 ms is displayed; all tails beyond120 ms remain in the CDF denominator.')
+        caption=caption.replace('Curves are exact steps, without interpolation or smoothing.',
+            'Curves use monotone piecewise-cubic interpolation (PCHIP) through the existing empirical CDF knots for visualization; '
+            'inter-knot values are interpolated, not additional observations. Medians use the original empirical nodes.')
         caption+=' Median annotations give the existing full-distribution, equal-subject CDF median (REM-Net first), without display-range truncation. '+rule
         for filename in ('caption.tex','caption_supplement.tex'):
             (OUT/filename).write_text('\\caption{Supplementary figure. '+supplement+'}\n')
@@ -151,9 +161,10 @@ def main(main_figure=True):
         'R-MDR main-table reference is included as requested. The current local Table_baseline_compare.tex has no literal R-MDR heading; verify that the final manuscript main table includes the corresponding version before publication. This task does not edit that table.',
         '## Style and preservation',
         'Canonical method encodings are in scripts/figures/paper_method_styles.py for reuse by future paper plots. Existing figures are not silently recolored; the requested original two-method version is preserved byte-for-byte.',
-        ('7.16x3.2in;2x4 panels Q/R/S/T, STIX,8pt axis labels/7pt ticks, row-specific legends,0–120ms and0–1 axes.' if main_figure else
+        ('7.16x3.65in;2x4 panels Q/R/S/T, STIX,8pt axis labels/7pt ticks, row-specific legends,0–120ms and0–1 axes.' if main_figure else
          '7.16in wide;2x4 panels Q/R/S/T, STIX,8pt axis labels/7pt ticks, one shared legend,0–150ms and0–1 axes.')+
-         ' REM-Net is drawn last at highest zorder. No smoothing, PCHIP or endpoint-error recomputation.',
+         (' REM-Net is drawn last at highest zorder. Main curves use monotone PCHIP through original knots; no endpoint-error recomputation.' if main_figure else
+          ' REM-Net is drawn last at highest zorder. No smoothing, PCHIP or endpoint-error recomputation.'),
         '', 'See visible_tail_fractions.csv for conditional mass above the display boundary and150ms, and source_cdf_nodes.csv for the unchanged input nodes.']
     if main_figure:
         report[0]='# Main-text localization CDF: dataset-specific strongest baseline'
@@ -162,7 +173,8 @@ def main(main_figure=True):
             'Main: fig_localization_cdf_main.pdf/svg/png. Supplement: existing fig_localization_cdf_all.pdf/svg/png, unchanged. Supplement caption: ../localization_cdf_all_20261029/caption_supplement.tex.',
             'Selected source distributions:16; all measured nodes match the corresponding distributions in the six-method figure exactly. Method colors, line styles and CDF denominators are unchanged.']
         report+=['','## Main-figure presentation revision',
-            '7.16x3.2in; no figure-level legend; lower-right legend in the first panel of each row above a separate median annotation. Row titles name the selected baseline. Only bottom-row x labels; y ticks0/0.5/1; display range0–120ms with ticks0/40/80/120.',
+            '7.16x3.65in IEEE double-column; row-specific lower-right legends, unchanged medians. All8 panels have Error (ms) x labels and top/right spines; y ticks0/0.5/1; display range0–120ms with ticks0/40/80/120.',
+            'PCHIP is display-only, monotone and passes through every original CDF knot. Inter-knot values are interpolated, not exact ECDF values or extra observations. Original knots beyond120ms are included in the fit to avoid a fabricated boundary plateau. The six-method supplementary figure stays an exact-step plot.',
             'All8 median labels directly reuse p50_ms in the existing all_methods_metrics.csv (inverse equal-subject empirical CDF), not a newly pooled median and not a median recomputed after120ms truncation. Exact values are in median_annotations.csv. The display alone changes; raw errors, source nodes and denominators remain unchanged.']
     (out/'REPORT.md').write_text('\n'.join(report)+'\n')
     assert all(sha(Path(p))==h for p,h in original.items()),'Original comparison figure changed'
