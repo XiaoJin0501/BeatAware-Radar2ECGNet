@@ -26,3 +26,19 @@ Outputs: fig_bland_altman_v2.pdf/svg/png, bland_altman_stats_v2.csv, new
 source_data/phase_pd_bland_altman_v2_20261029/REPORT.md, subject means, display
 overflow and per-window/summary HR CSVs and source-hash manifest. Three tests
 passed; visual inspection complete; all original output hashes preserved.
+
+Follow-up author revision: lower-left annotations preferred with rendered marker
+and LoA clearance checks; occupied panels use upper-left with symmetric expanded
+headroom. Both original beat-level cluster-bootstrap slope/CI and NEW equal-weight
+subject-mean OLS/bootstrap10000seed42 are exported; the plotted line now uses only
+the subject-mean fit and its CI. Legacy original columns are unchanged.
+MMECG QRS has beat slope+0.8334 but subject-mean slope−1.8375 (CI−4.0011,
+−0.2457); these are different levels of variation, not interchangeable fits.
+Worst absolute CR_RVS QT subject mean:22, officialGDN0022, mean−95.90ms,
+MAE101.95ms, coverage167/828=20.17%. Scenes: Resting80windows/47matched of339
+eligible, Valsalva80/69of342, Apnea37/51of147. Matched error median−100ms,
+IQR[−115,−85]ms, range[−175,+130]ms;97.01% negative. Full eligible pairs,
+5ms error histogram and scene summaries separately exported. No outliers removed
+or offset subtracted; this is a conditional automated-delineation result.
+Seven tests pass, including equal-subject fitting despite unequal beat counts,
+preservation of original columns, and lower-left annotation preference.
