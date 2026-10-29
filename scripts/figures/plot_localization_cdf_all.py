@@ -1,4 +1,8 @@
-"""Read ONLY existing CDF nodes: no error recomputation, inference or training."""
+"""Default: REM-Net vs one baseline per dataset (Chen-TCN / Conformer).
+
+Run without flags for the main-text figure. Use --all for the six-method
+supplement. Read ONLY existing CDF nodes; no recomputation or model inference.
+"""
 import os
 os.environ.setdefault('MPLBACKEND','Agg')
 import sys,csv,json,hashlib
@@ -29,7 +33,7 @@ def visible_step_nodes(x,f,xmax=150.):
     if xx[-1]<xmax:xx=np.r_[xx,xmax];ff=np.r_[ff,ff[-1]]
     return xx,ff
 
-def main(main_figure=False):
+def main(main_figure=True):
     out=FIG/'source_data/localization_cdf_main_20261029' if main_figure else OUT
     stem='fig_localization_cdf_main' if main_figure else 'fig_localization_cdf_all'
     out.mkdir(parents=True,exist_ok=True)
@@ -175,5 +179,12 @@ def main(main_figure=False):
 
 if __name__=='__main__':
     import argparse
-    parser=argparse.ArgumentParser();parser.add_argument('--main',action='store_true');args=parser.parse_args()
-    main(main_figure=args.main)
+    parser=argparse.ArgumentParser(description=__doc__)
+    group=parser.add_mutually_exclusive_group()
+    group.add_argument('--main',dest='main_figure',action='store_true',
+        help='Main figure: MMECG vs Chen-TCN; CR_RVS vs Conformer (default)')
+    group.add_argument('--all',dest='main_figure',action='store_false',
+        help='Supplementary figure: all six methods')
+    parser.set_defaults(main_figure=True)
+    args=parser.parse_args()
+    main(main_figure=args.main_figure)
