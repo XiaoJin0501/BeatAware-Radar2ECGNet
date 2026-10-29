@@ -20,7 +20,7 @@ from matplotlib.patches import Patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 DEFAULT_SOURCE = ROOT / "docs/paper/source_data/2026-10-16_existing_remnet_v1/tables/remnet_seed42_subject_state_metrics.csv"
-DEFAULT_OUTPUT = ROOT / "docs/paper/sections/figures/fig_mmecg_subject_wise_results"
+DEFAULT_OUTPUT = ROOT / "docs/paper/sections/figures/fig_scenario_wise_results"
 EVENT_COLORS = {"q": ("#D55E00", "#F2C1A6"), "r": ("#009E73", "#A6DCC9"),
                 "s": ("#CC79A7", "#EBC5DA"), "t": ("#E69F00", "#F5D79A")}
 SCENARIOS = {
