@@ -42,3 +42,12 @@ IQR[−115,−85]ms, range[−175,+130]ms;97.01% negative. Full eligible pairs,
 or offset subtracted; this is a conditional automated-delineation result.
 Seven tests pass, including equal-subject fitting despite unequal beat counts,
 preservation of original columns, and lower-left annotation preference.
+
+2026-10-30 author display-only revision: remove every orange regression line.
+Added --render-only, reading saved pairs and stats without refitting or running
+HR attribution. Preserved previous x limits via data-limit updates, retaining
+all other elements. SHA256 checks confirm unchanged stats CSVs, paired values,
+subject means and display-overflow CSV. SVG has no orange strokes. Report
+explains that regression_line_drawn is now a historical eligibility column;
+all numerical slope/CI values remain unchanged. Exported7.16x3.6in PDF/SVG/PNG
+and IEEEtran figure* inclusion snippet. Render-only manifest saved separately.

@@ -202,10 +202,12 @@ def render(pairs,stats):
             ax.scatter(sx,sy,s=14,c=COLOR,edgecolors='white',linewidths=.5,zorder=4)
             ax.axhline(0,color='#BDBDBD',lw=.5)
             for key,ls in (('bias','-'),('loa_low','--'),('loa_high','--')):ax.axhline(float(s[key]),color=COLOR,ls=ls,lw=.8)
-            significant=s['regression_line_drawn']
+            significant=str(s['regression_line_drawn']).lower()=='true'
             if significant:
                 xx=np.array([min(sx),max(sx)]);span=max(np.ptp(xx)*.12,1);xx+=np.array([-span,span])
-                ax.plot(xx,float(s['subject_mean_intercept'])+float(s['subject_mean_slope'])*xx,':',color='#D55E00',lw=.8)
+                # Retain the previous horizontal limits without drawing a fit.
+                ax.update_datalim(np.c_[xx,np.zeros(2)])
+                ax.autoscale_view(scalex=True,scaley=False)
             text=minus(f"Bias {float(s['bias']):.1f} [{float(s['bias_ci_low']):.1f}, {float(s['bias_ci_high']):.1f}] ms\nLoA [{float(s['loa_low']):.1f}, {float(s['loa_high']):.1f}] ms")
             lo=5*np.floor(d.min()/5);hi=5*np.ceil(d.max()/5)
             edges=np.arange(lo,hi+5.01,5)
@@ -241,7 +243,7 @@ def main():
     lines=['# REM-Net phase_pd Bland–Altman v2 (presentation-only)', '',
         'Original paired values, bias, LoA, coverage, ICC and beat-level slope/CI are unchanged. Subject-mean slope/CI newly added. No training or model inference. Original plots and REPORT.md are retained.',
         'Main scatter: one mean paired-average and one mean paired-difference per subject (11/30 subjects); bias and repeated-observation LoA remain from original individual beat pairs.',
-        'Regression now fits the subject-mean points with equal subject weight and is drawn ONLY when its subject-bootstrap95%CI excludes0. Both slopes/CI are exported. The sidebar includes ALL paired beat differences with5ms histogram bins; its shared display range clips the view, not statistics or histogram input.',
+        'All proportional-bias regression lines are omitted from the current figure at author request2026-10-30. Both beat-level and subject-mean slopes/CI remain in the statistics. The legacy regression_line_drawn column records the PREVIOUS CI eligibility rule, not the current display. The sidebar includes ALL paired beat differences with5ms histogram bins; its shared display range clips the view, not statistics or histogram input.',
         'Subject-mean OLS uses10000 subject resamples, local RNGseed42; degenerate x-variance bootstrap draws are excluded and their counts recorded. No within-subject resampling. Legacy slope/slope_ci columns remain aliases of beat-level values; explicit beat_slope and subject_mean_slope columns remove ambiguity.',
         'Beat-level slope and its95%CI retain the original pooled paired-beat OLS and10000 whole-subject cluster bootstrap (seed42), with every selected subject contributing all its paired beats on each draw. It is not a regression on subject means.',
         'Symmetric limits cover the original LoA with15% margin. Where a subject mean exceeds this range, limits expand to include that mean with15% margin so that all11/30 subjects remain visible. This affects CR_RVS QT (subject22 mean difference −95.90ms); no subject point or beat is omitted and no triangles are used.',
@@ -249,7 +251,7 @@ def main():
         'Annotations first try lower-left, including a position just above the lower LoA. Point-marker extent and LoA-line clearance are checked in rendered coordinates. If occupied, use upper-left and expand the symmetric y-range as needed. Display-overflow fractions below use FINAL display limits. No data points are moved.',
         '', '## Beats outside symmetric display limits', '|Dataset|Metric|N pairs|Below|Above|Outside %|','|---|---|---:|---:|---:|---:|']
     for r in overflow:lines.append(f"|{r['dataset']}|{r['metric']}|{r['n_pairs']}|{r['beats_below']}|{r['beats_above']}|{100*r['beat_fraction_outside']:.3f}|")
-    lines+=['','## Proportional bias: two levels', '|Dataset|Metric|Beat slope [95% CI]|Subject-mean slope [95% CI]|Draw line|','|---|---|---|---|---|']
+    lines+=['','## Proportional bias: two levels', '|Dataset|Metric|Beat slope [95% CI]|Subject-mean slope [95% CI]|Historical CI eligibility|','|---|---|---|---|---|']
     for r in selected:lines.append(f"|{r['dataset']}|{r['metric']}|{float(r['beat_slope']):.4f} [{float(r['beat_slope_ci_low']):.4f}, {float(r['beat_slope_ci_high']):.4f}]|{r['subject_mean_slope']:.4f} [{r['subject_mean_slope_ci_low']:.4f}, {r['subject_mean_slope_ci_high']:.4f}]|{r['regression_line_drawn']}|")
     lines+=['','## CR_RVS worst absolute subject-mean QT bias',
         f"- Pipeline subject ID **{worst['subject']}**, official ID **{worst['official_subject_id']}**; mean signed error **{worst['bias_ms']:.2f}ms**, MAE **{worst['mae_ms']:.2f}ms**.",
@@ -278,4 +280,10 @@ def main():
         script_sha256=sha(Path(__file__)),original_statistics_unchanged=True,added_subject_mean_slopes=True),indent=2)+'\n')
     print('V2 complete:',OUT)
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    import argparse
+    parser=argparse.ArgumentParser();parser.add_argument('--render-only',action='store_true',
+        help='Redraw saved paired values/statistics without recomputing any statistics')
+    args=parser.parse_args()
+    if args.render_only:render(read(SOURCE/'paired_values.csv'),read(FIG/'bland_altman_stats_v2.csv'))
+    else:main()
