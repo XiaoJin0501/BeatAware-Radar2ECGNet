@@ -37,3 +37,15 @@ original two-method plot also unchanged. Main16 distribution node arrays
 verified equal to corresponding six-method arrays. Three data-integrity tests
 pass; main PNG visually inspected, one shared three-entry legend with dataset
 qualifiers. Input model/data lineage remains the original dual-head seed42.
+
+Main-figure beautification:7.16x3.2in,0–120ms ticks0/40/80/120, y ticks0/.5/1.
+Removed top legend; first panel of each row has its own lower-right2-entry
+legend, vertically separated from6.3pt median text. Row titles name the baseline;
+x labels bottom row only; CDF label first column only. All8 median annotations
+reuse existing p50_ms (equal-subject CDF median, full error support), never a
+median of120ms-cropped observations. Existing error data remain unchanged; only
+display nodes clip at120ms with original tail denominator. Medians exported in
+median_annotations.csv. Main caption states selection, weighting and actual
+R-anchored150ms matching; no falsely endpoint-truncated claim. Supplement graph
+files unchanged. Three existing data-integrity tests pass; main PNG visually
+checked and PDF dimensions515.52x230.4pt confirmed.
