@@ -27,19 +27,39 @@ def save(p,rows):
         w=csv.DictWriter(f,fieldnames=list(rows[0]));w.writeheader();w.writerows(rows)
 
 def centre_events(a):
-    """One complete ordered group nearest centre, from unchanged predicted times."""
-    points={e:np.asarray(a['pred_'+e],float) for e in 'qrst'};groups=[]
-    for ri,r in enumerate(points['r']):
-        if not 0<=r<1024:continue
-        q=points['q'][(points['q']<r)&(points['q']>=r-20)&(points['q']>=0)]
-        s=points['s'][(points['s']>r)&(points['s']<=r+21)&(points['s']<1024)]
-        if not len(q) or not len(s):continue
-        q=float(q.max());s=float(s.min())
-        upper=min(1024,s+91,float(points['r'][ri+1]) if ri+1<len(points['r']) else 1024)
-        t=points['t'][(points['t']>=s+8)&(points['t']<upper)]
-        if len(t):groups.append(dict(q=q,r=float(r),s=s,t=float(t.min())))
-    if not groups:raise ValueError('No complete visible predicted Q/R/S/T group; never replace the selected example')
+    """One stored NeuroKit2 reference group nearest centre; never relocate points."""
+    points={e:np.asarray(a['ref_'+e],float) for e in 'qrst'};groups=[]
+    if len({len(v) for v in points.values()})!=1:raise ValueError('Reference event arrays must retain beat correspondence')
+    for i in range(len(points['r'])):
+        group={e:float(points[e][i]) for e in 'qrst'};v=list(group.values())
+        if np.isfinite(v).all() and 0<=v[0]<v[1]<v[2]<v[3]<1024:groups.append(group)
+    if not groups:raise ValueError('No complete visible reference group; no waveform-based substitution')
     return min(groups,key=lambda p:(abs(p['r']-512),p['r']))
+
+def reference_labels(fig,ax,events,wave):
+    """Automated text layout; endpoint samples and waveform values remain fixed."""
+    fig.canvas.draw();renderer=fig.canvas.get_renderer();occupied=[];logs=[]
+    wave_path=ax.lines[0].get_path().transformed(ax.transData)
+    margin=fig.dpi*.8/72
+    # One generic search for all panels/classes, not hand-tuned by example.
+    candidates=sorted([(dx,dy) for dy in (3,5,8,11,15,19) for dx in (0,-7,7,-12,12,-18,18,-24,24)],
+        key=lambda v:(v[0]**2+v[1]**2,abs(v[0]),v[1],v[0]))
+    for event,sample in events.items():
+        value=float(np.interp(sample,np.arange(1024),wave));anchor=np.array([sample/200,value])
+        pixel=ax.transData.transform(anchor)
+        text=ax.text(*anchor,event.upper(),ha='center',va='center',fontsize=6.3,fontweight='bold',color=COLORS[event],zorder=7)
+        for dx,dy in candidates:
+            label_xy=ax.transData.inverted().transform(pixel+np.array([dx,dy])*fig.dpi/72)
+            text.set_position(label_xy);box=text.get_window_extent(renderer).padded(margin)
+            inside=box.x0>=ax.bbox.x0 and box.x1<=ax.bbox.x1 and box.y0>=ax.bbox.y0 and box.y1<=ax.bbox.y1
+            if inside and not wave_path.intersects_bbox(box,filled=False) and not any(box.overlaps(b) for b in occupied):
+                occupied.append(box);break
+        else:raise RuntimeError('No nonoverlapping automatic reference label placement')
+        ax.plot(*anchor,'o',ms=1.8,color=COLORS[event],mew=0,zorder=6)
+        ax.annotate('',xy=anchor,xytext=label_xy,arrowprops=dict(arrowstyle='-',color=COLORS[event],lw=.35,shrinkA=3,shrinkB=1),zorder=6)
+        logs.append(dict(event=event,reference_sample=sample,reference_time_seconds=sample/200,waveform_value=value,
+            label_offset_x_pt=dx,label_offset_y_pt=dy,source='stored_NeuroKit2_reference',row='gt'))
+    return logs
 
 def make_panel(fig,x,y,w,h,radar=False):
     ax=fig.add_axes([x/WIDTH,y/HEIGHT,w/WIDTH,h/HEIGHT]);ax.set_xlim(0,5.12)
@@ -109,17 +129,9 @@ def plot(cases):
                     label=ax.text(.985,.985,f"PCC {meta['panel_pcc'][key]:.2f}",transform=ax.transAxes,
                         ha='right',va='top',fontsize=6.3,zorder=7)
                     pcc_texts.append((ax,label))
-                if key=='rem_net':
+                if key=='gt' and col==0:
                     event=centre_events(a)
-                    for e,sample in event.items():
-                        value=float(np.interp(sample,np.arange(1024),wave));dx={'q':-7,'r':0,'s':7,'t':2}[e]
-                        dy=min(3 if e=='r' else 5,max(0,(1.16-value)/1.38*h*72))
-                        ax.plot(sample/200,value,'o',ms=1.8,color=COLORS[e],mew=0,zorder=6)
-                        ax.annotate(e.upper(),(sample/200,value),xytext=(dx,dy),textcoords='offset points',
-                            ha='center',va='center',fontsize=6.3,fontweight='bold',color=COLORS[e],
-                            arrowprops=dict(arrowstyle='-',color=COLORS[e],lw=.35,shrinkA=1,shrinkB=1),zorder=6)
-                        annotations.append(dict(dataset=ds,scene=meta['scene'],event=e,predicted_sample=sample,
-                            predicted_time_seconds=sample/200,waveform_value=value))
+                    annotations.extend(dict(dataset=ds,scene=meta['scene'],**r) for r in reference_labels(fig,ax,event,wave))
                 if col==0:
                     name={'radar':'Radar input','gt':'GT ECG',**previous.NAMES}[key]
                     ax.text(-.035,.5,name,transform=ax.transAxes,ha='right',va='center',fontsize=7.5,
@@ -154,7 +166,7 @@ def main():
     old_report=old_report.split('## Layout and integrity')[0].split('\n',1)[1]
     old_report=old_report.replace(
         'Predicted Q/R/S/T strips retain cached event times from independently centred REM-Net event outputs, associated to the reference cycle for this reference-assisted morphology view. Reference endpoints use frozen prominence on the same reference ECG. No markers on waveform curves.',
-        'Cached predicted event times originate from independently centred REM-Net event outputs and are retained unchanged in v4. The earlier strip presentation is replaced by direct annotations described above.')
+        'Cached predicted event times remain unchanged in the source but are not displayed on any REM-Net trace. Optional reference annotations are described above.')
     for name in ('baseline_selection.csv','per_beat_results.csv'):
         (OUT/name).write_bytes((SOURCE/name).read_bytes())
     report=['# Examples v4: layout-only revision','',
@@ -164,7 +176,8 @@ def main():
         '7.16x6.3in IEEE double-column. Both datasets fill the same panel-area extent (row-label margin retained): MMECG4x1.5in columns with0.06in gaps; CR_RVS3x2.0in columns with0.09in gaps, exactly4/3 width. No unused column, event strip or in-figure legend. Each block has its own right-aligned true1s scale below the final row.',
         'Radar0.42in and ECG0.48in row heights;0.04in gaps; title/scenario gap0.08in; between blocks approximately0.15in after the first block scale bar. Full geometry and scale calibration exported.',
         'All normalized ECG axes use[−0.08,1.30], black0.6pt waves, pale grids#F3D3D3/#FAEAEA. Radar retains native signed amplitude and its existing limits, not the ECG0–1 range, to avoid hiding negative phase data. Radar waveform line is also0.6pt. AllPCC labels6.3pt, upper-right, no white patch; rendered text bottoms checked above maximum normalized signal1.0.',
-        'Q/R/S/T now appear directly on REM-Net, one complete ordered predicted-event group nearest the5.12s centre (deterministic, no quality selection). Colors unchanged. Marker x coordinates are the original predicted times, never moved to nearby wave maxima; marker y is sampled from the displayed morphology. This reference-RR morphology view can therefore have event times different from visible extrema. Direct labels do NOT assert waveform/anchor identity. Exact selected times saved in event_annotations.csv.',
+        'All Q/R/S/T markers, labels and leaders are removed from EVERY REM-Net panel. This figure presents morphology only; timing is reported in the CDF and Bland–Altman figures.',
+        'Optional reference-only Q/R/S/T annotations appear on the GT ECG in Normal breathing and Resting only. The complete reference beat nearest centre is selected from the stored NeuroKit2 prominence arrays, keeping same-beat correspondence and exact endpoint sample positions. These arrays were previously derived on the SAME scoring reference. No new delineation, peak search or manual endpoint shift. Text positions use a generic automatic pixel-space collision search against the waveform and earlier letters; no case-specific manual positions. Exact reference samples and label offsets saved in event_annotations.csv.',
         '## Apnea reference recheck',
         'CR_RVS Apnea: subject20, CRRVS_0055, fold2 test row953, input start41600; central[41888,42912). Same cached filtered ECG reference used in allPCC target construction; native display and200point targets reverified, as well as positive-affine identity with the0.5–40Hz200Hz raw-record reference cache (PCC>1−1e−10). No smoothing or noise removal added.',
         'This original reference contains substantial10–40Hz content (43.1085% of0.5–40Hz Welch power for this window), retained in both reference target and plotted trace. Beat min–max can make high-frequency variations prominent. It is not caused by a new renderer or a different ECG version. Physiological detail versus acquisition/artifact origin cannot be established from this audit; no unsupported cause is claimed.',
@@ -173,8 +186,9 @@ def main():
     caption=('Reference-timed morphology examples of REM-Net, Chen-TCN and radarODE-MTL, '
         'the two adapted baselines with the highest Table-I morphology PCCs. Each scenario uses the same median-rule test '
         'subject/window as the previous examples; all methods share that window and independently decode every beat. '
-        'Beats are placed on reference R--R intervals; timing is evaluated separately. Colored Q/R/S/T labels mark '
-        'unchanged predicted event times for a centre-nearest complete group, not a new delineation of the reference-placed waveform. '
+        'Beats are placed on reference R--R intervals; this figure presents morphology only, with timing evaluated in the CDF and Bland--Altman analyses. '
+        'Colored Q/R/S/T markers on the first-column reference ECGs illustrate stored NeuroKit2 reference endpoints of the central complete beat, '
+        'without manual endpoint adjustment. REM-Net traces carry no event markers. '
         'Gray dashed lines denote reference R peaks. PCC values are the original mean per-beat morphology scores. '
         'Every panel spans5.12s; each block has its own correctly calibrated1s scale. The Apnea reference retains '
         'its original high-frequency content and uses the same preprocessing as its scoring reference.')
