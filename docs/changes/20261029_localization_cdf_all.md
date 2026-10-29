@@ -24,3 +24,16 @@ source nodes, displayed nodes, tail fractions, caption, report and hash manifest
 Visually checked single-row legend, all48 curves and panel labels. PDF
 515.52x277.2pt, embedded STIX TrueType. Data-integrity tests cover retained tail
 denominator, exact boundary CDF and rejection of invalid empirical nodes.
+
+Follow-up: --main exports fig_localization_cdf_main with2 curves per panel:
+REM-Net vs Chen-TCN for MMECG, vs Conformer for CR_RVS. Fixed dataset-wide
+selection uses lowest mean of the four EXISTING subject-macro Q/R/S/T MAEs
+among baselines (40.8858ms Chen-MMECG;23.1893ms Conformer-CR_RVS); same
+baseline in all four panels, no per-panel selection. No errors are recomputed.
+Selection ranking is exported from the precomputed metric table. Both main and
+supplement captions explicitly state the display selection rule. Existing
+fig_localization_cdf_all.pdf/svg/png retained byte-for-byte as the supplement;
+original two-method plot also unchanged. Main16 distribution node arrays
+verified equal to corresponding six-method arrays. Three data-integrity tests
+pass; main PNG visually inspected, one shared three-entry legend with dataset
+qualifiers. Input model/data lineage remains the original dual-head seed42.
