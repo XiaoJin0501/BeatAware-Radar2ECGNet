@@ -28,6 +28,10 @@ def main():
  subject={};sources=[]
  baseline_events=SNAP/'original_reports/q1_formal_anchor_intervals/subject_seed_metrics.csv';sources.append(baseline_events)
  eventrows=list(csv.DictReader(baseline_events.open()))
+ baseline_clinical=ROOT/'docs/paper/sections/figures/source_data/baseline_clinical_20261101'
+ clinical_complete=(baseline_clinical/'manifest.json').exists() and json.loads((baseline_clinical/'manifest.json').read_text()).get('complete',False)
+ clinical_rows=list(csv.DictReader((baseline_clinical/'subject_metrics.csv').open())) if clinical_complete else []
+ if clinical_complete:sources.extend((baseline_clinical/'subject_metrics.csv',baseline_clinical/'manifest.json'))
  oldformal=list(csv.DictReader((FORMAL/'per_subject.csv').open()));sources.append(FORMAL/'per_subject.csv')
  for ds,nfold in (('mmecg',11),('crrvs',5)):
   for fold in range(1,nfold+1):
@@ -68,7 +72,16 @@ def main():
      for event in ('qrs','qt'):row[event]=row[event+'_coverage']=row[event+'_eligible']=row[event+'_matched']=None
      subject[key]=row
    print('Read test predictions',ds,fold,flush=True)
- # True clinical onset/offset intervals: current phase_pd assembled inference ONLY.
+ # Add newly completed native-baseline clinical inference when available; no zero-error imputation.
+ for key,row in subject.items():
+  ds,model,sid=key
+  if model=='rem_net' or not clinical_complete:continue
+  for metric in ('qrs','qt'):
+   c=next(x for x in clinical_rows if x['dataset']==ds and x['model']==model and int(x['subject'])==sid and x['metric']==metric)
+   row[metric]=float(c['mae_ms']) if c['mae_ms'] else None
+   row[metric+'_coverage']=float(c['coverage']);row[metric+'_eligible']=int(c['eligible']);row[metric+'_matched']=int(c['matched'])
+ # True clinical onset/offset intervals: existing phase_pd assembled inference.
+
  clinical_dir=ROOT/'docs/paper/sections/figures/source_data/phase_pd_bland_altman_20261029'
  pairs=clinical_dir/'paired_values.csv';manifest=clinical_dir/'manifest.json';sources.extend((pairs,manifest))
  assert json.loads(manifest.read_text())['gate_passed'],'Do not report failed roundtrip clinical outputs'
@@ -91,11 +104,14 @@ def main():
    for metric in FIELDS:
     values=[x[metric] for x in rows if x[metric] is not None]
     if values and len(values)!=count:
-     assert (ds,model,metric,len(values)) in {('mmecg','cross_modal_conformer',e,10) for e in ('q','r','s','t','rr')},'Unexpected missing subject'
-     assert next(r for r in rows if r[metric] is None)['subject']==9,'Only documented zero-match subject9 allowed'
+     if metric in ('qrs','qt') and clinical_complete:
+      assert all(x[metric+'_matched']==0 for x in rows if x[metric] is None),'Missing clinical MAE despite matched pairs'
+     else:
+      assert (ds,model,metric,len(values)) in {('mmecg','cross_modal_conformer',e,10) for e in ('q','r','s','t','rr')},'Unexpected missing subject'
+      assert next(r for r in rows if r[metric] is None)['subject']==9,'Only documented zero-match subject9 allowed'
     values=np.asarray(values,float);assert np.isfinite(values).all()
     coverage=[x[metric+'_coverage'] for x in rows if metric+'_coverage' in x and x[metric+'_coverage'] is not None]
-    summary.append(dict(dataset=ds,model=model,metric=metric,mean=float(values.mean()) if len(values) else None,std_population=float(values.std(ddof=0)) if len(values) else None,n_subjects=len(values),n_subjects_total=count,coverage_subject_mean=float(np.mean(coverage)) if coverage else None,source=('common frozen Shape200 targets / formal test predictions' if metric in ('pcc','rmse') else 'phase_pd continuous onset-offset pairs; roundtrip PASS' if metric in ('qrs','qt') and model=='rem_net' else 'unavailable: no verified clinical assembly evaluation' if metric in ('qrs','qt') else 'frozen structured event-head matching, seed42')))
+    summary.append(dict(dataset=ds,model=model,metric=metric,mean=float(values.mean()) if len(values) else None,std_population=float(values.std(ddof=0)) if len(values) else None,n_subjects=len(values),n_subjects_total=count,coverage_subject_mean=float(np.mean(coverage)) if coverage else None,source=('common frozen Shape200 targets / formal test predictions' if metric in ('pcc','rmse') else 'phase_pd continuous onset-offset pairs; roundtrip PASS' if metric in ('qrs','qt') and model=='rem_net' else ('native baseline independently decoded per-predicted-beat clinical endpoints' if clinical_complete else 'unavailable: no verified clinical assembly evaluation') if metric in ('qrs','qt') else 'frozen structured event-head matching, seed42')))
  save(OUT/'baseline_compare_verified.csv',summary)
  idx={(r['dataset'],r['model'],r['metric']):r for r in summary}
  def cell(ds,model,metric):
@@ -143,11 +159,18 @@ All assessable matched-event errors are reported conditionally; coverage and sam
 $^{\dagger}$MMECG Conformer timing and RR use 10/11 assessable subjects: subject 9 has zero matched events. Its zero coverage is retained; morphology uses all 11 subjects.
 Ranks use unrounded means; clinical columns available for only REM-Net are not ranked.
 '''
+ if clinical_complete:
+  note=note.replace(r'measured on assembled phase\_pd REM-Net waveforms using the frozen delineator after a passing roundtrip check.',
+   'measured using the frozen delineator after a passing roundtrip check. Baselines independently decode each predicted beat from its own centered 8-s radar context; REM-Net uses its native phase-conditioned decoder. Thus scoring is shared, while decoder input support differs.')
+  note=note.replace("``---'' denotes no verified clinical onset/offset evaluation for that baseline, not zero error.",
+   r"``---'' denotes no assessable matched clinical endpoints, not zero error. Clinical coverage and assessable-subject counts are given in Table~\ref{tab:baseline_clinical_coverage}.")
+  note=note.replace('Ranks use unrounded means; clinical columns available for only REM-Net are not ranked.',
+   'Ranks use unrounded conditional means; coverage must be considered when interpreting clinical errors.')
  text=text[:start]+note+text[end:]
  text=text.replace('Conformer~\\cite{cross-modalautoencoder}',r'Conformer~\cite{cross-modalautoencoder}$^{\dagger}$',1)
  TARGET.write_text(text);(OUT/'Table_baseline_compare_verified.tex').write_text(text)
  report=['# Verified full-test baseline comparison, 2026-11-01','',
- 'No training, model inference, new delineation or selected advantage-case data. Screenshot numbers ignored. REM-Net=full phase_pd/A4 seed-base42; baseline=original five adapted dual-head seed42 checkpoints. All formal test subjects retained for morphology/coverage. Conditional Conformer MMECG timing/RR has10/11 assessable subjects; subject9 has zero matches and is explicitly disclosed, never assigned zero error.',
+ 'This summarizer performs no training/model inference/delineation and uses no selected advantage-case data. Baseline clinical inputs, when available, come from separately authorized frozen inference. Screenshot numbers ignored. REM-Net=full phase_pd/A4 seed-base42; baseline=original five adapted dual-head seed42 checkpoints. All formal test subjects retained for morphology/coverage. Conditional Conformer MMECG timing/RR has10/11 assessable subjects; subject9 has zero matches and is explicitly disclosed, never assigned zero error.',
  '## Common aggregation (important change from older paper table)',
  'ALL six methods scored using exactly the same stored formal Shape-200 targets. Within-subject PCC uses frozen Fisher-z averaging, matching A4 formal ablation; then arithmetic mean over subjects. per_subject_verified.csv also preserves the alternative within-subject window-arithmetic PCC for audit; it is NOT the displayed table PCC. PCC and RMSE shown without SD,2decimals; event/interval MAE±populationSD over subjects1decimal. No fold-macro versus subject-macro mixing on CR_RVS. Thus baseline PCC differs from old window-arithmetic/fold-macro summary (e.g. Chen MM84.57% vs current86.54%); this is documented common aggregation, NOT improvement of weights or prediction changes. Current A4 PCC91.397%/90.445% matches formal ablation exactly. Supplement per_subject_verified.csv includes both actual values and all event sample counts/coverage.',
  'Events: original raw subject_seed_metrics.csv seed42 rows for five baselines; same frozen accumulator used for A4 with existing formal cached reference points and ordered-decoded saved probabilities. A4 Q/R/S/T rechecked against formal per_subject.csv to1e-7. RR is the direct event-head interval; no waveform/continuous-model RR substitution. All conditional errors are shown, including low-coverage Conformer, rather than NA gating. Coverage exported; no previously selected advantage-case subsets used. MMECG Conformer has zero matches for subject9: conditional MAE summaries use10/11 subjects, disclosed by dagger in table; morphology/coverage retain11.',
@@ -162,6 +185,19 @@ Ranks use unrounded means; clinical columns available for only REM-Net are not r
     x=idx[ds,model,metric];v=x['mean'];sd=x['std_population']
     values.append('—' if v is None else f'{v*100:.2f}' if metric=='pcc' else f'{v:.2f}' if metric=='rmse' else f'{v:.1f} ± {sd:.1f}')
    report.append('|'+ds+'|'+NAMES[model]+'|'+'|'.join(values)+'|')
+ if clinical_complete:
+  report=[line.replace('Five baselines have no equivalent verified clinical assembled evaluation in this source, so QRS/QT cells are unavailable.',
+   'Five baselines now use completed frozen native per-beat centered8s clinical inference in baseline_clinical_20261101. Their scoring reference/detector/matching/dedup are identical to REM-Net; their native shape heads require separately centered contexts and therefore radar input support is NOT identical to the REM single-parent-window decoder. All clinical means are conditional; incomplete subject assessment and coverage are supplied explicitly.')
+   .replace('Clinical comparison ranking disabled with only one method.','Clinical ranks use unrounded conditional means; low coverage can produce deceptively small errors, so do not infer clinical superiority from MAE alone.')
+   .replace('Null clinical baseline values intentional.','Any null clinical values mean no valid matched endpoints, never zero-imputed.')
+   .replace('no superiority marks for REM-only clinical columns.','all available clinical means ranked, with coverage disclosure.') for line in report]
+  report+=['','## Completed baseline clinical inference','Source: '+str(baseline_clinical/'REPORT.md'),
+   'Original baseline clinical cells were unavailable before this newly authorized inference. No weights or event/morphology numbers changed. Clinical baseline inputs use their own per-beat radar contexts rather than repeated representative templates. This uses potentially different radar context from REM-Net; do not call the full synthesis paths identical or compare total assembly latency with per-pass complexity table latency.',
+   '|Dataset|Method|Metric|Assessable/total subjects|Subject-mean coverage|','|---|---|---|---:|---:|']
+  for x in summary:
+   if x['metric'] in ('qrs','qt'):report.append(f"|{x['dataset']}|{NAMES[x['model']]}|{x['metric']}|{x['n_subjects']}/{x['n_subjects_total']}|{x['coverage_subject_mean']:.3%}|")
+  coverage=[dict(dataset=x['dataset'],model=x['model'],metric=x['metric'],n_assessable=x['n_subjects'],n_total=x['n_subjects_total'],coverage=x['coverage_subject_mean']) for x in summary if x['metric'] in ('qrs','qt')]
+  save(OUT/'clinical_coverage.csv',coverage)
  (OUT/'REPORT.md').write_text('\n'.join(report)+'\n')
  (OUT/'manifest.json').write_text(json.dumps(dict(training=False,inference=False,new_delineation=False,selected_advantage_cases=False,main_model='phase_pd A4 seed-base42',aggregation='subject macro; within-subject Fisher PCC; population SD',script_sha256=sha(__file__),previous_table_sha256=sha(original),source_sha256={str(p):sha(p) for p in set(sources)},output_sha256={str(p):sha(p) for p in (TARGET,OUT/'baseline_compare_verified.csv',OUT/'per_subject_verified.csv')}),indent=2))
  print('Complete:',OUT)
