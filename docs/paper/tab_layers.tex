@@ -1,0 +1,53 @@
+% Preamble: \usepackage{booktabs,threeparttable}
+\begin{table}[!t]
+\centering
+\caption{Layer configuration of REM-Net (phase\_pd; MMECG input; $B$: batch size).}
+\label{tab:layers}
+\begin{threeparttable}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Module & Layer / operation & Output shape \\
+\midrule
+Input & WSST map & $B\times50\times71\times240$ \\
+2D stem & Conv2D $50\to128$, $k=3\times3$ & $B\times128\times71\times240$ \\
+ & BN + GELU & $B\times128\times71\times240$ \\
+ & MaxPool2D $k=s=(2,1)$ & $B\times128\times35\times240$ \\
+ & Conv2D $128\to128$, $k=3\times3$ & $B\times128\times35\times240$ \\
+ & BN + GELU + Dropout2D $(p=0.1)$ & $B\times128\times35\times240$ \\
+ & AdaptiveAvgPool2D $(1,\mathrm{None})$ & $B\times128\times1\times240$ \\
+ & Squeeze frequency; linear $240\to400$ & $B\times128\times400$ \\
+\addlinespace[2pt]
+TCN ($\times5$) & Conv1D $128\to128$, $k=7$, $d$ & $B\times128\times400$ \\
+ & BN + GELU + Dropout $(p=0.1)$ & $B\times128\times400$ \\
+ & Conv1D $128\to128$, $k=7$, $d$ & $B\times128\times400$ \\
+ & BN + GELU; block residual addition & $B\times128\times400$ \\
+ & $d\in\{1,2,4,8,16\}$; RF $373$ positions & $7.46$ s (nominal) \\
+\addlinespace[2pt]
+Event path & Linear $400\to1600$ ($a_c=\mathrm{False}$) & $B\times128\times1600$ \\
+ & Conv1D $128\to64$, $k=5$ + BN + GELU & $B\times64\times1600$ \\
+ & Conv1D $64\to4$, $k=5$ (logits) & $B\times4\times1600$ \\
+ & Sigmoid for probabilities $P$ & $B\times4\times1600$ \\
+\addlinespace[2pt]
+Phase alignment & Ordered anchors + soft refinement; grid $t_i$ & $B\times200$ \\
+Phase sampling & Linear $\mathbf H$: $400\to1600$ ($a_c=\mathrm{True}$) & $B\times128\times1600$ \\
+ & Sample $[\mathbf H;\operatorname{sg}(P)]$ at $t_i$ & $B\times132\times200$ \\
+Window context & Linear $\mathbf H$: $400\to200$ ($a_c=\mathrm{False}$) & $B\times128\times200$ \\
+ & Concatenate phase features and context & $B\times260\times200$ \\
+\addlinespace[2pt]
+Shape head & Conv1D $260\to64$, $k=5$ + BN + GELU & $B\times64\times200$ \\
+ & Conv1D $64\to1$, $k=5$ + Sigmoid & $B\times1\times200$ \\
+\midrule
+Trainable parameters & \multicolumn{2}{l}{$1{,}481{,}029$ ($1.481$ M)} \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\scriptsize
+\item All convolutions have stride 1; stem convolutions have padding $(1,1)$ and dilation 1; head convolutions have padding 2 and dilation 1. TCN padding is $3d$ (noncausal, length preserving). Convolutions preceding BN have no bias; final head convolutions have bias. TCN residuals are block-local, with no extra global skip.
+\item RF $=1+2(7-1)\sum d=373$ latent positions at nominal 50 Hz ($400/8$), i.e., $7.46$ s; this is the TCN convolutional RF, not an exact raw-input RF including the stem/interpolation. Its first-to-last position span is $372/50=7.44$ s.
+\item $a_c$: \texttt{align\_corners}; sg: stop-gradient. Phase grid $t_i=a+(i/199)(b-a-1)$, $i=0,\ldots,199$, uses detached predicted R bounds $[a,b)$ at inference. Sampling uses bilinear \texttt{grid\_sample}, border padding, $a_c=\mathrm{True}$. No interpolation layer precedes the shape-head convolutions after concatenation.
+\item Event training uses logits with binary cross-entropy-with-logits; Sigmoid supplies probabilities for decoding/conditioning. Shape Sigmoid is applied after the final convolution. For CR\_RVS, input is $B\times1\times65\times93$; frequency pooling gives $65\to32\to1$, then temporal interpolation $93\to400$. Subsequent shapes are identical; its trainable parameter count is $1{,}424{,}581$.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
