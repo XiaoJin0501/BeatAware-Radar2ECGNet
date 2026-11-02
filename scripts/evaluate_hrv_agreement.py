@@ -166,6 +166,78 @@ def rem_anchors(shared,ds,fold,items,device,source_manifest,provenance):
  if device.startswith('cuda'):torch.cuda.empty_cache()
  return rs
 
+def dense_cr_anchors(shared, items, baseline_cp, provenance, device):
+ """Fill sparse CR test-window gaps, same frozen models and native4s grid."""
+ import torch, h5py
+ from torch.nn import functional as F
+ from scripts.figures import evaluate_baseline_clinical_intervals as native_eval
+ baseline_class=native_eval.DualEndpointBaseline
+ result={};audit=[]
+ for fold in range(1,6):
+  fi=[r for r in items if r['dataset']=='crrvs' and r['fold']==fold]
+  models={};fingerprints={}
+  for method in METHODS:
+   if method=='rem_net':
+    sel=json.loads((FORMAL/f'runs/crrvs/fold_{fold:02d}/A4/selected.json').read_text());cp=Path(sel['checkpoint']);fp=sel['checkpoint_sha256']
+   else:
+    sel=baseline_cp[f'crrvs:{fold}:{method}'];cp=Path(sel['path']);fp=sel['sha256']
+   assert sha(cp)==fp
+   provenance[str(cp)]=fp;fingerprints[method]=fp
+   model=shared.formal.model_for('crrvs','A4') if method=='rem_net' else baseline_class(method,in_bins=1)
+   model.load_state_dict(torch.load(cp,map_location='cpu',weights_only=False)['model'],strict=True)
+   models[method]=model.to(device).eval()
+  native=NativeInput('crrvs',fold,fi)
+  base_path=Path('/home/qhh2237/Datasets/CR_RVS/processed/q1_continuous_kfold')/f'fold_{fold:02d}/test.h5'
+  try:
+   for rid in sorted(set(x['record'] for x in fi)):
+    group=[x for x in fi if x['record']==rid]
+    with np.load(RAW/'CR_RVS'/(rid+'.npz')) as z:length=len(z['ecg'])
+    old_starts=set(x['start'] for x in group)
+    starts=sorted(set(range(0,length-1600+1,800))-old_starts)
+    path=OUT/f'anchor_cache/crrvs/fold_{fold:02d}/{rid}_extra.npz'
+    if path.exists():
+     with np.load(path,allow_pickle=True) as z:
+      assert np.array_equal(z['starts'],starts)
+      assert json.loads(str(z['checkpoint_sha256']))==fingerprints
+      result[fold,rid]=(np.array(starts),{method:list(z[method]) for method in METHODS})
+     continue
+    if not starts:
+     result[fold,rid]=(np.array([],int),{method:[] for method in METHODS});continue
+    raw=native_eval.helper.rawio.record_data('CR_RVS',rid,with_radar=True)
+    radar=raw['radar']
+    # Record-only preprocessing fidelity check, not a result-based adjustment.
+    check=group[len(group)//2]
+    generated=native_eval.helper.rawio.radar_window('CR_RVS',radar,check['start'])
+    with h5py.File(base_path) as h:stored=np.asarray(h['rcg'][check['index']],np.float32)
+    assert np.allclose(generated,stored,atol=2e-5,rtol=2e-5),'RCG preprocessing changed'
+    tf=native_eval.tf_worker(('crrvs',generated))
+    assert np.array_equal(tf,native.get(check).astype(np.float16)),'STFT preprocessing changed'
+    anchors={method:[] for method in METHODS}
+    with torch.no_grad():
+     for begin in range(0,len(starts),8):
+      x=np.stack([native_eval.helper.rawio.radar_window('CR_RVS',radar,start) for start in starts[begin:begin+8]])
+      rcg=torch.from_numpy(x).to(device)
+      tf=np.stack([native_eval.tf_worker(('crrvs',xx)) for xx in x]).astype(np.float32)
+      tf=torch.from_numpy(tf).to(device)
+      for method,model in models.items():
+       if method=='rem_net':
+        h=model.backbone(model.stem(tf));logits=model.anchor_head(F.interpolate(h,size=1600,mode='linear',align_corners=False))
+       elif method=='radarode_mtl':
+        logits=model(wsst=F.interpolate(tf,size=(71,240),mode='bilinear',align_corners=False))['anchor_logits']
+       else:logits=model(rcg=rcg)['anchor_logits']
+       for row,prob in zip(logits,logits.sigmoid().cpu().numpy()):
+        decoded=shared.formal.frozen.structured_decode(prob)
+        anchors[method].append(np.array([float(shared.soft_refine(row[1],v)) for v in decoded['r']],float))
+    np.savez_compressed(path,starts=np.array(starts),checkpoint_sha256=json.dumps(fingerprints),**{k:np.array(v,object) for k,v in anchors.items()})
+    result[fold,rid]=(np.array(starts),anchors)
+    audit.append(dict(fold=fold,record=rid,original_windows=len(group),added_windows=len(starts),rcg_match=True,stft_bitwise_match=True))
+    print(f'CR contiguous completion f{fold} {rid}: +{len(starts)} windows x6',flush=True)
+  finally:
+   native.close();models.clear()
+   if device.startswith('cuda'):torch.cuda.empty_cache()
+ save_csv(OUT/'dense_preprocessing_audit.csv',audit) if audit else None
+ return result
+
 def summarize(rows,shared):
  from scipy.stats import pearsonr
  result=[]
@@ -212,6 +284,7 @@ def report(rows,summary,records,provenance,shared):
         'Frozen specification: `docs/paper/hrv_agreement_20261103/spec.json`. All numbers below are copied from hrv_summary.csv; full individual accepted AND discarded segments are in hrv_segments.csv.',
         '', '## Interpretation and denominators',
         '- Short60s time-domain estimates, not standard long-duration clinical HRV validation. ECG R events are automated references, not adjudicated normal/sinus beats; corrected RR are not independently confirmed NN intervals.',
+        '- Original CR test windows were sparse. The first sparse-only pass is archived and NOT the final agreement analysis. Frozen-checkpoint inference fills missing4s-grid native radar windows for the same80 formal-test records; no ECG gating or threshold tuning. Per-record RCG/STFT fidelity audited in dense_preprocessing_audit.csv.',
         '- Recording-time-zero nonoverlapping60s segments; incomplete tail excluded and listed by record. All methods use the SAME native window ownership, no reference matching or lag correction. Native full8s-window edge anchors are retained at recording edges; this R-event-only analysis does not use the clinical waveform central5.12s cropping.',
         '- Prediction-only nearest-center native window ownership prevents duplicate overlapping-window events. No clustering or reference-driven beat assignment. Reference R from full record, never generated from window-normalized ECG.',
         '- Both signals corrected independently once. Local5-index median includes current RR and up to2 neighbors each side, excluding physiologically invalid entries from median; no iterative filtering. Remove relative deviations strictly>20%. Segment quality threshold>=80% separately for BOTH signals. At least2 keptRR required.',
@@ -258,6 +331,7 @@ def main():
    rs=rem_anchors(shared,ds,fold,fi,args.device,main_manifest,provenance)
    for item,r in zip(fi,rs):sources[(ds,fold,'rem_net',item['index'])]=r
    print(f'Cached refined REM anchors {ds}/{fold}',flush=True)
+ dense=dense_cr_anchors(shared,items,baseline_cp,provenance,args.device)
  rows=[];records=[]
  for ds,dsname,nf in shared.DATASETS:
   for fold in range(1,nf+1):
@@ -278,8 +352,13 @@ def main():
        assert str(z['checkpoint_sha256'])==cp['sha256'];rs=list(z['anchors'])
       assert len(rs)==len(group)
      rs=[rs[int(i)] for i in order]
+     final_starts=starts
+     if ds=='crrvs':
+      extra_starts,extra=dense[fold,rid]
+      combined=sorted(zip(list(starts)+list(extra_starts),rs+extra[method]),key=lambda pair:pair[0])
+      final_starts=np.array([x[0] for x in combined]);rs=[x[1] for x in combined]
      meta=dict(dataset=ds,fold=fold,subject=group[0]['subject'],record=rid,method=method)
-     rr,inv=paired_rows(meta,length,starts,rs,ref);rows+=rr;records.append(inv)
+     rr,inv=paired_rows(meta,length,final_starts,rs,ref);rows+=rr;records.append(inv)
    print(f'Segments computed {ds}/{fold}',flush=True)
  summary=summarize(rows,shared)
  save_csv(OUT/'hrv_segments.csv',rows);save_csv(OUT/'hrv_summary.csv',summary);save_csv(OUT/'record_inventory.csv',records)

@@ -5,9 +5,12 @@
   "checkpoint_selection": false,
   "rem": "formal_ablation_20261027 A4 selected.json, seed_base42 (actual42+fold), identical SHA256 to main-table/clinical manifest",
   "baselines": "five adapted dual-head main-table checkpoints; reuse full-precision soft-refined R anchors from completed baseline_clinical_20261101 cache, checking checkpoint hashes",
-  "datasets": {"mmecg":11,"crrvs":5},
-  "segment_samples":12000,
-  "sample_rate":200,
+  "datasets": {
+    "mmecg": 11,
+    "crrvs": 5
+  },
+  "segment_samples": 12000,
+  "sample_rate": 200,
   "segment_grid": "[0,12000),[12000,24000),... per recording; discard incomplete tail, count/report it separately; both R endpoints must be inside same segment",
   "stitch": "Full native8s windows, prediction-only nearest-window-center ownership. Interior boundaries are midpoints of adjacent window centers; half-open, ties go to later window. First/last window cover own start/end. Clip each owned region to its native1600-sample support. No GT matching, no offset correction, no template assembly. Fully uncovered signal time makes segment unavailable, separately reported.",
   "reference": "Frozen record-level raw_reference event_r at200Hz (NeuroKit2 reference ECG R peaks), same references as clinical evaluation; validate stored hashes",
@@ -15,5 +18,6 @@
   "eligibility": "Require >=80% raw RR retained for EACH signal; >=2 retained RR for SDNN/RMSSD. Summary uses paired intersection. No additional detection/matching/quality threshold. Pred/ref independent discard flags and counts retained.",
   "metrics": "HR=60/mean(retained RR); SDNN=sample std(retained RR)*1000; RMSSD=sqrt(mean(diff(retained RR)^2))*1000, adjacent entries of retained sequence, no synthetic RR or interpolation. Metrics are60s short-segment estimates, not long-term HRV.",
   "aggregation": "Individual paired segments pooled per dataset/method/metric for MAE,bias,Pearson r. Repeated LoA from unchanged shared.repeated_loa: one-way unequal-count ANOVA within+between subject variance; bias +/-1.96sqrt(total). Also report counts, subject count, prediction/reference removals, individual/paired discard rates; missing/no-data is never zero error.",
-  "output": "docs/paper/hrv_agreement_20261103; append numeric tables and producing commit/script to docs/paper/RESULTS_MANIFEST.md"
+  "output": "docs/paper/hrv_agreement_20261103; append numeric tables and producing commit/script to docs/paper/RESULTS_MANIFEST.md",
+  "coverage_completion": "Engineering correction before final reporting: CR formal test windows are sparse and fail contiguous60s support. For the SAME80 formal-test recordings, add missing native4s-grid8s radar windows with exact frozen preprocessing, run SAME six checkpoints, and union with original windows. No GT gating or threshold changes. Existing MM windows already cover every complete60s segment. CRRVS_0024 remains outside original formal-test record inventory."
 }
