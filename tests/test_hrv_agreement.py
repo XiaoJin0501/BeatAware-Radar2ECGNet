@@ -59,3 +59,12 @@ def test_corrupt_and_missing_predictions_are_not_silently_dropped():
 def test_keep_rejected_interval_gap_convention():
  rr=np.array([1.,1.1,.9])
  assert np.isclose(m.rr_metrics(rr)['rmssd'],np.sqrt((.1**2+.2**2)/2)*1000)
+
+def test_dense_native_grid_supports_all_complete_minute_segments():
+ length=121521  # A607.605s raw record; no padded input.
+ starts=np.arange(0,length-1600+1,800)
+ intervals=list(zip(*m.ownership(starts)))
+ assert all(m.covered(a,a+m.SEGMENT,intervals) for a in range(0,length-m.SEGMENT+1,m.SEGMENT))
+ sparse=starts[::10]
+ sparse_intervals=list(zip(*m.ownership(sparse)))
+ assert not m.covered(0,m.SEGMENT,sparse_intervals)

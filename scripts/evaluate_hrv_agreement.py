@@ -268,14 +268,45 @@ def summarize(rows,shared):
        pearson_r=correlation,within_variance=within,between_variance=between,**counts))
  return result
 
+def anchor_consistency(items,sources):
+ """Check native cached REM R against frozen clinical central-window HR."""
+ audit=[]
+ for ds,nf in [('mmecg',11),('crrvs',5)]:
+  for fold in range(1,nf+1):
+   path=ROOT/f'docs/paper/sections/figures/source_data/phase_pd_bland_altman_20261029/{ds}_fold_{fold:02d}_pairs.csv'
+   expected={(x['record'],int(x['start'])):float(x['pred']) for x in csv.DictReader(path.open()) if x['metric']=='hr'}
+   errors=[];disagree=0
+   for x in items:
+    if x['dataset']!=ds or x['fold']!=fold:continue
+    old=expected.get((x['record'],x['start']))
+    if old is None:continue
+    r=sources[(ds,fold,'rem_net',x['index'])];r=r[(r>=288)&(r<1312)]
+    new=12000/np.diff(r).mean() if len(r)>1 else np.nan
+    if np.isfinite(old) and np.isfinite(new):errors.append(abs(old-new))
+    else:disagree+=int(np.isfinite(old)!=np.isfinite(new))
+   assert not disagree and max(errors,default=0)<.001,'Frozen refined anchors differ'
+   audit.append(dict(dataset=ds,fold=fold,finite_pairs=len(errors),max_hr_difference_bpm=max(errors,default=0),finite_status_disagreements=disagree))
+ write_json(OUT/'refined_anchor_consistency.json',audit)
+ return audit
+
 def report(rows,summary,records,provenance,shared):
+ retention=[]
+ for ds in ('mmecg','crrvs'):
+  for method in METHODS:
+   subset=[r for r in rows if r['dataset']==ds and r['method']==method]
+   for sid in sorted(set(r['subject'] for r in subset)):
+    a=[r for r in subset if r['subject']==sid]
+    retention.append(dict(dataset=ds,method=method,subject=sid,n_segments=len(a),n_used=sum(r['used'] for r in a),n_pred_correction_failed=sum(not r['pred_acceptable'] for r in a),n_ref_correction_failed=sum(not r['ref_acceptable'] for r in a)))
+ save_csv(OUT/'subject_retention.csv',retention)
+ assert all(r['supported'] for r in rows),'Incomplete60s support remains'
+ assert len({(r['dataset'],r['record'],r['method'],r['segment_index']) for r in rows})==len(rows)
  commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
  script_sha=sha(Path(__file__))
  spec_path=OUT/'spec.json'
  frozen_source=ROOT/'docs/paper/sections/figures/source_data/phase_pd_bland_altman_20261029/manifest.json'
  info=dict(complete=True,training=False,date='2026-11-03',producing_commit=commit,script='scripts/evaluate_hrv_agreement.py',
            script_sha256=script_sha,spec_sha256=sha(spec_path),shared_repeated_loa_sha256=sha(ROOT/'docs/paper/sections/figures/plot_phase_pd_bland_altman.py'),
-           checkpoint_sha256=provenance,outputs={p.name:sha(p) for p in [OUT/'hrv_segments.csv',OUT/'hrv_summary.csv',OUT/'record_inventory.csv']},
+           checkpoint_sha256=provenance,outputs={p.name:sha(p) for p in [OUT/'hrv_segments.csv',OUT/'hrv_summary.csv',OUT/'record_inventory.csv',OUT/'subject_retention.csv',OUT/'dense_preprocessing_audit.csv',OUT/'refined_anchor_consistency.json']},
            reference_manifest_sha256=sha(frozen_source),reference_source='frozen record-level event_r',n_records=len(records)//len(METHODS))
  write_json(OUT/'manifest.json',info)
  lines=['# HR/HRV agreement — final phase_pd and adapted baselines','',
@@ -305,6 +336,10 @@ def report(rows,summary,records,provenance,shared):
  for ds in ('mmecg','crrvs'):
   rr=[r for r in records if r['dataset']==ds and r['method']=='rem_net']
   lines.append(f"- {ds}: records={len(rr)}, complete segments={sum(r['n_complete_60s_segments'] for r in rr)}, discarded incomplete-tail seconds={sum(r['tail_samples'] for r in rr)/FS:.6f}.")
+ lines+=['','## Subjects with zero retained segments','All candidates remain in the discard denominator; these subjects are not silently assigned zero error.','|Dataset|Method|Subject|Candidate segments|Pred failed|Ref failed|','|---|---|---|---:|---:|---:|']
+ for r in retention:
+  if r['n_used']==0:lines.append(f"|{r['dataset']}|{NAMES[r['method']]}|{r['subject']}|{r['n_segments']}|{r['n_pred_correction_failed']}|{r['n_ref_correction_failed']}|")
+ lines+=['','## Consistency audit','All16 original-window REM anchor sets reproduce the frozen clinical central-window HR (max difference<0.001bpm, floating-point implementation tolerance), with identical finite/unavailable status. Source: refined_anchor_consistency.json. Added contexts use exactly matching native RCG and bitwise float16 STFT on audited original windows; see dense_preprocessing_audit.csv.']
  text='\n'.join(lines)+'\n';(OUT/'REPORT.md').write_text(text)
  target=ROOT/'docs/paper/RESULTS_MANIFEST.md'
  marker='<!-- HRV_20261103 -->'
@@ -331,6 +366,7 @@ def main():
    rs=rem_anchors(shared,ds,fold,fi,args.device,main_manifest,provenance)
    for item,r in zip(fi,rs):sources[(ds,fold,'rem_net',item['index'])]=r
    print(f'Cached refined REM anchors {ds}/{fold}',flush=True)
+ anchor_consistency(items,sources)
  dense=dense_cr_anchors(shared,items,baseline_cp,provenance,args.device)
  rows=[];records=[]
  for ds,dsname,nf in shared.DATASETS:
