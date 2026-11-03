@@ -66,3 +66,24 @@ venv/
 *.pth
 *.ckpt
 *.bin
+
+# Local generated scientific artifacts (retained on disk, not discarded).
+# Source code/specifications at experiment roots and paper manuscript/figure
+# entry points remain visible to Git. Previously tracked files stay tracked.
+experiments/phase_resampling_20261027/stage0/
+experiments/phase_resampling_20261027/stage1/
+experiments/phase_resampling_20261027/formal_ablation_20261027/
+experiments/development/structured_decoder_v0_20261017_ab/raw_reference/
+experiments/development/structured_decoder_v0_20261017_ab/training_statistics/
+docs/paper/source_data/
+docs/paper/sections/figures/source_data/
+docs/paper/sections/results_verified_*/
+docs/paper/sections/ablation_merged_*/
+docs/paper/sections/complexity_*/
+docs/paper/hrv_agreement_20261103/anchor_cache/
+docs/paper/hrv_agreement_20261103/archive_sparse_test_windows/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/.cache/matplotlib/
+**/.cache/numba/

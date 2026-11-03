@@ -1,20 +1,13 @@
-# Experiment Governance
+# Current experiments and dependencies
 
-This directory stores machine-readable experiment specifications and run
-manifests. Large experiment outputs remain under ignored local result
-directories and should not be committed.
+- `phase_resampling_20261027/`: final REM-Net phase_pd architecture and full formal ablation.
+  Keep `formal_ablation_20261027/`, Stage0 evidence and Stage1 selected weights: some formal
+  cells reuse Stage1 checkpoints. Completed optimizer/resume states were archived externally;
+  selected best weights, predictions and logs remain.
+- `development/structured_decoder_v0_20261017_ab/`: still a runtime dependency despite its
+  historical name. Contains raw-reference caches, common inference/preprocessing and frozen
+  WSST source. Do not delete it merely because other development routes are closed.
+- `specs/`: only retained current/provenance/runtime-required specifications.
 
-```text
-experiments/specs/       planned experiment specifications
-experiments/manifests/   completed run manifests
-```
-
-There is exactly one experiment registry:
-
-```text
-experiments_mmecg/EXPERIMENT_REGISTRY.csv
-```
-
-New formal Q1 experiments should use `experiments/specs/` and
-`experiments/manifests/` in addition to the single registry. Do not create a
-second registry.
+Other closed development routes and specifications are recoverably stored outside this tree.
+See `../docs/CLEANUP_20261104.md`. No training was started by cleanup.

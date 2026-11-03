@@ -1,91 +1,40 @@
-# BeatAware-Radar2ECGNet Q1 Workspace
+# REM-Net
 
-This repository supports one Q1 journal objective: propose a new radar-to-ECG
-reconstruction model and demonstrate strong performance on both MMECG and
-CR_RVS, outperforming or comparing favorably with most relevant published and
-reproduced baselines under fair protocols.
+Radar-to-ECG research project. The current paper model is **REM-Net, `phase_pd`**.
+Formal results use MMECG 11-fold LOSO and CR_RVS 5-fold subject-independent evaluation.
+The `seed42` label means base seed42; actual initialization is42+fold.
 
-## Source of Truth
+## Start here
 
-Read these files first:
+- [Paper facts and source citations](docs/paper/PAPER_FACTS.md)
+- [Latest numeric results manifest](docs/paper/RESULTS_MANIFEST.md)
+- [Paper materials](docs/paper/)
+- [Current scripts](scripts/README.md)
+- [2026-11-04 cleanup / recovery map](docs/CLEANUP_20261104.md)
 
-```text
-AGENTS.md
-CLAUDE.md
-docs/agent/SHARED_CONTEXT.md
-docs/Q1_JOURNAL_MASTER_PLAN.md
-docs/PROJECT_STATE.md
-docs/RESEARCH_CONTRACT.md
-docs/DATA_PROTOCOL.md
-docs/METRIC_CONTRACT.md
-docs/EXPERIMENT_POLICY.md
-docs/AGENT_DEVELOPMENT_GUIDE.md
-docs/PAPER_CLAIM_LEDGER.md
-docs/GITHUB_WORKFLOW.md
-experiments_mmecg/EXPERIMENT_REGISTRY.csv
-experiments_mmecg/README.md
-experiments/README.md
-scripts/README.md
-src/README.md
-docs/DELETED_EXPERIMENTS_LOG.md
-reference_papers/README.md
-```
+## Directory map
 
-## Current Claim Status
+| Path | Purpose |
+|---|---|
+| `experiments/phase_resampling_20261027/` | Current architecture, formal ablation, selected weights and protocol |
+| `experiments/development/structured_decoder_v0_20261017_ab/` | Still-required frozen inference, raw-reference and preprocessing dependency |
+| `experiments_mmecg/` | Retained original dual-head/baseline weights used by current results |
+| `scripts/figures/` | Current figure/table scripts and their shared helper chain |
+| `docs/paper/source_data/` | Required baseline predictions, references and frozen code snapshot |
+| `docs/paper/sections/results_verified_20261101/` | Verified main-comparison table sources |
+| `docs/paper/hrv_agreement_20261103/` | Final60s HR/HRV paired exports and provenance |
+| `src/`, `tests/`, `configs/` | Shared implementation, active tests and configuration |
+| `reference_papers/`, `ICONIP2026/` | Reference literature and separate conference-paper material |
 
-The project uses a three-tier benchmark: Shape-200 morphology, strict blind
-full-window continuous ECG, and GT-assisted temporal-tolerance diagnostics.
-These endpoints must never be conflated.
+Historical experiments/scripts/specifications were moved **outside the working tree**,
+not mixed into the current model. Recovery details are in the cleanup report.
+Paper source data and selected weights are not disposable caches.
 
-```text
-MMECG REM-Net Shape-200 PCC ~= 0.885 (multi-seed stability result)
-CR_RVS REM-Net Shape-200 PCC ~= 0.886 (multi-seed stability result)
-MMECG repaired-split continuous PCC@0 = 0.223 (folds 1/5/9 diagnostic baseline)
-```
+## Runtime dependencies
 
-All current results are treated as `pilot` unless explicitly promoted in
-`experiments_mmecg/EXPERIMENT_REGISTRY.csv`.
+Existing evaluators pin `/tmp/rem_dual_head_formal`, the local datasets under
+`/home/qhh2237/Datasets/`, and the official radarODE source where applicable.
+Those external dependencies were not removed. The legacy WSST implementation
+still needed by inference now resides beside that inference helper, byte-for-byte unchanged.
 
-## Main Model
-
-`REM-Net`:
-
-```text
-Representation–Event–Morphology Network
-```
-
-The intended Q1 framing is a new representation-aware, event/morphology-guided
-radar-to-ECG model validated on two datasets.
-
-## Current Protocols
-
-| Dataset | Protocol | Use |
-|---|---|---|
-| MMECG public | 11-fold strict LOSO | Main benchmark |
-| CR_RVS / Nature | 5-fold subject-independent CV | External validation |
-
-## Next Formal Milestone
-
-The only active experiment is the registered `q1_loss_gate`, currently waiting
-for GPU release. It compares three single-term waveform objectives on repaired
-MMECG folds 1/5/9:
-
-```text
-L1: PCC loss
-L2: first-derivative loss
-L3: multi-resolution STFT loss
-```
-
-Only a term satisfying the preregistered multi-metric rule may advance. The
-former delay-warp and Route C assembly plans are archived, not pending work.
-
-## Hygiene Rules
-
-- Do not create unregistered experiment directories.
-- Do not cite `smoke`, `probe`, or `pilot` as final manuscript results.
-- Add each experiment to `experiments_mmecg/EXPERIMENT_REGISTRY.csv`.
-- Keep temporary outputs out of paper-facing directories.
-- Use `scripts/README.md` before running scripts.
-- Use `agent_skills/` as the single source for shared Claude/Codex skills.
-- Run `python3 scripts/agent/sync_skills.py --check` before PRs that touch
-  agent skills.
+See `AGENTS.md` before development. Cleanup authorizes no new training or architecture route.
